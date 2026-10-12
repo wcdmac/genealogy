@@ -244,6 +244,17 @@ TEST_CASE("婚姻结合仓储：成员事务/替换/级联删除", "[repo][union
   const auto list = repo.list(by_person);
   REQUIRE(list);
   REQUIRE(list->size() == 1);
+  // 回归：list 必须随行装载成员（曾漏装载，导致世系图丢配偶边）
+  REQUIRE(list->at(0).members.size() == 2);
+  REQUIRE(list->at(0).members.at(0).role == MemberRole::Husband);
+  REQUIRE(list->at(0).members.at(1).role == MemberRole::Wife);
+
+  // 无筛选全量列表同样带成员
+  UnionFilter all;
+  const auto all_list = repo.list(all);
+  REQUIRE(all_list);
+  REQUIRE(all_list->size() == 1);
+  REQUIRE(all_list->at(0).members.size() == 2);
 
   // 成员不存在：外键失败，事务回滚，结合不落库
   Union bogus;

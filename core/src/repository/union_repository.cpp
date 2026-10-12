@@ -159,7 +159,11 @@ Result<std::vector<Union>> UnionRepository::list(
   std::vector<Union> out;
   int rc = SQLITE_OK;
   while ((rc = sqlite3_step(st.get())) == SQLITE_ROW) {
-    out.push_back(row_to_union(st.get()));
+    Union u = row_to_union(st.get());
+    // 成员须随行装载：调用方（CLI / 世系图构建）依赖 members，
+    // 漏装载会静默丢配偶边（M1.3 person relation 冒烟暴露）。
+    u.members = load_members(db_.raw(), u.id);
+    out.push_back(std::move(u));
   }
   if (rc != SQLITE_DONE) {
     return Error{ErrorCode::Internal,

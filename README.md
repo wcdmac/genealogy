@@ -6,13 +6,14 @@
 设计文档（调研结论 / 架构 / 模块划分 / 数据模型 / 接口规范）位于仓库外：
 `D:/cd/tree/genealogy-design/家谱管理软件-调研与架构设计.md`（v1.0，2026-10-12）。
 
-## 当前状态（M1.2）
+## 当前状态（M1.3）
 
 - [x] monorepo 骨架 + CMake + vcpkg manifest
 - [x] core：领域模型（person/lineage/branch/place/union/event）/ GenealogyDate 多历法值对象 / ULID / SQLite 仓储 + 迁移 / 用例层（五服务，含领域校验）
-- [x] cli：`db init` / `person add|list|show` / `lineage|branch|place|union|event add|list|show|remove`
-- [x] Catch2 测试（246 断言）+ 三平台 CI + 许可证白名单卡点
-- [ ] M1.3：世系算法引擎（五服/称谓/世代）
+- [x] cli：`db init` / `person add|list|show|relation` / `lineage|branch|place|union|event add|list|show|remove`
+- [x] **M1.3 世系算法引擎**：世系图快照 + BFS 关系路径 + 世代序号（自始祖起算）+ 辈分差 + 五服（明清定型版）+ 称谓；规则表数据外置（`shared/rules/*.json`，构建时嵌入）
+- [x] Catch2 测试（555 断言 / 27 用例）+ 三平台 CI + 许可证白名单卡点
+- [ ] M1.4：历法引擎（农历/年号互转）
 - [ ] M1.4：历法引擎（农历/年号互转）
 - [ ] M1.5：GEDCOM 导入导出 + 校验规则引擎
 - [ ] M1.6：性能灌库验收
@@ -29,6 +30,7 @@ genealogy/
 ├── clients/web/      # Web UI 参考实现（TS + React）
 ├── shared/
 │   ├── schema/       # SQLite DDL 与迁移脚本（构建时嵌入二进制）
+│   ├── rules/        # 五服 / 称谓规则表（JSON，构建时嵌入；换规则不改代码）
 │   ├── licenses/     # 依赖许可证白名单
 │   └── openapi/      # OpenAPI 规范（客户端代码生成唯一事实源）
 └── tools/            # license_check.py 等工程工具
@@ -69,6 +71,7 @@ Linux 需 `ninja-build`；macOS 用 `arm64-osx` 三元组。
 | SQLite | 官方 amalgamation 经 FetchContent 自建（`third_party/sqlite3`），不用 vcpkg 端口 |
 | `.bat` 脚本 | 必须 CRLF 行尾；含 `(x86)` 的路径不能进 `if exist … (` 块条件（cmd 解析坑） |
 | 沙箱 | vcpkg/ninja 子进程在沙箱内被 stdio 管道拦截（error 231），构建需沙箱外执行 |
+| 脚本入口 | 若 `cmd.exe` 被安全策略拦截：按脚本第 87–90 行手工设 `PATH`/`INCLUDE`/`LIB`（MSVC bin + SDK bin + ucrt/um/shared 头与库）后直调 cmake 即可，效果等价 |
 
 启用可选组件：
 
@@ -103,7 +106,22 @@ cmake -S . -B build -DBUILD_SERVER=ON -DBUILD_GUI=ON ...
 
 ./build/bin/genea person list --db family.db --format json
 ./build/bin/genea person show --db family.db 01J...
+
+# 世系算法：两人关系路径 / 辈分差 / 五服 / 称谓
+./build/bin/genea person relation --db family.db 01J... 01K...
+# 关系路径: H.F
+# 世代差: -1（尊长 1 辈）
+# 世代序号: 己 第 1 世 · 彼 第 3 世（序号差 2）
+# 五服[ming_qing]: 斩衰 三年（27 月） — 妇为舅姑（明清斩衰三年）
+# 称谓: 公公（口语: 公公；书面: 夫父）
 ```
+
+> **两个"代"的口径要分清**（设计文档 4.4.2）：
+> - **世代差（辈分差）** = 关系路径上的世代升降次数：上行 -1、下行 +1、配偶步不升降。
+>   夫妻同辈、妻之公公 -1。这是称谓与五服的依据。
+> - **世代序号** = 自始祖起算的第几世（大宗谱法），用于字辈与统计。
+>   外亲、姻亲常因父母未录而上溯断链，序号会塌到始祖辈（上例"己 第 1 世"），
+>   **不可**当作辈分差使用。
 
 退出码：0 成功 / 1 运行时错误 / 2 用法错误 / 3 不存在 / 4 版本冲突。
 

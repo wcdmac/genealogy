@@ -4,6 +4,7 @@ add_executable(genealogy-core-tests
   test_person_repository.cpp
   test_repositories_m1.cpp
   test_services_m1.cpp
+  test_lineage.cpp
 )
 
 target_link_libraries(genealogy-core-tests

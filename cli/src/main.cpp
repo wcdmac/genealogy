@@ -6,6 +6,7 @@
 
 #include <cstdlib>
 #include <iostream>
+#include <optional>
 #include <string>
 #include <vector>
 
@@ -19,11 +20,17 @@
 #include "cmd_entity.hpp"
 
 #include <genealogy/error.hpp>
+#include <genealogy/lineage/appellation.hpp>
+#include <genealogy/lineage/generation.hpp>
+#include <genealogy/lineage/graph.hpp>
+#include <genealogy/lineage/mourning.hpp>
+#include <genealogy/lineage/relationship.hpp>
 #include <genealogy/model/genealogy_date.hpp>
 #include <genealogy/model/person.hpp>
 #include <genealogy/repository/bootstrap.hpp>
 #include <genealogy/repository/database.hpp>
 #include <genealogy/service/person_service.hpp>
+#include <genealogy/service/union_service.hpp>
 
 namespace {
 
@@ -225,6 +232,145 @@ int cmd_person_show(const std::vector<std::string>& args,
   return 0;
 }
 
+// person relation <ego> <alter>：世系算法端到端入口（M1.3）。
+// 输出世代差、五服（明清定型版）、称谓。图数据全量装载
+// （M1 规模足够；万级以上的按需加载留待 M2 仓储层）。
+int cmd_person_relation(const std::vector<std::string>& args,
+                        const std::string& db_path,
+                        const std::string& format) {
+  cxxopts::Options opts("genea person relation", "两人关系：世代/五服/称谓");
+  opts.add_options()
+    ("ego", "关系主体（己方）ID", cxxopts::value<std::string>())
+    ("alter", "关系对象 ID", cxxopts::value<std::string>());
+  opts.parse_positional({"ego", "alter"});
+  const auto r = parse_args(opts, args);
+  if (!r.count("ego") || !r.count("alter")) {
+    std::cerr << "用法错误: genea person relation <ego_id> <alter_id>\n";
+    return 2;
+  }
+
+  auto db = open_db(db_path);
+  if (!db) {
+    print_error(db.error());
+    return exit_code_for(db.error());
+  }
+
+  PersonService persons(*db);
+  PersonFilter person_filter;
+  person_filter.limit = 100000;  // M1：全量装载
+  auto person_list = persons.list_persons(person_filter);
+  if (!person_list) {
+    print_error(person_list.error());
+    return exit_code_for(person_list.error());
+  }
+  UnionService unions(*db);
+  UnionFilter union_filter;
+  union_filter.limit = 100000;
+  auto union_list = unions.list_unions(union_filter);
+  if (!union_list) {
+    print_error(union_list.error());
+    return exit_code_for(union_list.error());
+  }
+
+  // 图持有指向下述 vector 的指针，两者须存活至本函数结束
+  auto person_rows = std::move(*person_list);
+  auto union_rows = std::move(*union_list);
+  const lineage::PersonGraph graph =
+      lineage::PersonGraph::build(person_rows, union_rows);
+
+  const std::string ego = r["ego"].as<std::string>();
+  const std::string alter = r["alter"].as<std::string>();
+  const auto mourning =
+      lineage::compute_mourning_degree(graph, lineage::MourningQuery{ego, alter});
+  if (!mourning) {
+    print_error(mourning.error());
+    return exit_code_for(mourning.error());
+  }
+  const auto appellation =
+      lineage::compute_appellation(graph, lineage::AppellationQuery{ego, alter});
+  if (!appellation) {
+    print_error(appellation.error());
+    return exit_code_for(appellation.error());
+  }
+
+  const auto rel = lineage::find_relationship(graph, ego, alter);
+  const std::string path_key =
+      rel.found ? lineage::relationship_key(rel, *graph.find(ego)) : "";
+
+  // 世代差（辈分差）按设计文档 4.4.2：由关系路径的世代升降次数推出——
+  // 配偶步不升降，故夫妻同辈、姻亲随配偶计辈（妻之公公 = -1）。
+  // 世代序号（自始祖起算）另列：外亲与姻亲常因父母未录而上溯断链，
+  // 序号会塌到始祖辈，故不作为辈分差的依据，也允许取不到。
+  std::optional<int> gap;
+  if (rel.found) gap = rel.generation_gap();
+  const auto ego_no = lineage::generation_of(graph, ego);
+  const auto alter_no = lineage::generation_of(graph, alter);
+  const auto no_gap = lineage::generation_no_gap(graph, ego, alter);
+
+  if (format == "json") {
+    nlohmann::json out;
+    out["ego"] = ego;
+    out["alter"] = alter;
+    out["path_key"] = path_key;
+    out["generation_gap"] =
+        gap ? nlohmann::json(*gap) : nlohmann::json(nullptr);
+    nlohmann::json gen_no;
+    gen_no["ego"] = ego_no ? nlohmann::json(*ego_no) : nlohmann::json(nullptr);
+    gen_no["alter"] =
+        alter_no ? nlohmann::json(*alter_no) : nlohmann::json(nullptr);
+    gen_no["gap"] = no_gap ? nlohmann::json(*no_gap) : nlohmann::json(nullptr);
+    out["generation_no"] = gen_no;
+    out["mourning"] = {{"garment", mourning->garment_name},
+                       {"period", mourning->period},
+                       {"months", mourning->period_months},
+                       {"basis", mourning->basis},
+                       {"ruleset", mourning->ruleset},
+                       {"from_fallback", mourning->from_fallback}};
+    out["appellation"] = {{"standard", appellation->standard},
+                          {"colloquial", appellation->colloquial},
+                          {"formal", appellation->formal},
+                          {"basis", appellation->basis},
+                          {"from_fallback", appellation->from_fallback}};
+    std::cout << out.dump(2) << "\n";
+    return 0;
+  }
+
+  std::cout << "关系路径: " << (path_key.empty() ? "（无）" : path_key) << "\n";
+  if (gap) {
+    std::cout << "世代差: " << *gap << "（";
+    if (*gap < 0) {
+      std::cout << "尊长 " << -*gap << " 辈";
+    } else if (*gap > 0) {
+      std::cout << "晚幼 " << *gap << " 辈";
+    } else {
+      std::cout << "同辈";
+    }
+    std::cout << "）\n";
+  } else {
+    std::cout << "世代差: （无路径，不可判）\n";
+  }
+  std::cout << "世代序号: ";
+  if (ego_no && alter_no) {
+    std::cout << "己 第 " << *ego_no << " 世 · 彼 第 " << *alter_no << " 世";
+    if (no_gap) std::cout << "（序号差 " << *no_gap << "）";
+  } else {
+    std::cout << "（一方可上溯断链，序号不可定）";
+  }
+  std::cout << "\n";
+  std::cout << "五服[" << mourning->ruleset << "]: " << mourning->garment_name
+            << " " << mourning->period;
+  if (mourning->period_months > 0) {
+    std::cout << "（" << mourning->period_months << " 月）";
+  }
+  std::cout << " — " << mourning->basis;
+  if (mourning->from_fallback) std::cout << "（兜底推断）";
+  std::cout << "\n";
+  std::cout << "称谓: " << appellation->standard << "（口语: "
+            << appellation->colloquial << "；书面: " << appellation->formal
+            << "）\n";
+  return 0;
+}
+
 }  // namespace
 
 #ifdef _WIN32
@@ -264,7 +410,7 @@ int run(std::vector<std::string> raw_args) {
 
   const auto& unmatched = g.unmatched();
   if (g.count("help") > 0) {
-    std::cout << global.help() << "\n子命令: db init | person add|list|show |"
+    std::cout << global.help() << "\n子命令: db init | person add|list|show|relation |"
               << " lineage add|list|show|remove |"
               << " branch add|list|show|remove |"
               << " place add|list|show|remove |"
@@ -273,7 +419,7 @@ int run(std::vector<std::string> raw_args) {
     return 0;
   }
   if (unmatched.empty()) {
-    std::cout << global.help() << "\n子命令: db init | person add|list|show |"
+    std::cout << global.help() << "\n子命令: db init | person add|list|show|relation |"
               << " lineage add|list|show|remove |"
               << " branch add|list|show|remove |"
               << " place add|list|show|remove |"
@@ -304,6 +450,7 @@ int run(std::vector<std::string> raw_args) {
       if (sub == "add") return cmd_person_add(args, db_path, format);
       if (sub == "list") return cmd_person_list(args, db_path, format);
       if (sub == "show") return cmd_person_show(args, db_path, format);
+      if (sub == "relation") return cmd_person_relation(args, db_path, format);
     }
     // 实体命令组内部自己拆子命令（add/list/show/remove），故传 rest
     // （含子命令）；person/db 系列直接消费 options，传 args（不含子命令）。

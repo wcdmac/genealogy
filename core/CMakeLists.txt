@@ -7,9 +7,42 @@
 
 set(SCHEMA_DIR ${PROJECT_SOURCE_DIR}/shared/schema)
 set(EMBED_SCRIPT ${PROJECT_SOURCE_DIR}/cmake/EmbedSql.cmake)
+set(EMBED_TEXT_SCRIPT ${PROJECT_SOURCE_DIR}/cmake/EmbedText.cmake)
 set(EMBED_OUT ${CMAKE_CURRENT_BINARY_DIR}/generated/embedded_schema.cpp)
+set(RULES_DIR ${PROJECT_SOURCE_DIR}/shared/rules)
+set(RULES_MOURNING_OUT
+    ${CMAKE_CURRENT_BINARY_DIR}/generated/rules_mourning_ming_qing.cpp)
+set(RULES_APPEL_OUT ${CMAKE_CURRENT_BINARY_DIR}/generated/rules_appellation.cpp)
 
 file(GLOB SCHEMA_FILES CONFIGURE_DEPENDS "${SCHEMA_DIR}/*.sql")
+
+# 规则表数据（shared/rules/*.json）嵌入二进制：算法零文件依赖，
+# 规则更新走数据替换 + 重新构建（ADR-6 规则外置）。
+add_custom_command(
+  OUTPUT ${RULES_MOURNING_OUT}
+  COMMAND ${CMAKE_COMMAND}
+          -DIN=${RULES_DIR}/mourning_ming_qing.json
+          -DOUT=${RULES_MOURNING_OUT}
+          -DSYMBOL=kMourningMingQingJson
+          -DNAMESPACE=genealogy::lineage::rules_data
+          -DHEADER=genealogy/lineage/rules_data.hpp
+          -P ${EMBED_TEXT_SCRIPT}
+  DEPENDS ${RULES_DIR}/mourning_ming_qing.json ${EMBED_TEXT_SCRIPT}
+  COMMENT "嵌入五服规则表（明清定型版）"
+  VERBATIM)
+
+add_custom_command(
+  OUTPUT ${RULES_APPEL_OUT}
+  COMMAND ${CMAKE_COMMAND}
+          -DIN=${RULES_DIR}/appellation.json
+          -DOUT=${RULES_APPEL_OUT}
+          -DSYMBOL=kAppellationJson
+          -DNAMESPACE=genealogy::lineage::rules_data
+          -DHEADER=genealogy/lineage/rules_data.hpp
+          -P ${EMBED_TEXT_SCRIPT}
+  DEPENDS ${RULES_DIR}/appellation.json ${EMBED_TEXT_SCRIPT}
+  COMMENT "嵌入称谓规则表"
+  VERBATIM)
 
 add_custom_command(
   OUTPUT ${EMBED_OUT}
@@ -48,13 +81,23 @@ target_sources(genealogy-core
     src/service/place_service.cpp
     src/service/union_service.cpp
     src/service/event_service.cpp
+    src/lineage/graph.cpp
+    src/lineage/relationship.cpp
+    src/lineage/generation.cpp
+    src/lineage/mourning.cpp
+    src/lineage/appellation.cpp
+    src/lineage/rules.cpp
     ${EMBED_OUT}
+    ${RULES_MOURNING_OUT}
+    ${RULES_APPEL_OUT}
 )
 
 target_include_directories(genealogy-core
   PUBLIC
     $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/include>
     $<BUILD_INTERFACE:${CMAKE_CURRENT_BINARY_DIR}/generated>
+  PRIVATE
+    $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/src>
 )
 
 # 注意：spdlog/fmt 暂不引入——M0 核心零日志调用，且本机 VS2026 + SDK 26100
