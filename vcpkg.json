@@ -1,0 +1,22 @@
+{
+  "$schema": "https://raw.githubusercontent.com/microsoft/vcpkg/master/scripts/vcpkg.schema.json",
+  "name": "genealogy",
+  "version": "0.1.0",
+  "description": "跨平台家谱管理软件：核心 C++20；GUI 严禁 Qt；依赖仅限 MIT/BSD/zlib/BSL/公有领域",
+  "builtin-baseline": "e456309491fd875487bf02b8a0dca76c1b1b00cc",
+  "dependencies": [
+    "nlohmann-json",
+    "cxxopts",
+    "catch2"
+  ],
+  "features": {
+    "server": {
+      "description": "REST 服务（Drogon，MIT）",
+      "dependencies": ["drogon"]
+    },
+    "gui": {
+      "description": "桌面 GUI（Dear ImGui MIT + GLFW zlib；ImGui 经 FetchContent 引入）",
+      "dependencies": ["glfw3"]
+    }
+  }
+}

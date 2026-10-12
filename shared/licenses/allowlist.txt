@@ -1,0 +1,17 @@
+# 依赖许可证白名单（CI 卡点：tools/license_check.py）
+# 只收录 MIT / BSD / zlib / BSL / 公有领域 及同族宽松许可组件。
+# 新增依赖必须先在此登记并附许可依据，否则 CI 直接失败。
+# 严禁 Qt（LGPLv3/GPL/商业三许可，与项目约束冲突）。
+
+# 核心链路
+sqlite3
+nlohmann-json
+spdlog
+fmt
+cxxopts
+catch2
+
+# 可选组件（feature: server / gui）
+drogon
+glfw3
+imgui

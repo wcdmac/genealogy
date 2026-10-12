@@ -1,0 +1,31 @@
+# 构建产物
+build/
+build-*/
+cmake-build-*/
+out/
+vcpkg_installed/
+
+# IDE
+.vs/
+.vscode/
+*.user
+*.suo
+.idea/
+
+# 本地数据库（家谱数据不入库）
+*.db
+*.db-wal
+*.db-shm
+*.db-journal
+
+# 附件内容库
+attachments/
+
+# 缓存
+.cache/
+.ccache/
+compile_commands.json
+
+# OS
+.DS_Store
+Thumbs.db

@@ -1,0 +1,1350 @@
+openapi: 3.1.0
+info:
+  title: Genealogy API
+  version: 1.0.0
+  description: |
+    家谱管理软件对外开放 API。核心逻辑由 C++ (libgenealogy-core) 实现，
+    本规范为客户端代码生成的唯一事实源。
+
+    通用约定：
+    - 所有 ID 为 ULID（26 字符，字典序可排序）。
+    - 日期统一使用 GenealogyDate 复合对象（公历/农历/年号/干支/精度），
+      禁止使用裸日期字符串。
+    - 列表端点使用游标分页（limit + cursor）。
+    - 写操作支持 Idempotency-Key 头与 If-Match 乐观并发。
+    - 错误使用 application/problem+json（RFC 9457）。
+  license:
+    name: MIT
+
+servers:
+  - url: http://127.0.0.1:8080/api/v1
+    description: 本地模式（默认）
+  - url: https://{host}/api/v1
+    description: 服务端模式
+    variables:
+      host:
+        default: genealogy.example.com
+
+security:
+  - bearerAuth: []
+
+tags:
+  - name: auth
+  - name: lineages
+  - name: branches
+  - name: persons
+  - name: lineage-algorithms
+  - name: unions
+  - name: events
+  - name: migrations
+  - name: places
+  - name: sources
+  - name: citations
+  - name: documents
+  - name: attachments
+  - name: search-stats
+  - name: validate
+  - name: import-export
+
+paths:
+  /auth/token:
+    post:
+      tags: [auth]
+      summary: 登录获取 JWT
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [username, password]
+              properties:
+                username: { type: string }
+                password: { type: string, format: password }
+      responses:
+        "200":
+          description: 成功
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  access_token: { type: string }
+                  token_type: { type: string, const: Bearer }
+                  expires_in: { type: integer }
+                  role: { $ref: "#/components/schemas/Role" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+
+  /me:
+    get:
+      tags: [auth]
+      summary: 当前用户与角色
+      responses:
+        "200":
+          description: 成功
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  username: { type: string }
+                  role: { $ref: "#/components/schemas/Role" }
+                  lineage_ids:
+                    type: array
+                    items: { type: string }
+
+  /lineages:
+    get:
+      tags: [lineages]
+      summary: 宗族列表
+      parameters:
+        - $ref: "#/components/parameters/Limit"
+        - $ref: "#/components/parameters/Cursor"
+      responses:
+        "200": { $ref: "#/components/responses/Page" }
+    post:
+      tags: [lineages]
+      summary: 创建宗族
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/LineageCreate" }
+      responses:
+        "201":
+          description: 已创建
+          headers:
+            ETag: { $ref: "#/components/headers/ETag" }
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Lineage" }
+        "400": { $ref: "#/components/responses/BadRequest" }
+
+  /lineages/{id}:
+    parameters:
+      - $ref: "#/components/parameters/Id"
+    get:
+      tags: [lineages]
+      summary: 宗族详情
+      responses:
+        "200":
+          description: 成功
+          headers:
+            ETag: { $ref: "#/components/headers/ETag" }
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Lineage" }
+        "404": { $ref: "#/components/responses/NotFound" }
+    patch:
+      tags: [lineages]
+      summary: 更新宗族
+      parameters:
+        - $ref: "#/components/headers/IfMatch"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/LineageUpdate" }
+      responses:
+        "200":
+          description: 成功
+          headers:
+            ETag: { $ref: "#/components/headers/ETag" }
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Lineage" }
+        "409": { $ref: "#/components/responses/Conflict" }
+
+  /branches:
+    get:
+      tags: [branches]
+      summary: 支派列表
+      parameters:
+        - name: lineage_id
+          in: query
+          schema: { type: string }
+        - $ref: "#/components/parameters/Limit"
+        - $ref: "#/components/parameters/Cursor"
+      responses:
+        "200": { $ref: "#/components/responses/Page" }
+    post:
+      tags: [branches]
+      summary: 创建支派/房
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/BranchCreate" }
+      responses:
+        "201":
+          description: 已创建
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Branch" }
+
+  /branches/{id}/tree:
+    parameters:
+      - $ref: "#/components/parameters/Id"
+    get:
+      tags: [branches]
+      summary: 支派树
+      responses:
+        "200":
+          description: 成功
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  root: { $ref: "#/components/schemas/BranchNode" }
+
+  /persons:
+    get:
+      tags: [persons]
+      summary: 人物列表（检索 + 筛选）
+      parameters:
+        - name: q
+          in: query
+          description: 全文检索关键词（FTS5）
+          schema: { type: string }
+        - name: branch_id
+          in: query
+          schema: { type: string }
+        - name: lineage_id
+          in: query
+          schema: { type: string }
+        - name: generation_from
+          in: query
+          schema: { type: integer }
+        - name: generation_to
+          in: query
+          schema: { type: integer }
+        - name: gender
+          in: query
+          schema: { enum: [male, female, unknown] }
+        - name: is_living
+          in: query
+          schema: { type: boolean }
+        - name: has_citation
+          in: query
+          description: 是否挂有证据
+          schema: { type: boolean }
+        - name: birth_year_from
+          in: query
+          schema: { type: integer }
+        - name: birth_year_to
+          in: query
+          schema: { type: integer }
+        - $ref: "#/components/parameters/Limit"
+        - $ref: "#/components/parameters/Cursor"
+      responses:
+        "200": { $ref: "#/components/responses/Page" }
+    post:
+      tags: [persons]
+      summary: 人物建档（可同时建立父母/配偶初始关系）
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/PersonCreate" }
+      responses:
+        "201":
+          description: 已创建
+          headers:
+            ETag: { $ref: "#/components/headers/ETag" }
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Person" }
+        "400": { $ref: "#/components/responses/BadRequest" }
+
+  /persons/{id}:
+    parameters:
+      - $ref: "#/components/parameters/Id"
+    get:
+      tags: [persons]
+      summary: 人物详情（含关系、事件、证据展开）
+      parameters:
+        - name: expand
+          in: query
+          description: 展开子资源
+          schema:
+            type: array
+            items:
+              enum: [events, unions, citations, names, migrations]
+          style: form
+          explode: false
+      responses:
+        "200":
+          description: 成功（在世者按隐私级别脱敏）
+          headers:
+            ETag: { $ref: "#/components/headers/ETag" }
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Person" }
+        "404": { $ref: "#/components/responses/NotFound" }
+    patch:
+      tags: [persons]
+      summary: 更新人物
+      parameters:
+        - $ref: "#/components/headers/IfMatch"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/PersonUpdate" }
+      responses:
+        "200":
+          description: 成功
+          headers:
+            ETag: { $ref: "#/components/headers/ETag" }
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Person" }
+        "409": { $ref: "#/components/responses/Conflict" }
+    delete:
+      tags: [persons]
+      summary: 删除人物（软删除，入 audit_log）
+      responses:
+        "204": { description: 已删除 }
+
+  /persons/{id}/names:
+    parameters:
+      - $ref: "#/components/parameters/Id"
+    post:
+      tags: [persons]
+      summary: 登记名号变更（谱名/乳名/学名/改后名）
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/PersonNameCreate" }
+      responses:
+        "201":
+          description: 已创建
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/PersonName" }
+
+  /persons/{id}/ancestors:
+    parameters:
+      - $ref: "#/components/parameters/Id"
+    get:
+      tags: [lineage-algorithms]
+      summary: 祖先链
+      parameters:
+        - name: depth
+          in: query
+          schema: { type: integer, default: 10, minimum: 1, maximum: 50 }
+      responses:
+        "200":
+          description: 成功
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/AncestorTree" }
+
+  /persons/{id}/descendants:
+    parameters:
+      - $ref: "#/components/parameters/Id"
+    get:
+      tags: [lineage-algorithms]
+      summary: 子孙树
+      parameters:
+        - name: depth
+          in: query
+          schema: { type: integer, default: 10, minimum: 1, maximum: 50 }
+      responses:
+        "200":
+          description: 成功
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/DescendantTree" }
+
+  /persons/{id}/tree:
+    parameters:
+      - $ref: "#/components/parameters/Id"
+    get:
+      tags: [lineage-algorithms]
+      summary: 世系图数据
+      parameters:
+        - name: mode
+          in: query
+          description: five_generation=五世一图传统版式；full=无限深度
+          schema: { enum: [five_generation, full], default: full }
+        - name: depth
+          in: query
+          description: full 模式有效
+          schema: { type: integer, default: 10 }
+      responses:
+        "200":
+          description: 成功
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/LineageGraph" }
+
+  /persons/{id}/mourning-degree:
+    parameters:
+      - $ref: "#/components/parameters/Id"
+    get:
+      tags: [lineage-algorithms]
+      summary: 五服（丧服）计算
+      parameters:
+        - name: to
+          in: query
+          required: true
+          description: 对方人物 ID
+          schema: { type: string }
+        - name: ruleset
+          in: query
+          description: 礼制规则集
+          schema: { enum: [ming_qing, ancient, custom], default: ming_qing }
+      responses:
+        "200":
+          description: 成功
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/MourningDegree" }
+        "404": { $ref: "#/components/responses/NotFound" }
+        "422": { $ref: "#/components/responses/Unprocessable" }
+
+  /persons/{id}/appellation:
+    parameters:
+      - $ref: "#/components/parameters/Id"
+    get:
+      tags: [lineage-algorithms]
+      summary: 亲属称谓计算
+      parameters:
+        - name: to
+          in: query
+          required: true
+          description: 对方人物 ID
+          schema: { type: string }
+      responses:
+        "200":
+          description: 成功
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Appellation" }
+        "404": { $ref: "#/components/responses/NotFound" }
+
+  /unions:
+    get:
+      tags: [unions]
+      summary: 婚姻结合列表
+      parameters:
+        - name: person_id
+          in: query
+          schema: { type: string }
+        - $ref: "#/components/parameters/Limit"
+        - $ref: "#/components/parameters/Cursor"
+      responses:
+        "200": { $ref: "#/components/responses/Page" }
+    post:
+      tags: [unions]
+      summary: 建立婚姻/结合（含任次与角色）
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/UnionCreate" }
+      responses:
+        "201":
+          description: 已创建
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Union" }
+        "400": { $ref: "#/components/responses/BadRequest" }
+
+  /unions/{id}:
+    parameters:
+      - $ref: "#/components/parameters/Id"
+    patch:
+      tags: [unions]
+      summary: 更新结合（状态/任次/时间）
+      responses:
+        "200":
+          description: 成功
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Union" }
+
+  /events:
+    get:
+      tags: [events]
+      summary: 事件列表
+      parameters:
+        - name: subject_type
+          in: query
+          schema: { enum: [person, union, branch, lineage] }
+        - name: subject_id
+          in: query
+          schema: { type: string }
+        - name: type
+          in: query
+          schema: { $ref: "#/components/schemas/EventType" }
+        - $ref: "#/components/parameters/Limit"
+        - $ref: "#/components/parameters/Cursor"
+      responses:
+        "200": { $ref: "#/components/responses/Page" }
+    post:
+      tags: [events]
+      summary: 登记事件
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/EventCreate" }
+      responses:
+        "201":
+          description: 已创建
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Event" }
+
+  /migrations:
+    get:
+      tags: [migrations]
+      summary: 迁徙列表
+      parameters:
+        - name: branch_id
+          in: query
+          schema: { type: string }
+        - $ref: "#/components/parameters/Limit"
+        - $ref: "#/components/parameters/Cursor"
+      responses:
+        "200": { $ref: "#/components/responses/Page" }
+    post:
+      tags: [migrations]
+      summary: 登记迁徙（可触发创建支派）
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/MigrationCreate" }
+      responses:
+        "201":
+          description: 已创建
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Migration" }
+
+  /places:
+    get:
+      tags: [places]
+      summary: 地点列表（历史地名 ↔ 现代政区）
+      parameters:
+        - name: q
+          in: query
+          schema: { type: string }
+        - $ref: "#/components/parameters/Limit"
+        - $ref: "#/components/parameters/Cursor"
+      responses:
+        "200": { $ref: "#/components/responses/Page" }
+    post:
+      tags: [places]
+      summary: 创建地点
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/PlaceCreate" }
+      responses:
+        "201":
+          description: 已创建
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Place" }
+
+  /sources:
+    get:
+      tags: [sources]
+      summary: 文献来源列表
+      parameters:
+        - name: type
+          in: query
+          schema: { $ref: "#/components/schemas/SourceType" }
+        - $ref: "#/components/parameters/Limit"
+        - $ref: "#/components/parameters/Cursor"
+      responses:
+        "200": { $ref: "#/components/responses/Page" }
+    post:
+      tags: [sources]
+      summary: 登记文献来源
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/SourceCreate" }
+      responses:
+        "201":
+          description: 已创建
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Source" }
+
+  /citations:
+    post:
+      tags: [citations]
+      summary: 为事实挂证据
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/CitationCreate" }
+      responses:
+        "201":
+          description: 已创建
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Citation" }
+
+  /documents:
+    get:
+      tags: [documents]
+      summary: 谱序/凡例/家训/艺文/契约列表
+      parameters:
+        - name: type
+          in: query
+          schema:
+            enum: [preface, rule, regulation, literature, contract, edition_note]
+        - $ref: "#/components/parameters/Limit"
+        - $ref: "#/components/parameters/Cursor"
+      responses:
+        "200": { $ref: "#/components/responses/Page" }
+    post:
+      tags: [documents]
+      summary: 登记文献文档
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/DocumentCreate" }
+      responses:
+        "201":
+          description: 已创建
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Document" }
+
+  /attachments:
+    post:
+      tags: [attachments]
+      summary: 上传附件（遗像/扫描件）
+      requestBody:
+        required: true
+        content:
+          multipart/form-data:
+            schema:
+              type: object
+              required: [file, kind, subject_type, subject_id]
+              properties:
+                file: { type: string, format: binary }
+                kind: { enum: [portrait, document_scan, photo, other] }
+                subject_type: { enum: [person, union, branch, lineage, event] }
+                subject_id: { type: string }
+                caption: { type: string }
+      responses:
+        "201":
+          description: 已上传（内容寻址，重复上传自动去重）
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Attachment" }
+
+  /attachments/{id}:
+    parameters:
+      - $ref: "#/components/parameters/Id"
+    get:
+      tags: [attachments]
+      summary: 下载附件
+      responses:
+        "200":
+          description: 文件内容
+          content:
+            application/octet-stream:
+              schema: { type: string, format: binary }
+
+  /search:
+    get:
+      tags: [search-stats]
+      summary: 全文 + 结构化检索
+      parameters:
+        - name: q
+          in: query
+          schema: { type: string }
+        - name: scope
+          in: query
+          schema: { enum: [person, document, source, all], default: all }
+        - $ref: "#/components/parameters/Limit"
+        - $ref: "#/components/parameters/Cursor"
+      responses:
+        "200": { $ref: "#/components/responses/Page" }
+
+  /stats:
+    get:
+      tags: [search-stats]
+      summary: 统计
+      responses:
+        "200":
+          description: 成功
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Stats" }
+
+  /validate:
+    post:
+      tags: [validate]
+      summary: 运行校验规则
+      requestBody:
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                rule_ids:
+                  type: array
+                  items: { type: string }
+      responses:
+        "200":
+          description: 校验完成
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  issues:
+                    type: array
+                    items: { $ref: "#/components/schemas/ValidationIssue" }
+                  summary:
+                    type: object
+                    properties:
+                      error: { type: integer }
+                      warning: { type: integer }
+                      info: { type: integer }
+
+  /imports/gedcom:
+    post:
+      tags: [import-export]
+      summary: GEDCOM 导入
+      requestBody:
+        required: true
+        content:
+          multipart/form-data:
+            schema:
+              type: object
+              required: [file]
+              properties:
+                file: { type: string, format: binary }
+                lineage_id: { type: string }
+      responses:
+        "200":
+          description: 导入完成（含映射损失报告）
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  imported: { type: integer }
+                  skipped: { type: integer }
+                  warnings:
+                    type: array
+                    items: { type: string }
+
+  /exports/gedcom:
+    get:
+      tags: [import-export]
+      summary: GEDCOM 导出
+      parameters:
+        - name: lineage_id
+          in: query
+          required: true
+          schema: { type: string }
+      responses:
+        "200":
+          description: GEDCOM 文件
+          content:
+            text/plain:
+              schema: { type: string }
+
+  /exports/tree:
+    get:
+      tags: [import-export]
+      summary: 世系图导出
+      parameters:
+        - name: person_id
+          in: query
+          required: true
+          schema: { type: string }
+        - name: format
+          in: query
+          schema: { enum: [dot, mermaid, svg] }
+      responses:
+        "200":
+          description: 图文件
+          content:
+            text/plain:
+              schema: { type: string }
+
+  /events/stream:
+    get:
+      tags: [search-stats]
+      summary: SSE 变更通知（多端协同）
+      responses:
+        "200":
+          description: 事件流
+          content:
+            text/event-stream:
+              schema: { type: string }
+
+components:
+  securitySchemes:
+    bearerAuth:
+      type: http
+      scheme: bearer
+      bearerFormat: JWT
+
+  parameters:
+    Id:
+      name: id
+      in: path
+      required: true
+      schema: { type: string }
+    Limit:
+      name: limit
+      in: query
+      schema: { type: integer, default: 50, minimum: 1, maximum: 200 }
+    Cursor:
+      name: cursor
+      in: query
+      schema: { type: string }
+
+  headers:
+    ETag:
+      description: 实体版本（rev）
+      schema: { type: string }
+    IfMatch:
+      description: 期望的实体版本，不匹配返回 409
+      schema: { type: string }
+
+  responses:
+    Page:
+      description: 分页列表
+      content:
+        application/json:
+          schema:
+            type: object
+            properties:
+              data:
+                type: array
+                items: { type: object }
+              page:
+                type: object
+                properties:
+                  next_cursor: { type: [string, "null"] }
+                  has_more: { type: boolean }
+    BadRequest:
+      description: 参数校验失败（code 1001）
+      content:
+        application/problem+json:
+          schema: { $ref: "#/components/schemas/Problem" }
+    Unauthorized:
+      description: 未认证（code 3001）
+      content:
+        application/problem+json:
+          schema: { $ref: "#/components/schemas/Problem" }
+    NotFound:
+      description: 资源不存在（code 2001）
+      content:
+        application/problem+json:
+          schema: { $ref: "#/components/schemas/Problem" }
+    Conflict:
+      description: 版本冲突（code 2009）
+      content:
+        application/problem+json:
+          schema: { $ref: "#/components/schemas/Problem" }
+    Unprocessable:
+      description: 领域规则不满足（如历法超出 1900-2100，code 5001）
+      content:
+        application/problem+json:
+          schema: { $ref: "#/components/schemas/Problem" }
+
+  schemas:
+    Role:
+      type: string
+      enum: [steward, editor, viewer]
+
+    GenealogyDate:
+      type: object
+      properties:
+        calendar: { enum: [gregorian, lunar], default: gregorian }
+        gregorian: { type: string, format: date }
+        lunar: { type: string, description: 谱面原文 }
+        ganzhi: { type: string }
+        era:
+          type: object
+          properties:
+            name: { type: string }
+            year: { type: integer }
+        precision: { enum: [day, month, year, decade, fuzzy], default: day }
+        qualifier: { type: string, description: "约/以前/以后" }
+      examples:
+        - calendar: lunar
+          lunar: "同治三年四月初四"
+          gregorian: "1864-05-09"
+          era: { name: "同治", year: 3 }
+          precision: day
+
+    Person:
+      type: object
+      properties:
+        id: { type: string }
+        lineage_id: { type: string }
+        branch_id: { type: string }
+        family_name: { type: string }
+        given_name: { type: string }
+        courtesy_name: { type: string, description: 字 }
+        art_name: { type: string, description: 号 }
+        posthumous_title: { type: string }
+        gender: { enum: [male, female, unknown] }
+        generation_no: { type: integer }
+        birth_order: { type: integer, description: 行几 }
+        is_heir: { type: boolean, description: 承重/嫡嗣 }
+        is_living: { type: boolean }
+        privacy_level: { enum: [public, kin, private] }
+        birth_date: { $ref: "#/components/schemas/GenealogyDate" }
+        death_date: { $ref: "#/components/schemas/GenealogyDate" }
+        burial_place_id: { type: string }
+        biography: { type: string }
+        father_id: { type: string }
+        mother_id: { type: string }
+        portrait_attachment_id: { type: string }
+        rev: { type: integer }
+        created_at: { type: string, format: date-time }
+        updated_at: { type: string, format: date-time }
+        _links:
+          type: object
+          additionalProperties: { type: string }
+
+    PersonCreate:
+      type: object
+      required: [lineage_id, family_name, given_name, gender]
+      properties:
+        lineage_id: { type: string }
+        branch_id: { type: string }
+        family_name: { type: string }
+        given_name: { type: string }
+        courtesy_name: { type: string }
+        gender: { enum: [male, female, unknown] }
+        generation_no: { type: integer }
+        birth_order: { type: integer }
+        is_heir: { type: boolean }
+        is_living: { type: boolean }
+        birth_date: { $ref: "#/components/schemas/GenealogyDate" }
+        death_date: { $ref: "#/components/schemas/GenealogyDate" }
+        biography: { type: string }
+        father_id: { type: string }
+        mother_id: { type: string }
+
+    PersonUpdate:
+      type: object
+      properties:
+        branch_id: { type: string }
+        courtesy_name: { type: string }
+        generation_no: { type: integer }
+        birth_order: { type: integer }
+        birth_date: { $ref: "#/components/schemas/GenealogyDate" }
+        death_date: { $ref: "#/components/schemas/GenealogyDate" }
+        biography: { type: string }
+        is_living: { type: boolean }
+        privacy_level: { enum: [public, kin, private] }
+
+    PersonName:
+      type: object
+      properties:
+        id: { type: string }
+        person_id: { type: string }
+        name: { type: string }
+        name_type: { enum: [genealogy, infant, school, renamed, posthumous] }
+        note: { type: string }
+
+    PersonNameCreate:
+      type: object
+      required: [name, name_type]
+      properties:
+        name: { type: string }
+        name_type: { enum: [genealogy, infant, school, renamed, posthumous] }
+        note: { type: string }
+
+    Lineage:
+      type: object
+      properties:
+        id: { type: string }
+        name: { type: string }
+        surname: { type: string }
+        surname_origin: { type: string }
+        commandery: { type: string }
+        hall_name: { type: string }
+        generation_poem: { type: string }
+        rev: { type: integer }
+
+    LineageCreate:
+      type: object
+      required: [name, surname]
+      properties:
+        name: { type: string }
+        surname: { type: string }
+        surname_origin: { type: string }
+        commandery: { type: string }
+        hall_name: { type: string }
+        generation_poem: { type: string }
+
+    LineageUpdate:
+      type: object
+      properties:
+        name: { type: string }
+        surname_origin: { type: string }
+        commandery: { type: string }
+        hall_name: { type: string }
+        generation_poem: { type: string }
+
+    Branch:
+      type: object
+      properties:
+        id: { type: string }
+        lineage_id: { type: string }
+        name: { type: string }
+        founder_person_id: { type: string }
+        parent_branch_id: { type: string }
+        generation_char: { type: string }
+        rev: { type: integer }
+
+    BranchCreate:
+      type: object
+      required: [lineage_id, name]
+      properties:
+        lineage_id: { type: string }
+        name: { type: string }
+        founder_person_id: { type: string }
+        parent_branch_id: { type: string }
+        generation_char: { type: string }
+
+    BranchNode:
+      type: object
+      properties:
+        id: { type: string }
+        name: { type: string }
+        generation_char: { type: string }
+        children:
+          type: array
+          items: { $ref: "#/components/schemas/BranchNode" }
+
+    Union:
+      type: object
+      properties:
+        id: { type: string }
+        type: { enum: [marriage, concubinage, remarriage] }
+        status: { enum: [active, dissolved] }
+        sequence: { type: integer }
+        start_date: { $ref: "#/components/schemas/GenealogyDate" }
+        end_date: { $ref: "#/components/schemas/GenealogyDate" }
+        place_id: { type: string }
+        members:
+          type: array
+          items:
+            type: object
+            properties:
+              person_id: { type: string }
+              role: { enum: [husband, wife, concubine] }
+        rev: { type: integer }
+
+    UnionCreate:
+      type: object
+      required: [type, members]
+      properties:
+        type: { enum: [marriage, concubinage, remarriage] }
+        sequence: { type: integer }
+        start_date: { $ref: "#/components/schemas/GenealogyDate" }
+        place_id: { type: string }
+        members:
+          type: array
+          minItems: 2
+          items:
+            type: object
+            required: [person_id, role]
+            properties:
+              person_id: { type: string }
+              role: { enum: [husband, wife, concubine] }
+
+    EventType:
+      type: string
+      enum: [birth, death, burial, marriage, migration, examination, office,
+             honor, residence, annotation]
+
+    Event:
+      type: object
+      properties:
+        id: { type: string }
+        subject_type: { enum: [person, union, branch, lineage] }
+        subject_id: { type: string }
+        type: { $ref: "#/components/schemas/EventType" }
+        date: { $ref: "#/components/schemas/GenealogyDate" }
+        place_id: { type: string }
+        description: { type: string }
+
+    EventCreate:
+      type: object
+      required: [subject_type, subject_id, type]
+      properties:
+        subject_type: { enum: [person, union, branch, lineage] }
+        subject_id: { type: string }
+        type: { $ref: "#/components/schemas/EventType" }
+        date: { $ref: "#/components/schemas/GenealogyDate" }
+        place_id: { type: string }
+        description: { type: string }
+
+    Migration:
+      type: object
+      properties:
+        id: { type: string }
+        subject_type: { enum: [person, branch] }
+        subject_id: { type: string }
+        from_place_id: { type: string }
+        to_place_id: { type: string }
+        date: { $ref: "#/components/schemas/GenealogyDate" }
+        reason: { type: string }
+        route: { type: string }
+
+    MigrationCreate:
+      type: object
+      required: [subject_type, subject_id, to_place_id]
+      properties:
+        subject_type: { enum: [person, branch] }
+        subject_id: { type: string }
+        from_place_id: { type: string }
+        to_place_id: { type: string }
+        date: { $ref: "#/components/schemas/GenealogyDate" }
+        reason: { type: string }
+        route: { type: string }
+        create_branch:
+          type: boolean
+          description: 是否由本次迁徙创建新支派
+          default: false
+
+    Place:
+      type: object
+      properties:
+        id: { type: string }
+        name: { type: string }
+        type:
+          enum: [village, town, county, prefecture, province, grave, ancestral_hall, other]
+        modern_admin: { type: string }
+        historical_name: { type: string }
+        lat: { type: number }
+        lng: { type: number }
+
+    PlaceCreate:
+      type: object
+      required: [name]
+      properties:
+        name: { type: string }
+        type:
+          enum: [village, town, county, prefecture, province, grave, ancestral_hall, other]
+        modern_admin: { type: string }
+        historical_name: { type: string }
+        lat: { type: number }
+        lng: { type: number }
+
+    SourceType:
+      type: string
+      enum: [genealogy_book, local_gazetteer, stele, oral, archive, photo, dna, document, other]
+
+    Source:
+      type: object
+      properties:
+        id: { type: string }
+        type: { $ref: "#/components/schemas/SourceType" }
+        title: { type: string }
+        author: { type: string }
+        year_text: { type: string }
+        repository: { type: string }
+        uri: { type: string }
+        citation: { type: string }
+
+    SourceCreate:
+      type: object
+      required: [type, title]
+      properties:
+        type: { $ref: "#/components/schemas/SourceType" }
+        title: { type: string }
+        author: { type: string }
+        year_text: { type: string }
+        repository: { type: string }
+        uri: { type: string }
+        citation: { type: string }
+
+    Citation:
+      type: object
+      properties:
+        id: { type: string }
+        subject_type:
+          enum: [person, event, union, migration, branch, lineage]
+        subject_id: { type: string }
+        source_id: { type: string }
+        locator: { type: string }
+        confidence: { enum: [high, medium, low, disputed] }
+        note: { type: string }
+
+    CitationCreate:
+      type: object
+      required: [subject_type, subject_id, source_id]
+      properties:
+        subject_type:
+          enum: [person, event, union, migration, branch, lineage]
+        subject_id: { type: string }
+        source_id: { type: string }
+        locator: { type: string }
+        confidence: { enum: [high, medium, low, disputed], default: medium }
+        note: { type: string }
+
+    Document:
+      type: object
+      properties:
+        id: { type: string }
+        type:
+          enum: [preface, rule, regulation, literature, contract, edition_note]
+        title: { type: string }
+        author: { type: string }
+        date_text: { type: string }
+        edition: { type: string }
+        content: { type: string }
+
+    DocumentCreate:
+      type: object
+      required: [lineage_id, type, title]
+      properties:
+        lineage_id: { type: string }
+        type:
+          enum: [preface, rule, regulation, literature, contract, edition_note]
+        title: { type: string }
+        author: { type: string }
+        date_text: { type: string }
+        edition: { type: string }
+        content: { type: string }
+
+    Attachment:
+      type: object
+      properties:
+        id: { type: string }
+        kind: { enum: [portrait, document_scan, photo, other] }
+        filename: { type: string }
+        mime: { type: string }
+        sha256: { type: string }
+        size_bytes: { type: integer }
+        subject_type: { type: string }
+        subject_id: { type: string }
+        caption: { type: string }
+
+    MourningDegree:
+      type: object
+      properties:
+        garment:
+          enum: [zhancui, qicui_3y, qicui_zhangqi, qicui_buzhangqi,
+                 qicui_5m, qicui_3m, dagong, xiaogong, sima, tanmian, wufu]
+        garment_name: { type: string }
+        duration_months: { type: integer }
+        rule_id: { type: string }
+        ruleset: { enum: [ming_qing, ancient, custom] }
+        basis: { type: string }
+
+    Appellation:
+      type: object
+      properties:
+        standard: { type: string }
+        colloquial: { type: string }
+        formal: { type: string }
+        elder: { type: boolean }
+        path:
+          type: array
+          items: { type: string }
+
+    AncestorTree:
+      type: object
+      properties:
+        person: { $ref: "#/components/schemas/Person" }
+        generations:
+          type: array
+          items:
+            type: object
+            properties:
+              depth: { type: integer }
+              persons:
+                type: array
+                items: { $ref: "#/components/schemas/Person" }
+
+    DescendantTree:
+      type: object
+      properties:
+        person: { $ref: "#/components/schemas/Person" }
+        children:
+          type: array
+          items: { $ref: "#/components/schemas/DescendantTree" }
+
+    LineageGraph:
+      type: object
+      description: 世系图数据（节点 + 边，客户端自绘）
+      properties:
+        mode: { enum: [five_generation, full] }
+        nodes:
+          type: array
+          items: { $ref: "#/components/schemas/Person" }
+        edges:
+          type: array
+          items:
+            type: object
+            properties:
+              from: { type: string }
+              to: { type: string }
+              type: { enum: [birth, adoption, marriage] }
+
+    Stats:
+      type: object
+      properties:
+        person_count: { type: integer }
+        event_count: { type: integer }
+        branch_count: { type: integer }
+        living_count: { type: integer }
+        uncited_facts:
+          type: integer
+          description: 无证据事实数（数据质量核心指标）
+        generation_distribution:
+          type: array
+          items:
+            type: object
+            properties:
+              generation_no: { type: integer }
+              count: { type: integer }
+
+    ValidationIssue:
+      type: object
+      properties:
+        rule_id: { type: string }
+        severity: { enum: [error, warning, info] }
+        entity_type: { type: string }
+        entity_id: { type: string }
+        message: { type: string }
+        suggestion: { type: string }
+
+    Problem:
+      type: object
+      properties:
+        type: { type: string, format: uri }
+        title: { type: string }
+        status: { type: integer }
+        detail: { type: string }
+        code: { type: integer }
+        instance: { type: string }
+        errors:
+          type: array
+          items:
+            type: object
+            properties:
+              field: { type: string }
+              message: { type: string }

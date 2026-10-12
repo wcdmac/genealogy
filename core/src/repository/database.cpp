@@ -1,0 +1,143 @@
+#include <genealogy/repository/database.hpp>
+
+#include <sqlite3.h>
+
+#include <cstdint>
+#include <memory>
+#include <string>
+#include <system_error>
+
+#include <genealogy/repository/embedded_schema.hpp>
+#include <genealogy/util/time.hpp>
+
+namespace genealogy {
+namespace {
+
+struct SqliteCloser {
+  void operator()(sqlite3* db) const noexcept {
+    if (db != nullptr) sqlite3_close_v2(db);
+  }
+};
+
+Result<void> exec(sqlite3* db, const char* sql) {
+  char* err = nullptr;
+  if (sqlite3_exec(db, sql, nullptr, nullptr, &err) != SQLITE_OK) {
+    std::string msg = err != nullptr ? err : "unknown error";
+    sqlite3_free(err);
+    return Error{ErrorCode::Internal, msg};
+  }
+  return {};
+}
+
+bool migration_applied(sqlite3* db, const char* name) {
+  sqlite3_stmt* st = nullptr;
+  sqlite3_prepare_v2(db, "SELECT 1 FROM _schema_migrations WHERE name = ?1",
+                     -1, &st, nullptr);
+  if (st == nullptr) return false;
+  sqlite3_bind_text(st, 1, name, -1, SQLITE_TRANSIENT);
+  const bool applied = sqlite3_step(st) == SQLITE_ROW;
+  sqlite3_finalize(st);
+  return applied;
+}
+
+Result<void> record_migration(sqlite3* db, const char* name,
+                              const std::string& sql) {
+  sqlite3_stmt* st = nullptr;
+  sqlite3_prepare_v2(
+      db, "INSERT INTO _schema_migrations(name, applied_at, checksum)"
+          " VALUES (?1, ?2, ?3)",
+      -1, &st, nullptr);
+  if (st == nullptr) {
+    return Error{ErrorCode::Internal, "准备迁移记录失败"};
+  }
+  const std::string now = utc_now_iso();
+  // M0：checksum 记长度占位，M1 换 SHA-256
+  const std::string checksum = std::to_string(sql.size());
+  sqlite3_bind_text(st, 1, name, -1, SQLITE_TRANSIENT);
+  sqlite3_bind_text(st, 2, now.c_str(), -1, SQLITE_TRANSIENT);
+  sqlite3_bind_text(st, 3, checksum.c_str(), -1, SQLITE_TRANSIENT);
+  const bool ok = sqlite3_step(st) == SQLITE_DONE;
+  sqlite3_finalize(st);
+  if (!ok) return Error{ErrorCode::Internal, "记录迁移失败"};
+  return {};
+}
+
+}  // namespace
+
+struct Database::Impl {
+  std::unique_ptr<sqlite3, SqliteCloser> db;
+  std::size_t applied = 0;
+};
+
+Result<Database> Database::open(const std::filesystem::path& path) {
+  std::error_code ec;
+  if (path.has_parent_path() && !path.parent_path().empty()) {
+    std::filesystem::create_directories(path.parent_path(), ec);
+    // ec 非空时交给 sqlite3_open_v2 报错，保持单一错误出口
+  }
+
+  sqlite3* raw = nullptr;
+  const int flags = SQLITE_OPEN_READWRITE | SQLITE_OPEN_CREATE |
+                    SQLITE_OPEN_FULLMUTEX;
+  if (sqlite3_open_v2(path.string().c_str(), &raw, flags, nullptr) !=
+      SQLITE_OK) {
+    if (raw != nullptr) sqlite3_close_v2(raw);
+    return Error{ErrorCode::IoError, "无法打开数据库: " + path.string()};
+  }
+
+  auto impl = std::make_unique<Impl>();
+  impl->db.reset(raw);
+
+  // 设计文档 4.2：WAL + 外键
+  if (auto r = exec(raw, "PRAGMA journal_mode=WAL; PRAGMA foreign_keys=ON;");
+      !r) {
+    return r.error();
+  }
+
+  if (auto r = exec(raw,
+                    "CREATE TABLE IF NOT EXISTS _schema_migrations ("
+                    "  name       TEXT PRIMARY KEY,"
+                    "  applied_at TEXT NOT NULL,"
+                    "  checksum   TEXT NOT NULL"
+                    ");");
+      !r) {
+    return r.error();
+  }
+
+  const auto* migrations = embedded_schema::migrations();
+  const auto count = embedded_schema::migration_count();
+  for (std::size_t i = 0; i < count; ++i) {
+    const auto& m = migrations[i];
+    if (migration_applied(raw, m.name)) {
+      impl->applied = i + 1;
+      continue;
+    }
+    if (auto r = exec(raw, "BEGIN IMMEDIATE;"); !r) return r.error();
+    auto apply = exec(raw, m.sql);
+    if (apply) apply = record_migration(raw, m.name, m.sql);
+    if (auto r = exec(raw, apply ? "COMMIT;" : "ROLLBACK;"); !r) {
+      return r.error();
+    }
+    if (!apply) {
+      return Error{ErrorCode::Internal,
+                   std::string("迁移失败: ") + m.name + " — " +
+                       apply.error().message()};
+    }
+    impl->applied = i + 1;
+  }
+
+  return Database(std::move(impl));
+}
+
+Database::Database(std::unique_ptr<Impl> impl) : impl_(std::move(impl)) {}
+
+Database::~Database() = default;
+
+Database::Database(Database&&) noexcept = default;
+Database& Database::operator=(Database&&) noexcept = default;
+
+sqlite3* Database::raw() const noexcept { return impl_->db.get(); }
+
+std::size_t Database::schema_version() const { return impl_->applied; }
+
+}  // namespace genealogy
