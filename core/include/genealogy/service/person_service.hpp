@@ -6,6 +6,7 @@
 #include <genealogy/error.hpp>
 #include <genealogy/model/person.hpp>
 #include <genealogy/repository/database.hpp>
+#include <genealogy/repository/lineage_repository.hpp>
 #include <genealogy/repository/person_repository.hpp>
 
 namespace genealogy {
@@ -26,6 +27,7 @@ class PersonService {
 
  private:
   PersonRepository repo_;
+  LineageRepository lineages_;
 };
 
 }  // namespace genealogy

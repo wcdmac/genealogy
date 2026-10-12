@@ -6,13 +6,17 @@
 设计文档（调研结论 / 架构 / 模块划分 / 数据模型 / 接口规范）位于仓库外：
 `D:/cd/tree/genealogy-design/家谱管理软件-调研与架构设计.md`（v1.0，2026-10-12）。
 
-## 当前状态（M0）
+## 当前状态（M1.2）
 
 - [x] monorepo 骨架 + CMake + vcpkg manifest
-- [x] core：领域模型 / GenealogyDate 多历法值对象 / ULID / SQLite 仓储 + 迁移
-- [x] cli：`db init` / `person add|list|show`
-- [x] Catch2 测试 + 三平台 CI + 许可证白名单卡点
-- [ ] M1：世系算法（五服/称谓/世代）、GEDCOM、REST 服务、GUI（见设计文档第 7 章）
+- [x] core：领域模型（person/lineage/branch/place/union/event）/ GenealogyDate 多历法值对象 / ULID / SQLite 仓储 + 迁移 / 用例层（五服务，含领域校验）
+- [x] cli：`db init` / `person add|list|show` / `lineage|branch|place|union|event add|list|show|remove`
+- [x] Catch2 测试（246 断言）+ 三平台 CI + 许可证白名单卡点
+- [ ] M1.3：世系算法引擎（五服/称谓/世代）
+- [ ] M1.4：历法引擎（农历/年号互转）
+- [ ] M1.5：GEDCOM 导入导出 + 校验规则引擎
+- [ ] M1.6：性能灌库验收
+- [ ] M2：REST 服务（Drogon）；M3：GUI（Dear ImGui）
 
 ## 目录结构
 
@@ -76,15 +80,32 @@ cmake -S . -B build -DBUILD_SERVER=ON -DBUILD_GUI=ON ...
 
 ```bash
 ./build/bin/genea db init --db family.db
+
+# 宗族 / 支派 / 地点
+./build/bin/genea lineage add --db family.db --name "中湘陈氏六修族谱" \
+  --surname 陈 --commandery 颍川 --hall 德星堂
+./build/bin/genea branch add --db family.db --lineage 01J... --name 东八房 --gen-char 明
+./build/bin/genea place add --db family.db --name 中湘 --type county --modern "湖南省湘潭县"
+
+# 人物（--lineage 缺省落入占位宗族）
 ./build/bin/genea person add --db family.db \
   --family-name 陈 --given-name 文远 --gender male \
   --birth "同治三年四月初四"          # 老谱原文照录，calendar=lunar
 ./build/bin/genea person add --db family.db \
   --family-name 陈 --given-name 文远 --gender male \
   --birth 1864-05-09                 # ISO 日期，calendar=gregorian，自动推年干支
+
+# 婚姻结合（--member 人物ID:角色，多人逗号分隔）与事件
+./build/bin/genea union add --db family.db --type marriage \
+  --member "01J...:husband,01K...:wife" --start "光绪十二年"
+./build/bin/genea event add --db family.db --subject-type person --subject 01J... \
+  --type burial --date "光绪二十七年春" --description "葬祖茔亥山巳向"
+
 ./build/bin/genea person list --db family.db --format json
 ./build/bin/genea person show --db family.db 01J...
 ```
+
+退出码：0 成功 / 1 运行时错误 / 2 用法错误 / 3 不存在 / 4 版本冲突。
 
 ## 依赖与许可
 

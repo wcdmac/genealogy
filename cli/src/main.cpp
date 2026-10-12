@@ -15,6 +15,9 @@
 
 #include <nlohmann/json.hpp>
 
+#include "cli_util.hpp"
+#include "cmd_entity.hpp"
+
 #include <genealogy/error.hpp>
 #include <genealogy/model/genealogy_date.hpp>
 #include <genealogy/model/person.hpp>
@@ -26,19 +29,13 @@ namespace {
 
 using namespace genealogy;
 
-int exit_code_for(const Error& err) {
-  switch (err.code()) {
-    case ErrorCode::InvalidArgument: return 2;
-    case ErrorCode::NotFound: return 3;
-    case ErrorCode::Conflict: return 4;
-    default: return 1;
-  }
-}
-
-void print_error(const Error& err) {
-  std::cerr << "错误[" << static_cast<int>(err.code()) << "]: " << err.message()
-            << "\n";
-}
+// 退出码映射 / 错误输出 / cxxopts 适配 / 开库 / 日期解析见 cli_util.hpp
+// （与 cmd_entity.cpp 共用）。kDefaultLineageId 见 bootstrap.hpp。
+using genea_cli::exit_code_for;
+using genea_cli::open_db;
+using genea_cli::parse_args;
+using genea_cli::parse_date_arg;
+using genea_cli::print_error;
 
 void print_person_text(const Person& p) {
   std::cout << p.id << "\t" << p.family_name << p.given_name;
@@ -66,31 +63,7 @@ void print_persons(const std::vector<Person>& persons,
   if (persons.empty()) std::cout << "（无记录）\n";
 }
 
-// cxxopts 3.x 仅提供 parse(argc, argv) 重载，且解析从下标 1 开始
-// （argv[0] 被当作程序名跳过）。此处把参数向量转过去，并补一个
-// 程序名占位，否则第一个参数会被静默吞掉。
-// 指针指向 args 中的字符串与静态字面量，生命周期覆盖本次 parse 调用。
-cxxopts::ParseResult parse_args(cxxopts::Options& opts,
-                                const std::vector<std::string>& args) {
-  std::vector<const char*> argv;
-  argv.push_back("genea");  // argv[0]：程序名占位
-  argv.reserve(args.size() + 1);
-  for (const auto& a : args) argv.push_back(a.c_str());
-  int argc = static_cast<int>(argv.size());
-  return opts.parse(argc, argv.data());
-}
-
-Result<Database> open_db(const std::string& path) {
-  auto db = Database::open(path);
-  if (db) ensure_default_lineage(*db);
-  return db;
-}
-
-// 出生/卒年解析：先试 ISO，失败则按老谱原文照录。
-Result<GenealogyDate> parse_date_arg(const std::string& text) {
-  if (auto iso = GenealogyDate::from_iso(text); iso) return iso;
-  return GenealogyDate::from_raw(text);
-}
+// cxxopts 适配、开库、日期解析见 cli_util.hpp。
 
 int cmd_db_init(const std::string& db_path, const std::string& format) {
   auto db = open_db(db_path);
@@ -127,6 +100,7 @@ int cmd_person_add(const std::vector<std::string>& args,
       ("birth-order", "行几", cxxopts::value<int>())
       ("father", "父亲 ID", cxxopts::value<std::string>())
       ("mother", "母亲 ID", cxxopts::value<std::string>())
+      ("lineage", "宗族 ID（缺省落入占位宗族）", cxxopts::value<std::string>())
       ("biography", "世系录 / 行传", cxxopts::value<std::string>())
       ("living", "在世标记",
        cxxopts::value<bool>()->default_value("false")->implicit_value("true"));
@@ -140,7 +114,8 @@ int cmd_person_add(const std::vector<std::string>& args,
   PersonService svc(*db);
 
   Person p;
-  p.lineage_id = kDefaultLineageId;
+  p.lineage_id =
+      r.count("lineage") ? r["lineage"].as<std::string>() : kDefaultLineageId;
   if (r.count("family-name")) p.family_name = r["family-name"].as<std::string>();
   if (r.count("given-name")) p.given_name = r["given-name"].as<std::string>();
   if (r.count("courtesy-name")) p.courtesy_name = r["courtesy-name"].as<std::string>();
@@ -289,11 +264,21 @@ int run(std::vector<std::string> raw_args) {
 
   const auto& unmatched = g.unmatched();
   if (g.count("help") > 0) {
-    std::cout << global.help() << "\n子命令: db init | person add|list|show\n";
+    std::cout << global.help() << "\n子命令: db init | person add|list|show |"
+              << " lineage add|list|show|remove |"
+              << " branch add|list|show|remove |"
+              << " place add|list|show|remove |"
+              << " union add|list|show|remove |"
+              << " event add|list|show|remove\n";
     return 0;
   }
   if (unmatched.empty()) {
-    std::cout << global.help() << "\n子命令: db init | person add|list|show\n";
+    std::cout << global.help() << "\n子命令: db init | person add|list|show |"
+              << " lineage add|list|show|remove |"
+              << " branch add|list|show|remove |"
+              << " place add|list|show|remove |"
+              << " union add|list|show|remove |"
+              << " event add|list|show|remove\n";
     return 2;
   }
 
@@ -320,6 +305,18 @@ int run(std::vector<std::string> raw_args) {
       if (sub == "list") return cmd_person_list(args, db_path, format);
       if (sub == "show") return cmd_person_show(args, db_path, format);
     }
+    // 实体命令组内部自己拆子命令（add/list/show/remove），故传 rest
+    // （含子命令）；person/db 系列直接消费 options，传 args（不含子命令）。
+    if (command == "lineage")
+      return genea_cli::cmd_lineage(rest, db_path, format);
+    if (command == "branch")
+      return genea_cli::cmd_branch(rest, db_path, format);
+    if (command == "place")
+      return genea_cli::cmd_place(rest, db_path, format);
+    if (command == "union")
+      return genea_cli::cmd_union(rest, db_path, format);
+    if (command == "event")
+      return genea_cli::cmd_event(rest, db_path, format);
   } catch (const cxxopts::exceptions::exception& e) {
     // 参数/用法问题
     std::cerr << "用法错误: " << e.what() << "\n";
@@ -331,7 +328,8 @@ int run(std::vector<std::string> raw_args) {
   }
 
   std::cerr << "未知命令: " << command << " " << sub
-            << "（支持: db init | person add|list|show）\n";
+            << "（支持: db init | person add|list|show |"
+            << " lineage|branch|place|union|event add|list|show|remove）\n";
   return 2;
 }
 

@@ -6,12 +6,16 @@
 
 namespace genealogy {
 
-PersonService::PersonService(Database& db) : repo_(db) {}
+PersonService::PersonService(Database& db) : repo_(db), lineages_(db) {}
 
 Result<Person> PersonService::create_person(const Person& draft) {
   if (draft.lineage_id.empty()) return invalid_argument("lineage_id 必填");
   if (draft.family_name.empty()) return invalid_argument("姓必填");
   if (draft.given_name.empty()) return invalid_argument("名必填");
+
+  // 宗族存在性：未传 --lineage 时 CLI 落入占位宗族（bootstrap 保证存在）
+  auto lineage = lineages_.get(draft.lineage_id);
+  if (!lineage) return not_found("宗族不存在: " + draft.lineage_id);
 
   Person p = draft;
   // 空串 ID 视为未设置（CLI 传 --father "" 等场景），
@@ -19,7 +23,7 @@ Result<Person> PersonService::create_person(const Person& draft) {
   if (p.father_id && p.father_id->empty()) p.father_id.reset();
   if (p.mother_id && p.mother_id->empty()) p.mother_id.reset();
   if (p.branch_id && p.branch_id->empty()) p.branch_id.reset();
-  p.id = generate_ulid();
+  // id 由仓储在为空时分配（见各 Repository::insert 契约）
 
   // 父母存在性（拟制关系在 M1 与 parent_child 对齐后扩展）
   if (p.father_id && !p.father_id->empty()) {

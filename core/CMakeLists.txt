@@ -28,10 +28,26 @@ target_sources(genealogy-core
     src/util/time.cpp
     src/model/genealogy_date.cpp
     src/model/person.cpp
+    src/model/lineage.cpp
+    src/model/branch.cpp
+    src/model/place.cpp
+    src/model/union.cpp
+    src/model/event.cpp
+    src/repository/sqlite_util.cpp
     src/repository/database.cpp
     src/repository/person_repository.cpp
     src/repository/bootstrap.cpp
+    src/repository/lineage_repository.cpp
+    src/repository/branch_repository.cpp
+    src/repository/place_repository.cpp
+    src/repository/union_repository.cpp
+    src/repository/event_repository.cpp
     src/service/person_service.cpp
+    src/service/lineage_service.cpp
+    src/service/branch_service.cpp
+    src/service/place_service.cpp
+    src/service/union_service.cpp
+    src/service/event_service.cpp
     ${EMBED_OUT}
 )
 

@@ -11,8 +11,22 @@
 #include <genealogy/ulid.hpp>
 #include <genealogy/util/time.hpp>
 
+#include "sqlite_util.hpp"
+
 namespace genealogy {
 namespace {
+
+// 通用助手（Stmt/col_*/bind_*/quote_fts/qualify_cols）见 sqlite_util.hpp
+using repo_internal::Stmt;
+using repo_internal::bind_date;
+using repo_internal::bind_opt_int;
+using repo_internal::bind_opt_text;
+using repo_internal::col_date;
+using repo_internal::col_opt_int;
+using repo_internal::col_opt_text;
+using repo_internal::col_text;
+using repo_internal::qualify_cols;
+using repo_internal::quote_fts;
 
 // person 表全列（顺序即行映射索引）
 constexpr const char* kSelectCols =
@@ -54,49 +68,6 @@ enum Col {
   kUpdatedAt,
 };
 
-class Stmt {
- public:
-  Stmt(sqlite3* db, const char* sql) {
-    st_ = sqlite3_prepare_v2(db, sql, -1, &st_, nullptr) == SQLITE_OK ? st_
-                                                                     : nullptr;
-  }
-  ~Stmt() {
-    if (st_ != nullptr) sqlite3_finalize(st_);
-  }
-  Stmt(const Stmt&) = delete;
-  Stmt& operator=(const Stmt&) = delete;
-
-  sqlite3_stmt* get() const noexcept { return st_; }
-  bool ok() const noexcept { return st_ != nullptr; }
-
- private:
-  sqlite3_stmt* st_ = nullptr;
-};
-
-std::string col_text(sqlite3_stmt* st, int col) {
-  const auto* text = reinterpret_cast<const char*>(sqlite3_column_text(st, col));
-  return text != nullptr ? std::string(text) : std::string();
-}
-
-std::optional<std::string> col_opt_text(sqlite3_stmt* st, int col) {
-  if (sqlite3_column_type(st, col) == SQLITE_NULL) return std::nullopt;
-  return col_text(st, col);
-}
-
-std::optional<int> col_opt_int(sqlite3_stmt* st, int col) {
-  if (sqlite3_column_type(st, col) == SQLITE_NULL) return std::nullopt;
-  return sqlite3_column_int(st, col);
-}
-
-GenealogyDate col_date(sqlite3_stmt* st, int col) {
-  const auto raw = col_opt_text(st, col);
-  if (!raw) return {};
-  const auto j = nlohmann::json::parse(*raw, nullptr, false);
-  if (j.is_discarded()) return {};
-  auto d = GenealogyDate::from_json(j);
-  return d ? std::move(*d) : GenealogyDate{};
-}
-
 Person row_to_person(sqlite3_stmt* st) {
   Person p;
   p.id = col_text(st, kId);
@@ -135,27 +106,6 @@ Person row_to_person(sqlite3_stmt* st) {
   return p;
 }
 
-void bind_opt_text(sqlite3_stmt* st, int idx, const std::optional<std::string>& v) {
-  if (v) {
-    sqlite3_bind_text(st, idx, v->c_str(), -1, SQLITE_TRANSIENT);
-  } else {
-    sqlite3_bind_null(st, idx);
-  }
-}
-
-void bind_opt_int(sqlite3_stmt* st, int idx, const std::optional<int>& v) {
-  if (v) {
-    sqlite3_bind_int(st, idx, *v);
-  } else {
-    sqlite3_bind_null(st, idx);
-  }
-}
-
-void bind_date(sqlite3_stmt* st, int idx, const GenealogyDate& d) {
-  const std::string s = d.to_json().dump();
-  sqlite3_bind_text(st, idx, s.c_str(), -1, SQLITE_TRANSIENT);
-}
-
 void bind_person(sqlite3_stmt* st, const Person& p) {
   int i = 1;
   sqlite3_bind_text(st, i++, p.id.c_str(), -1, SQLITE_TRANSIENT);
@@ -190,38 +140,6 @@ void bind_person(sqlite3_stmt* st, const Person& p) {
   sqlite3_bind_int64(st, i++, static_cast<std::int64_t>(p.rev));
   sqlite3_bind_text(st, i++, p.created_at.c_str(), -1, SQLITE_TRANSIENT);
   sqlite3_bind_text(st, i++, p.updated_at.c_str(), -1, SQLITE_TRANSIENT);
-}
-
-// FTS5 MATCH 语法对原文关键词做双引号转义（字符串字面量，无语法歧义）
-std::string quote_fts(std::string_view keyword) {
-  std::string out = "\"";
-  for (const char c : keyword) {
-    if (c == '"') {
-      out += "\"\"";
-    } else {
-      out += c;
-    }
-  }
-  out += "\"";
-  return out;
-}
-
-// 把 "a, b, c" 形式的列清单转换为 "alias.a, alias.b, alias.c"。
-// person_fts 与 person 存在同名列，JOIN 检索时必须限定，否则 SQLite
-// 报 ambiguous column name（prepare 即失败）。
-std::string qualify_cols(const char* cols, const char* alias) {
-  std::string out = alias;
-  out += '.';
-  for (const char* p = cols; *p != '\0'; ++p) {
-    out += *p;
-    if (*p == ',' && *(p + 1) == ' ') {
-      out += ' ';
-      out += alias;
-      out += '.';
-      ++p;
-    }
-  }
-  return out;
 }
 
 }  // namespace
@@ -294,6 +212,7 @@ Result<std::vector<Person>> PersonRepository::search(std::string_view keyword,
 }
 
 Result<Person> PersonRepository::insert(Person p) {
+  if (p.id.empty()) p.id = generate_ulid();
   p.rev = 1;
   p.created_at = utc_now_iso();
   p.updated_at = p.created_at;
