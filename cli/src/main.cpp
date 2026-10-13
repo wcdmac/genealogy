@@ -4,6 +4,7 @@
 
 #include <cxxopts.hpp>
 
+#include <cstdio>
 #include <cstdlib>
 #include <iostream>
 #include <optional>
@@ -19,6 +20,8 @@
 #include "cli_util.hpp"
 #include "cmd_entity.hpp"
 
+#include <genealogy/calendar/chinese_calendar.hpp>
+#include <genealogy/calendar/era.hpp>
 #include <genealogy/error.hpp>
 #include <genealogy/lineage/appellation.hpp>
 #include <genealogy/lineage/generation.hpp>
@@ -373,6 +376,342 @@ int cmd_person_relation(const std::vector<std::string>& args,
 
 }  // namespace
 
+// ---------------------------------------------------------------- date
+// 历法引擎入口（M1.4）：公历↔农历、干支、节气。纯计算，不碰数据库。
+// 数据覆盖 1583-3000（见 first_supported_year / last_supported_year），
+// 1900-2025 已与紫金山天文台官方日历逐日核对。
+
+namespace {
+
+using namespace genealogy;
+using genea_cli::exit_code_for;
+using genea_cli::parse_args;
+using genea_cli::print_error;
+
+// 解析 ISO 日期：yyyy | yyyy-mm | yyyy-mm-dd（缺省月日补 1）。
+// 只做字面合法性检查；具体日期是否存在（2 月 30 日之类）交给历法引擎。
+bool parse_iso_date(const std::string& s, calendar::GregorianDate* out) {
+  std::vector<std::string> parts;
+  std::string cur;
+  for (const char c : s) {
+    if (c == '-') {
+      parts.push_back(cur);
+      cur.clear();
+    } else if (c < '0' || c > '9') {
+      return false;
+    } else {
+      cur += c;
+    }
+  }
+  parts.push_back(cur);
+  if (parts.empty() || parts.size() > 3) return false;
+  if (parts[0].empty() || parts[0].size() > 4) return false;
+  try {
+    out->year = std::stoi(parts[0]);
+    out->month = parts.size() > 1 ? std::stoi(parts[1]) : 1;
+    out->day = parts.size() > 2 ? std::stoi(parts[2]) : 1;
+  } catch (const std::exception&) {
+    return false;
+  }
+  return out->month >= 1 && out->month <= 12 && out->day >= 1 && out->day <= 31;
+}
+
+int days_in_month(int y, int m) {
+  static const int kLen[13] = {0, 31, 28, 31, 30, 31, 30, 31, 31, 30, 31, 30, 31};
+  if (m == 2 && ((y % 4 == 0 && y % 100 != 0) || y % 400 == 0)) return 29;
+  return kLen[m];
+}
+
+std::string iso_of(const calendar::GregorianDate& d) {
+  char buf[32];
+  std::snprintf(buf, sizeof(buf), "%04d-%02d-%02d", d.year, d.month, d.day);
+  return buf;
+}
+
+// 公历 → 农历 + 干支 + 当日节气
+int cmd_date_convert(const std::vector<std::string>& args,
+                     const std::string& format) {
+  cxxopts::Options opts("genea date convert", "公历转农历（含干支、节气）");
+  opts.add_options()("date", "公历日期 ISO：yyyy-mm-dd",
+                     cxxopts::value<std::string>());
+  opts.parse_positional({"date"});
+  const auto r = parse_args(opts, args);
+  if (!r.count("date")) {
+    std::cerr << "用法错误: genea date convert <yyyy-mm-dd>\n";
+    return 2;
+  }
+  calendar::GregorianDate g;
+  if (!parse_iso_date(r["date"].as<std::string>(), &g)) {
+    std::cerr << "用法错误: 日期须为 yyyy-mm-dd（可省 mm/dd）\n";
+    return 2;
+  }
+  if (g.day > days_in_month(g.year, g.month)) {
+    std::cerr << "用法错误: " << g.year << " 年 " << g.month << " 月没有 "
+              << g.day << " 日\n";
+    return 2;
+  }
+
+  const auto c = calendar::to_chinese(g);
+  if (!c) {
+    print_error(c.error());
+    return exit_code_for(c.error());
+  }
+  const auto term = calendar::solar_term_on(g);
+  std::string hhmm;
+  if (term) {
+    const auto st = calendar::solar_term(g.year, *term);
+    char buf[8];
+    std::snprintf(buf, sizeof(buf), "%02d:%02d", st->hour, st->minute);
+    hhmm = buf;
+  }
+  const auto era = calendar::era_of(c->year);
+  std::string era_text;
+  if (era) {
+    era_text = calendar::era_display(*era, c->year - era->start_year + 1);
+  }
+
+  if (format == "json") {
+    nlohmann::json out;
+    out["gregorian"] = iso_of(g);
+    out["lunar"] = {{"year", c->year},
+                    {"month", c->month},
+                    {"month_name", calendar::month_name(c->month)},
+                    {"day", c->day},
+                    {"day_name", calendar::day_name(c->day)},
+                    {"is_leap_month", c->is_leap_month()},
+                    {"year_ganzhi", calendar::year_ganzhi(c->year)},
+                    {"month_ganzhi", calendar::month_ganzhi(c->year, c->month)},
+                    {"day_ganzhi", calendar::day_ganzhi(g)},
+                    {"zodiac", calendar::zodiac(c->year)}};
+    if (term) {
+      const auto st = calendar::solar_term(g.year, *term);
+      out["solar_term"] = {{"index", *term},
+                           {"name", st->name},
+                           {"at", hhmm}};
+    } else {
+      out["solar_term"] = nullptr;
+    }
+    if (era) {
+      out["era"] = {{"dynasty", era->dynasty},
+                    {"reign", era->reign},
+                    {"year", c->year - era->start_year + 1},
+                    {"display", era_text}};
+    } else {
+      out["era"] = nullptr;
+    }
+    std::cout << out.dump(2) << "\n";
+    return 0;
+  }
+
+  if (era) std::cout << "年号 " << era->dynasty << "·" << era_text << "\n";
+  std::cout << "公历 " << iso_of(g) << "\n";
+  std::cout << "农历 " << calendar::year_ganzhi(c->year) << "年（" << c->year
+            << "）" << calendar::month_name(c->month)
+            << calendar::day_name(c->day) << "\n";
+  std::cout << "纪年 " << calendar::year_ganzhi(c->year) << "年 · "
+            << calendar::zodiac(c->year) << " · 月 "
+            << calendar::month_ganzhi(c->year, c->month) << " · 日 "
+            << calendar::day_ganzhi(g) << "\n";
+  if (term) {
+    const auto st = calendar::solar_term(g.year, *term);
+    std::cout << "节气 " << st->name << "（" << hhmm << "）\n";
+  } else {
+    std::cout << "节气 （当日无节气）\n";
+  }
+  return 0;
+}
+
+// 农历 → 公历
+int cmd_date_lunar(const std::vector<std::string>& args,
+                   const std::string& format) {
+  cxxopts::Options opts("genea date lunar", "农历转公历");
+  opts.add_options()
+      ("year", "农历年", cxxopts::value<int>())
+      ("month", "农历月 1..12", cxxopts::value<int>())
+      ("day", "农历日 1..30", cxxopts::value<int>()->default_value("1"))
+      ("leap", "该月为闰月",
+       cxxopts::value<bool>()->default_value("false")->implicit_value("true"));
+  const auto r = parse_args(opts, args);
+  if (!r.count("year") || !r.count("month")) {
+    std::cerr << "用法错误: genea date lunar --year <年> --month <月> [--day <日>]"
+                 " [--leap]\n";
+    return 2;
+  }
+  const int y = r["year"].as<int>();
+  const int m = r["month"].as<int>();
+  const int d = r["day"].as<int>();
+  const bool leap = r["leap"].as<bool>();
+  if (m < 1 || m > 12) {
+    std::cerr << "用法错误: 农历月须在 1..12（闰月用 --month 6 --leap 表示闰六月）\n";
+    return 2;
+  }
+  calendar::ChineseDate c;
+  c.year = y;
+  c.month = leap ? -m : m;
+  c.day = d;
+  const auto g = calendar::to_gregorian(c);
+  if (!g) {
+    print_error(g.error());
+    return exit_code_for(g.error());
+  }
+  if (format == "json") {
+    nlohmann::json out;
+    out["lunar"] = {{"year", y},
+                    {"month", c.month},
+                    {"month_name", calendar::month_name(c.month)},
+                    {"day", d},
+                    {"day_name", calendar::day_name(d)}};
+    out["gregorian"] = iso_of(*g);
+    std::cout << out.dump(2) << "\n";
+    return 0;
+  }
+  std::cout << "农历 " << calendar::year_ganzhi(y) << "年"
+            << calendar::month_name(c.month) << calendar::day_name(d) << " → 公历 "
+            << iso_of(*g) << "\n";
+  return 0;
+}
+
+// 某年 24 节气（可只查一个）
+int cmd_date_terms(const std::vector<std::string>& args,
+                   const std::string& format) {
+  cxxopts::Options opts("genea date terms", "某年 24 节气（北京时间）");
+  opts.add_options()
+      ("year", "公历年", cxxopts::value<int>())
+      ("index", "只查第几个节气（0=小寒 … 23=冬至）",
+       cxxopts::value<int>());
+  const auto r = parse_args(opts, args);
+  if (!r.count("year")) {
+    std::cerr << "用法错误: genea date terms --year <年> [--index <0..23>]\n";
+    return 2;
+  }
+  const int y = r["year"].as<int>();
+  const bool only = r.count("index") != 0;
+  const int only_index = only ? r["index"].as<int>() : -1;
+
+  nlohmann::json arr = nlohmann::json::array();
+  int from = 0, to = 23;
+  if (only) {
+    if (only_index < 0 || only_index > 23) {
+      std::cerr << "用法错误: --index 须在 0..23\n";
+      return 2;
+    }
+    from = to = only_index;
+  }
+  for (int i = from; i <= to; ++i) {
+    const auto st = calendar::solar_term(y, i);
+    if (!st) {
+      print_error(st.error());
+      return exit_code_for(st.error());
+    }
+    char buf[8];
+    std::snprintf(buf, sizeof(buf), "%02d:%02d", st->hour, st->minute);
+    if (format == "json") {
+      arr.push_back({{"index", i},
+                     {"name", st->name},
+                     {"date", iso_of(st->date)},
+                     {"time", buf}});
+    } else {
+      std::cout << st->name << "  " << iso_of(st->date) << "  " << buf << "\n";
+    }
+  }
+  if (format == "json") {
+    nlohmann::json out;
+    out["year"] = y;
+    out["terms"] = arr;
+    std::cout << out.dump(2) << "\n";
+  }
+  return 0;
+}
+
+// 年号纪年 ↔ 年（并可接着解到具体日期）
+int cmd_date_era(const std::vector<std::string>& args,
+                 const std::string& format) {
+  cxxopts::Options opts("genea date era", "年号纪年换算（如「同治三年」）");
+  opts.add_options()("text", "年号纪年，如 同治三年", cxxopts::value<std::string>());
+  opts.parse_positional({"text"});
+  const auto r = parse_args(opts, args);
+  if (!r.count("text")) {
+    std::cerr << "用法错误: genea date era <年号纪年>（如 同治三年）\n";
+    return 2;
+  }
+  const std::string text = r["text"].as<std::string>();
+
+  // 复用 GenealogyDate 的年号识别，保证与录入口径一致
+  const auto parsed = GenealogyDate::from_raw(text);
+  if (!parsed || !parsed->era) {
+    std::cerr << "用法错误: 未能识别年号纪年（示例: 同治三年 / 万历十五年）\n";
+    return 2;
+  }
+  const Era era = *parsed->era;
+  const auto year = calendar::era_to_year(era.name, era.year);
+  if (!year) {
+    print_error(year.error());
+    return exit_code_for(year.error());
+  }
+  const auto info = calendar::era_of(*year);
+  const std::string reign_display =
+      info ? calendar::era_display(*info, *year - info->start_year + 1) : text;
+
+  if (format == "json") {
+    nlohmann::json out;
+    out["input"] = text;
+    out["era"] = {{"name", era.name}, {"year", era.year}};
+    if (info) out["era"]["dynasty"] = info->dynasty;
+    out["year"] = *year;
+    out["year_ganzhi"] = calendar::year_ganzhi(*year);
+    out["zodiac"] = calendar::zodiac(*year);
+    if (auto g = calendar::to_gregorian(
+            calendar::ChineseDate{*year, 1, 1})) {
+      out["lunar_new_year"] = iso_of(*g);   // 该年正月初一
+    }
+    std::cout << out.dump(2) << "\n";
+    return 0;
+  }
+
+  std::cout << reign_display << " → " << *year << " 年（"
+            << calendar::year_ganzhi(*year) << "年 · "
+            << calendar::zodiac(*year) << "）\n";
+  if (const auto g = calendar::to_gregorian(calendar::ChineseDate{*year, 1, 1})) {
+    std::cout << "正月初一: " << iso_of(*g) << "\n";
+  }
+  return 0;
+}
+
+// 支持区间
+int cmd_date_info(const std::string& format) {
+  if (format == "json") {
+    nlohmann::json out;
+    out["first_year"] = calendar::first_supported_year();
+    out["last_year"] = calendar::last_supported_year();
+    out["basis"] =
+        "月首取定朔（北京时间）；十一月含冬至、无中气置闰（GB/T 33661-2017）";
+    out["verified"] = "1900-2025 已与中国科学院紫金山天文台《1900-2025年日历》逐日核对";
+    std::cout << out.dump(2) << "\n";
+    return 0;
+  }
+  std::cout << "历法数据覆盖: " << calendar::first_supported_year() << " - "
+            << calendar::last_supported_year() << "\n";
+  std::cout << "编算口径: 月首取定朔（北京时间）；十一月含冬至、无中气之月置闰"
+               "（GB/T 33661-2017）\n";
+  std::cout << "核验: 1900-2025 逐日（46021 天）、3024 条节气时刻均与紫金山天文台"
+               "《1900-2025年日历》一致\n";
+  return 0;
+}
+
+int cmd_date(const std::vector<std::string>& rest, const std::string& format) {
+  const std::string sub = rest.empty() ? "" : rest[0];
+  const std::vector<std::string> args(rest.begin() + 1, rest.end());
+  if (sub == "convert") return cmd_date_convert(args, format);
+  if (sub == "lunar") return cmd_date_lunar(args, format);
+  if (sub == "terms") return cmd_date_terms(args, format);
+  if (sub == "era") return cmd_date_era(args, format);
+  if (sub == "info") return cmd_date_info(format);
+  std::cerr << "用法错误: genea date convert|lunar|terms|era|info\n";
+  return 2;
+}
+
+}  // namespace
+
 #ifdef _WIN32
 // Windows 下 main 的 argc/argv 由 CRT 按 ANSI 代码页（中文机为 936/GBK）
 // 转换，中文参数会变成非法 UTF-8 字节（nlohmann 抛 type_error.316）。
@@ -415,7 +754,8 @@ int run(std::vector<std::string> raw_args) {
               << " branch add|list|show|remove |"
               << " place add|list|show|remove |"
               << " union add|list|show|remove |"
-              << " event add|list|show|remove\n";
+              << " event add|list|show|remove |"
+              << " date convert|lunar|terms|era|info\n";
     return 0;
   }
   if (unmatched.empty()) {
@@ -424,7 +764,8 @@ int run(std::vector<std::string> raw_args) {
               << " branch add|list|show|remove |"
               << " place add|list|show|remove |"
               << " union add|list|show|remove |"
-              << " event add|list|show|remove\n";
+              << " event add|list|show|remove |"
+              << " date convert|lunar|terms|era|info\n";
     return 2;
   }
 
@@ -464,6 +805,8 @@ int run(std::vector<std::string> raw_args) {
       return genea_cli::cmd_union(rest, db_path, format);
     if (command == "event")
       return genea_cli::cmd_event(rest, db_path, format);
+    if (command == "date")
+      return cmd_date(rest, format);   // 历法引擎，不需要数据库
   } catch (const cxxopts::exceptions::exception& e) {
     // 参数/用法问题
     std::cerr << "用法错误: " << e.what() << "\n";
@@ -476,7 +819,8 @@ int run(std::vector<std::string> raw_args) {
 
   std::cerr << "未知命令: " << command << " " << sub
             << "（支持: db init | person add|list|show |"
-            << " lineage|branch|place|union|event add|list|show|remove）\n";
+            << " lineage|branch|place|union|event add|list|show|remove |"
+            << " date convert|lunar|terms|era|info）\n";
   return 2;
 }
 

@@ -6,18 +6,32 @@
 设计文档（调研结论 / 架构 / 模块划分 / 数据模型 / 接口规范）位于仓库外：
 `D:/cd/tree/genealogy-design/家谱管理软件-调研与架构设计.md`（v1.0，2026-10-12）。
 
-## 当前状态（M1.3）
+## 当前状态（M1.4）
 
 - [x] monorepo 骨架 + CMake + vcpkg manifest
 - [x] core：领域模型（person/lineage/branch/place/union/event）/ GenealogyDate 多历法值对象 / ULID / SQLite 仓储 + 迁移 / 用例层（五服务，含领域校验）
-- [x] cli：`db init` / `person add|list|show|relation` / `lineage|branch|place|union|event add|list|show|remove`
+- [x] cli：`db init` / `person add|list|show|relation` / `lineage|branch|place|union|event add|list|show|remove` / `date convert|lunar|terms|era|info`
 - [x] **M1.3 世系算法引擎**：世系图快照 + BFS 关系路径 + 世代序号（自始祖起算）+ 辈分差 + 五服（明清定型版）+ 称谓；规则表数据外置（`shared/rules/*.json`，构建时嵌入）
-- [x] Catch2 测试（555 断言 / 27 用例）+ 三平台 CI + 许可证白名单卡点
-- [ ] M1.4：历法引擎（农历/年号互转）
-- [ ] M1.4：历法引擎（农历/年号互转）
+- [x] **M1.4 历法引擎**：公历↔农历互转（**1583-3000**，1418 个农历年）/ 24 节气时刻（北京时间，到分）/ 干支纪年纪月纪日 / 生肖 / 年号纪年（西汉建元至民国，499 条区间）
+- [x] Catch2 测试（784168 断言 / 48 用例）+ 三平台 CI + 许可证白名单卡点
 - [ ] M1.5：GEDCOM 导入导出 + 校验规则引擎
 - [ ] M1.6：性能灌库验收
 - [ ] M2：REST 服务（Drogon）；M3：GUI（Dear ImGui）
+
+### 历法引擎的数据从哪来
+
+农历不是算着玩的，得有权威基准。做法是先取官方日历、逐条核验，再落表：
+
+| 项 | 说明 |
+|---|---|
+| 基准 | 中国科学院紫金山天文台《1900-2025年日历》PDF（380 页），逐日对照表 + 页脚节气表 |
+| 核验 | 逐日 46021 天 **0 处不符**；节气 3024 条时刻一致（官方取分、四舍五入导致的 47 条 1 分钟差已按官方值覆盖） |
+| 口径 | 月首取定朔（北京时间）；十一月含冬至、无中气之月置闰（GB/T 33661-2017） |
+| 覆盖 | **1583-3000**。下界取 1583 的原因：1582 年格里历改革删 10 天，且更早年份存在月长 28 天 / 月序错乱等推算异常，宁缺勿滥 |
+| 旁证 | 闰月占比 36.9%（理论 36.8%）；全区间逐年自洽（正月初一落在 1/21–2/21、节气严格递增、冬至必在十一月） |
+| 年号 | cn-era（MIT，朝代编号取自 CBDB）+ opencc 繁转简；按《中国历史纪年表》口径订正：宣统止于 1911、民国纪年止于 1949；明清民国元年均有独立锚点回归 |
+
+数据生成链路见 `tools/gen_calendar/`（离线跑一次，产物是 C++ 静态表，运行时零依赖）。
 
 ## 目录结构
 
@@ -28,12 +42,13 @@ genealogy/
 ├── server/           # REST 服务（Drogon，BUILD_SERVER=ON 启用）
 ├── gui/              # 桌面 GUI（Dear ImGui + GLFW，BUILD_GUI=ON 启用）
 ├── clients/web/      # Web UI 参考实现（TS + React）
-├── shared/
 │   ├── schema/       # SQLite DDL 与迁移脚本（构建时嵌入二进制）
 │   ├── rules/        # 五服 / 称谓规则表（JSON，构建时嵌入；换规则不改代码）
 │   ├── licenses/     # 依赖许可证白名单
 │   └── openapi/      # OpenAPI 规范（客户端代码生成唯一事实源）
-└── tools/            # license_check.py 等工程工具
+├── tools/
+│   ├── gen_calendar/ # 历法/年号数据表离线生成器 + 官方基准 fixtures
+│   └── license_check.py 等工程工具
 ```
 
 ## 构建（Windows / MSVC）
@@ -107,6 +122,18 @@ cmake -S . -B build -DBUILD_SERVER=ON -DBUILD_GUI=ON ...
 ./build/bin/genea person list --db family.db --format json
 ./build/bin/genea person show --db family.db 01J...
 
+# 历法换算（纯计算，不碰数据库）
+./build/bin/genea date info                     # 覆盖区间与编算口径
+./build/bin/genea date convert 1864-05-09
+# 年号 清·同治三年
+# 公历 1864-05-09
+# 农历 甲子年（1864）四月初四
+# 纪年 甲子年 · 鼠 · 月 己巳 · 日 甲戌
+./build/bin/genea date lunar --year 2025 --month 6 --day 20 --leap   # 闰六月二十 → 2025-08-13
+./build/bin/genea date terms --year 2025 --index 4                    # 惊蛰 2025-03-05 16:07
+./build/bin/genea date era 同治三年              # → 1864 年（甲子年 · 鼠），正月初一 1864-02-08
+./build/bin/genea date era 天顺元年              # 重名年号报冲突并列出候选：元天顺=1328 明天顺=1457
+
 # 世系算法：两人关系路径 / 辈分差 / 五服 / 称谓
 ./build/bin/genea person relation --db family.db 01J... 01K...
 # 关系路径: H.F
@@ -115,6 +142,10 @@ cmake -S . -B build -DBUILD_SERVER=ON -DBUILD_GUI=ON ...
 # 五服[ming_qing]: 斩衰 三年（27 月） — 妇为舅姑（明清斩衰三年）
 # 称谓: 公公（口语: 公公；书面: 夫父）
 ```
+
+> **年号换算的岁首陷阱**：年号元年记的是「正月所在公历年」，而农历年的冬月、腊月
+> 会落到公历次年——**光绪三十四年冬月初一 = 1908-11-24**（仍是光绪三十四年，不在宣统）。
+> `date era` 只解到「年」，要精确到日必须再过一遍农历引擎（`date lunar`）。
 
 > **两个"代"的口径要分清**（设计文档 4.4.2）：
 > - **世代差（辈分差）** = 关系路径上的世代升降次数：上行 -1、下行 +1、配偶步不升降。
@@ -129,3 +160,7 @@ cmake -S . -B build -DBUILD_SERVER=ON -DBUILD_GUI=ON ...
 
 核心链路全部为宽松许可（MIT / BSD / zlib / BSL / 公有领域），无 Copyleft 成分，
 可静态链接、可闭源分发。白名单由 CI 卡点强制执行（`tools/license_check.py`）。
+
+`tools/gen_calendar/` 用到三个 Node 包（lunar-javascript / cn-era / opencc-js，均 MIT 或
+MIT+Apache-2.0），但**只用于离线生成 C++ 静态表**：不进 `vcpkg.json`、不参与编译链接、
+不随二进制分发。详见 `shared/licenses/allowlist.txt` 的登记说明。

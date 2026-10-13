@@ -26,6 +26,9 @@ attachments/
 .ccache/
 compile_commands.json
 
+# 本地临时工作区：下载的原始资料（如紫金山天文台日历 PDF）、构建/测试日志
+.data/
+
 # OS
 .DS_Store
 Thumbs.db

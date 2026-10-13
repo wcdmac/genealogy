@@ -5,6 +5,8 @@ add_executable(genealogy-core-tests
   test_repositories_m1.cpp
   test_services_m1.cpp
   test_lineage.cpp
+  test_calendar.cpp
+  test_era.cpp
 )
 
 target_link_libraries(genealogy-core-tests

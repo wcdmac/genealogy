@@ -87,6 +87,10 @@ target_sources(genealogy-core
     src/lineage/mourning.cpp
     src/lineage/appellation.cpp
     src/lineage/rules.cpp
+  src/calendar/chinese_calendar.cpp
+  src/calendar/calendar_tables.cpp
+  src/calendar/era.cpp
+  src/calendar/era_tables.cpp
     ${EMBED_OUT}
     ${RULES_MOURNING_OUT}
     ${RULES_APPEL_OUT}

@@ -8,6 +8,9 @@
 
 #include <nlohmann/json.hpp>
 
+#include <genealogy/calendar/era.hpp>
+#include <genealogy/calendar/era_tables.hpp>
+
 namespace genealogy {
 
 NLOHMANN_JSON_SERIALIZE_ENUM(Calendar, {
@@ -43,6 +46,71 @@ std::optional<int> to_int(std::string_view s) {
       std::from_chars(s.data(), s.data() + s.size(), value);
   if (ec != std::errc() || ptr != s.data() + s.size()) return std::nullopt;
   return value;
+}
+
+// 中文数字 → 阿拉伯数字，支持 一..九十九（元年…六十一年）。
+// 只认「十/十一/二十/二十一」这类常规写法，异体（廿、卅）不处理。
+std::optional<int> parse_chinese_number(std::string_view s) {
+  static constexpr std::string_view kDigits[] = {"零", "一", "二", "三", "四",
+                                                 "五", "六", "七", "八", "九"};
+  if (s.empty()) return std::nullopt;
+  if (s == "元") return 1;   // 元年
+  if (s == "十") return 10;
+  // UTF-8 下必须用字符串字面量查找——'十' 是多字节字符字面量，窄化成单字节后查不到
+  const auto ten = s.find("十");
+  if (ten == std::string_view::npos) {
+    for (int i = 1; i <= 9; ++i) {
+      if (s == kDigits[i]) return i;
+    }
+    return std::nullopt;
+  }
+  int tens = 1;
+  if (ten != 0) {
+    const std::string_view head = s.substr(0, ten);
+    bool found = false;
+    for (int i = 1; i <= 9; ++i) {
+      if (head == kDigits[i]) {
+        tens = i;
+        found = true;
+        break;
+      }
+    }
+    if (!found) return std::nullopt;
+  }
+  const std::string_view tail = s.substr(ten + 3);   // 「十」占 3 字节
+  if (tail.empty()) return tens * 10;
+  for (int i = 1; i <= 9; ++i) {
+    if (tail == kDigits[i]) return tens * 10 + i;
+  }
+  return std::nullopt;
+}
+
+// 从老谱原文开头识别「年号 + 中文数字 + 年」，如「同治三年四月初四」。
+// 年号名以年号表为准（简繁皆可），命中则填 era，其余原文照录不动。
+std::optional<Era> parse_era_prefix(const std::string& text) {
+  std::optional<Era> best;
+  std::size_t best_len = 0;
+  for (std::size_t i = 0; i < calendar::era_record_count(); ++i) {
+    const auto& rec = calendar::era_records()[i];
+    for (const char* name : {rec.reign, rec.reign_traditional}) {
+      const std::string_view n(name);
+      if (n.empty() || !text.starts_with(n)) continue;
+      const std::size_t rest = n.size();
+      if (rest + 3 > text.size()) continue;                  // 至少要有「X年」
+      if (text.compare(rest, 3, "年") == 0) continue;        // 光有年号没有年份
+      const auto year_end = text.find("年", rest);
+      if (year_end == std::string::npos) continue;
+      const auto num = parse_chinese_number(
+          std::string_view(text).substr(rest, year_end - rest));
+      if (!num) continue;
+      if (n.size() > best_len) {
+        best_len = n.size();
+        // 归一到简体年号（谱面可能写繁体「萬曆」，内部统一存「万历」）
+        best = Era{std::string(rec.reign), *num};
+      }
+    }
+  }
+  return best;
 }
 
 bool valid_ymd(int year, int month, int day) {
@@ -103,6 +171,9 @@ Result<GenealogyDate> GenealogyDate::from_raw(std::string_view text) {
   d.calendar = Calendar::Lunar;
   d.lunar = s;
   d.precision = DatePrecision::Fuzzy;
+  // 谱面常以年号起头（「同治三年四月初四」），能认出就把年号单列出来，
+  // 便于后续按年号排序与换算；认不出就原样照录，绝不猜测。
+  if (const auto era = parse_era_prefix(s)) d.era = era;
   return d;
 }
 
@@ -179,6 +250,18 @@ std::optional<int> GenealogyDate::gregorian_year() const {
   return to_int(std::string_view(*gregorian).substr(0, 4));
 }
 
+std::optional<int> GenealogyDate::era_year() const {
+  if (!era) return std::nullopt;
+  const auto y = calendar::era_to_year(era->name, era->year);
+  if (!y) return std::nullopt;
+  return *y;
+}
+
+std::optional<int> GenealogyDate::resolved_year() const {
+  if (const auto y = gregorian_year()) return y;
+  return era_year();   // 无公历信息时退回年号纪年（换算结果，非原文）
+}
+
 std::optional<std::string> GenealogyDate::year_ganzhi() const {
   const auto y = gregorian_year();
   if (!y || *y < 4) return std::nullopt;  // 公元 4 年为甲子
@@ -190,7 +273,9 @@ std::optional<std::string> GenealogyDate::year_ganzhi() const {
 std::string GenealogyDate::display() const {
   if (is_empty()) return "不详";
   std::vector<std::string> parts;
-  if (era) parts.push_back(era->name + std::to_string(era->year) + "年");
+  if (era) {
+    parts.push_back(era->name + calendar::chinese_number(era->year) + "年");
+  }
   if (lunar) parts.push_back(*lunar);
   if (ganzhi) parts.push_back(*ganzhi);
   if (gregorian) parts.push_back(*gregorian);
