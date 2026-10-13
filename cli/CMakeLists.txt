@@ -1,8 +1,9 @@
-# genea 命令行（db / person / lineage / branch / place / union / event）
+# genea 命令行（db / person / lineage / branch / place / union / event / date / io）
 
 add_executable(genea
   src/main.cpp
   src/cmd_entity.cpp
+  src/cmd_io.cpp
 )
 
 target_include_directories(genea

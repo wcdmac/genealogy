@@ -43,6 +43,9 @@ bool order_less(const Person* a, const Person* b) {
 PersonGraph PersonGraph::build(const std::vector<Person>& persons,
                                const std::vector<Union>& unions) {
   PersonGraph g;
+  // unions 可能是默认实参绑定的临时量，不能存它的地址；
+  // 空的结合表等价于「没有结合」，存 nullptr 即可
+  g.unions_ = unions.empty() ? nullptr : &unions;
   for (const auto& p : persons) g.nodes_.emplace(p.id, &p);
 
   // 父母 → 子女索引

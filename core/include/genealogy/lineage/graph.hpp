@@ -46,11 +46,16 @@ class PersonGraph {
   // 是否已婚（图中存在配偶边）。
   bool is_married(const std::string& id) const;
 
+  // 婚姻结合快照（build 时传入的那份）。校验引擎需要按结合整体看，
+  // 而 spouses_of() 只给单侧视角。
+  const std::vector<Union>* unions() const noexcept { return unions_; }
+
  private:
   std::unordered_map<std::string, const Person*> nodes_;
   std::unordered_map<std::string, std::vector<const Person*>> children_;
   std::unordered_map<std::string, std::vector<const Person*>> siblings_;
   std::unordered_map<std::string, std::vector<const Person*>> spouses_;
+  const std::vector<Union>* unions_ = nullptr;
 };
 
 }  // namespace genealogy::lineage

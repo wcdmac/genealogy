@@ -1,0 +1,158 @@
+{
+  "ruleset": "genealogy-validation",
+  "version": 1,
+  "note": "规则的等级、阈值、文案、是否启用都在这里；判定逻辑见 core/src/validate/validator.cpp 的 check_* 函数。新增规则要先加谓词，再在此登记。",
+  "rules": [
+    {
+      "id": "R1",
+      "name": "出生晚于卒年",
+      "severity": "error",
+      "entity": "person",
+      "check": "birth_after_death",
+      "params": {},
+      "message": "出生日期晚于卒年",
+      "suggestion": "核对出生与卒年两处日期；若原文为农历/年号，确认已正确换算"
+    },
+    {
+      "id": "R2",
+      "name": "父母出生不晚于子女过多",
+      "severity": "error",
+      "entity": "person",
+      "check": "parent_born_after_child",
+      "params": { "min_parent_age_years": 12 },
+      "message": "父母与子女出生年相距不足 {min_parent_age_years} 年",
+      "suggestion": "确认亲子关系是否录反，或父母/子女有一方年份有误"
+    },
+    {
+      "id": "R3",
+      "name": "子女出生晚于父母卒年过多",
+      "severity": "warning",
+      "entity": "person",
+      "check": "child_born_after_parent_death",
+      "params": { "max_mother_age": 55, "max_father_age": 80 },
+      "message": "子女出生时母亲已逾 {max_mother_age} 岁 / 父亲已逾 {max_father_age} 岁",
+      "suggestion": "可能是续弦、继子、养子，或卒年有误；请核对原文"
+    },
+    {
+      "id": "R4",
+      "name": "自指父母",
+      "severity": "error",
+      "entity": "person",
+      "check": "self_parent",
+      "params": {},
+      "message": "此人的父母指向了自己",
+      "suggestion": "世系图会出现环，关系与世代算法全部失效，必须修正"
+    },
+    {
+      "id": "R5",
+      "name": "疑似重复人物",
+      "severity": "warning",
+      "entity": "person",
+      "check": "duplicate_person",
+      "params": { "year_tolerance": 0 },
+      "message": "与另一人同名且生年相同（相差 {year_tolerance} 年内）",
+      "suggestion": "确认是同一人误录两条，还是同名的两个人；合并前请核对证据"
+    },
+    {
+      "id": "R6",
+      "name": "配偶性别相同",
+      "severity": "warning",
+      "entity": "union",
+      "check": "spouse_same_gender",
+      "params": {},
+      "message": "结合内两名成员性别相同且均已登记",
+      "suggestion": "现代同性婚姻属正常，此处仅提示人工确认；也可能是性别录错"
+    },
+    {
+      "id": "R7",
+      "name": "父母冗余字段与婚姻结合不一致",
+      "severity": "error",
+      "entity": "person",
+      "check": "parent_link_inconsistent",
+      "params": {},
+      "message": "父亲/母亲已登记，但找不到同时包含二人的婚姻结合",
+      "suggestion": "权威关系在 union_member；person.father_id/mother_id 是冗余快路径，二者需一致"
+    },
+    {
+      "id": "R8",
+      "name": "有父母但缺世代序号",
+      "severity": "info",
+      "entity": "person",
+      "check": "generation_no_missing",
+      "params": {},
+      "message": "已录入父母却未标世代序号",
+      "suggestion": "补世代序号后可参与字辈校验（R8 世代与派语一致性，M4）"
+    },
+    {
+      "id": "R9",
+      "name": "性别未登记",
+      "severity": "info",
+      "entity": "person",
+      "check": "missing_gender",
+      "params": {},
+      "message": "性别未登记",
+      "suggestion": "称谓、五服、婚姻规则都依赖性别；谱面不清时留空也优于猜错"
+    },
+    {
+      "id": "R10",
+      "name": "生年缺失",
+      "severity": "info",
+      "entity": "person",
+      "check": "missing_birth",
+      "params": {},
+      "message": "既无公历生年也无原文生年",
+      "suggestion": "时间类校验（悖论、长幼）都会跳过此人"
+    },
+    {
+      "id": "R11",
+      "name": "世系图有环",
+      "severity": "error",
+      "entity": "person",
+      "check": "ancestry_cycle",
+      "params": {},
+      "message": "沿父母链上溯会回到自己",
+      "suggestion": "环会让世代计算与关系路径无限递归，必须打断"
+    },
+    {
+      "id": "R12",
+      "name": "日期有原文但换算不出公历",
+      "severity": "info",
+      "entity": "person",
+      "check": "date_unresolved",
+      "params": {},
+      "message": "保留了日期原文，但未能解析出公历",
+      "suggestion": "常见于年号/农历写法不规范；时间类校验会跳过该日期"
+    },
+    {
+      "id": "R13",
+      "name": "葬期早于卒期",
+      "severity": "warning",
+      "entity": "person",
+      "check": "burial_before_death",
+      "params": {},
+      "message": "墓葬事件早于卒年",
+      "suggestion": "核对卒年与葬期；也可能是合葬、迁葬记在了卒年之前"
+    },
+    {
+      "id": "R14",
+      "name": "排行断层",
+      "severity": "warning",
+      "entity": "person",
+      "check": "birth_order_gap",
+      "params": {},
+      "message": "同胞排行序号不连续",
+      "suggestion": "可能有未录入的兄弟姐妹，或行几录错"
+    },
+    {
+      "id": "R15",
+      "name": "缺证据",
+      "severity": "info",
+      "entity": "person",
+      "check": "missing_evidence",
+      "params": {},
+      "enabled": false,
+      "message": "无备注、无行传、无出处",
+      "suggestion": "谱面信息充足时可开启本条做证据普查"
+    }
+  ]
+}

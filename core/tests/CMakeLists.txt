@@ -7,6 +7,9 @@ add_executable(genealogy-core-tests
   test_lineage.cpp
   test_calendar.cpp
   test_era.cpp
+  test_gedcom.cpp
+  test_io_integration.cpp
+  test_validation.cpp
 )
 
 target_link_libraries(genealogy-core-tests

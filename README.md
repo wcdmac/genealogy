@@ -6,15 +6,17 @@
 设计文档（调研结论 / 架构 / 模块划分 / 数据模型 / 接口规范）位于仓库外：
 `D:/cd/tree/genealogy-design/家谱管理软件-调研与架构设计.md`（v1.0，2026-10-12）。
 
-## 当前状态（M1.4）
+## 当前状态（M1.5）
 
 - [x] monorepo 骨架 + CMake + vcpkg manifest
 - [x] core：领域模型（person/lineage/branch/place/union/event）/ GenealogyDate 多历法值对象 / ULID / SQLite 仓储 + 迁移 / 用例层（五服务，含领域校验）
-- [x] cli：`db init` / `person add|list|show|relation` / `lineage|branch|place|union|event add|list|show|remove` / `date convert|lunar|terms|era|info`
+- [x] cli：`db init` / `person add|list|show|relation` / `lineage|branch|place|union|event add|list|show|remove` / `date convert|lunar|terms|era|info` / `io import|export|validate`
 - [x] **M1.3 世系算法引擎**：世系图快照 + BFS 关系路径 + 世代序号（自始祖起算）+ 辈分差 + 五服（明清定型版）+ 称谓；规则表数据外置（`shared/rules/*.json`，构建时嵌入）
 - [x] **M1.4 历法引擎**：公历↔农历互转（**1583-3000**，1418 个农历年）/ 24 节气时刻（北京时间，到分）/ 干支纪年纪月纪日 / 生肖 / 年号纪年（西汉建元至民国，499 条区间）
-- [x] Catch2 测试（784168 断言 / 48 用例）+ 三平台 CI + 许可证白名单卡点
-- [ ] M1.5：GEDCOM 导入导出 + 校验规则引擎
+- [x] **M1.5 GEDCOM 5.5.1 导入导出 + 一致性校验规则引擎**：三层解析（字符集/结构/映射）、
+  255 字节 CONC 切行、妾与继配用 `_CONC` 扩展标签保留；15 条校验规则全部外置在
+  `shared/rules/validation.json`，阈值/等级/启停改 JSON 即生效
+- [x] Catch2 测试（784538 断言 / 80 用例）+ 三平台 CI + 许可证白名单卡点
 - [ ] M1.6：性能灌库验收
 - [ ] M2：REST 服务（Drogon）；M3：GUI（Dear ImGui）
 
@@ -33,6 +35,34 @@
 
 数据生成链路见 `tools/gen_calendar/`（离线跑一次，产物是 C++ 静态表，运行时零依赖）。
 
+### 一致性校验规则集
+
+规则表在 `shared/rules/validation.json`，构建期嵌入；**阈值、等级、文案、是否启用都在 JSON 里，
+换规则不改代码**。判定逻辑是代码里固定的一组谓词（规则表的 `check` 字段即谓词名）——
+没做成通用表达式语言：家谱校验要的是可读、可测试、可回溯，一个小型 DSL 只会把规则文件
+变成没人敢改的第二套程序。
+
+| 规则 | 查什么 | 等级 |
+|---|---|---|
+| R1 | 出生晚于卒年 | error |
+| R2 | 父母与子女出生年相距不足 12 年 | error |
+| R3 | 子女出生时母亲已逾 55 岁 / 父亲已逾 80 岁 | warning |
+| R4 | 父母指向自己 | error |
+| R5 | 同名且生年相同（疑似重复人物） | warning |
+| R6 | 配偶性别相同且均已登记 | warning |
+| R7 | `father_id`/`mother_id` 冗余字段找不到对应的婚姻结合 | error |
+| R8 | 有父母但未标世代序号 | info |
+| R9 | 性别未登记 | info |
+| R10 | 既无公历生年也无原文生年 | info |
+| R11 | 沿父母链上溯回到自己（世系图有环） | error |
+| R12 | 日期有原文但换算不出公历 | info |
+| R13 | 墓葬事件早于卒年 | warning |
+| R14 | 同胞排行序号不连续 | warning |
+| R15 | 无备注、无行传、无出处（**默认停用**，证据普查时再开） | info |
+
+时间类规则只认公历年份：农历原文换算不出公历就跳过（并由 R12 单独提示），
+**宁可少报，不可拿不可靠的年份去判悖论**。`io validate` 有 error 时退出码为 1，可直接当 CI 卡点。
+
 ## 目录结构
 
 ```
@@ -43,7 +73,7 @@ genealogy/
 ├── gui/              # 桌面 GUI（Dear ImGui + GLFW，BUILD_GUI=ON 启用）
 ├── clients/web/      # Web UI 参考实现（TS + React）
 │   ├── schema/       # SQLite DDL 与迁移脚本（构建时嵌入二进制）
-│   ├── rules/        # 五服 / 称谓规则表（JSON，构建时嵌入；换规则不改代码）
+│   ├── rules/        # 五服/称谓/校验规则表（JSON，构建时嵌入；换规则不改代码）
 │   ├── licenses/     # 依赖许可证白名单
 │   └── openapi/      # OpenAPI 规范（客户端代码生成唯一事实源）
 ├── tools/
@@ -134,6 +164,18 @@ cmake -S . -B build -DBUILD_SERVER=ON -DBUILD_GUI=ON ...
 ./build/bin/genea date era 同治三年              # → 1864 年（甲子年 · 鼠），正月初一 1864-02-08
 ./build/bin/genea date era 天顺元年              # 重名年号报冲突并列出候选：元天顺=1328 明天顺=1457
 
+# GEDCOM 导入导出与校验（走数据库，与 API 同一条用例层路径）
+./build/bin/genea lineage add --db family.db --name 中湘陈氏 --surname 陈   # 先有宗族
+./build/bin/genea io import gedcom 族谱.ged --db family.db --lineage 01J... [--surname 陈]
+# 导入完成: 人物 5 · 结合 2 · 事件 6 · 地点 1
+# 映射损失: 1 条（warning 0 条，info 1 条）
+#   [I] @S1@ SOUR — 证据引用未建模（M1 无 Source/Citation），出处链已丢失
+./build/bin/genea io validate --db family.db
+# 规则集 genealogy-validation v1（跑了 14/15 条）
+# 合计: error 0 · warning 1 · info 2
+#   [warning] R5 person 01J... — 与另一人同名且生年相同（确认是同一人误录两条，还是同名的两个人）
+./build/bin/genea io export gedcom --db family.db --out 导出.ged --submitter 谱师
+
 # 世系算法：两人关系路径 / 辈分差 / 五服 / 称谓
 ./build/bin/genea person relation --db family.db 01J... 01K...
 # 关系路径: H.F
@@ -155,6 +197,15 @@ cmake -S . -B build -DBUILD_SERVER=ON -DBUILD_GUI=ON ...
 >   **不可**当作辈分差使用。
 
 退出码：0 成功 / 1 运行时错误 / 2 用法错误 / 3 不存在 / 4 版本冲突。
+
+> **GEDCOM 换算的三条硬规矩**：
+> - **不猜**。DATE 解不出公历（`INT 1900 (say)`、`30 FEB 1900`）就只留原文 + 记损失，
+>   绝不编一个日期出来；ANSEL / MacRoman 字符集直接拒收并提示先转 UTF-8。
+> - **损失显式化**。OBJE（附件）、SOUR（证据链）、_UID、ASSO 都会逐条列出来，
+>   谱师能看清「原文里有、我们库里没有」的到底是哪些。
+> - **妾与继配不归并**。GEDCOM 5.5.1 没有这个角色，导出用扩展标签 `_CONC` 保留，
+>   别的软件会忽略它而不是读错；亲子关系只认「夫妻双方齐全」的结合，
+>   孩子该挂正室还是侧室是谱学判断，程序不替谱师决定。
 
 ## 依赖与许可
 

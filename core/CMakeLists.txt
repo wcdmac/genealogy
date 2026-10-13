@@ -10,6 +10,7 @@ set(EMBED_SCRIPT ${PROJECT_SOURCE_DIR}/cmake/EmbedSql.cmake)
 set(EMBED_TEXT_SCRIPT ${PROJECT_SOURCE_DIR}/cmake/EmbedText.cmake)
 set(EMBED_OUT ${CMAKE_CURRENT_BINARY_DIR}/generated/embedded_schema.cpp)
 set(RULES_DIR ${PROJECT_SOURCE_DIR}/shared/rules)
+set(RULES_VALID_OUT ${CMAKE_CURRENT_BINARY_DIR}/generated/rules_validation.cpp)
 set(RULES_MOURNING_OUT
     ${CMAKE_CURRENT_BINARY_DIR}/generated/rules_mourning_ming_qing.cpp)
 set(RULES_APPEL_OUT ${CMAKE_CURRENT_BINARY_DIR}/generated/rules_appellation.cpp)
@@ -42,6 +43,19 @@ add_custom_command(
           -P ${EMBED_TEXT_SCRIPT}
   DEPENDS ${RULES_DIR}/appellation.json ${EMBED_TEXT_SCRIPT}
   COMMENT "嵌入称谓规则表"
+  VERBATIM)
+
+add_custom_command(
+  OUTPUT ${RULES_VALID_OUT}
+  COMMAND ${CMAKE_COMMAND}
+          -DIN=${RULES_DIR}/validation.json
+          -DOUT=${RULES_VALID_OUT}
+          -DSYMBOL=kValidationJson
+          -DNAMESPACE=genealogy::validation::rules_data
+          -DHEADER=genealogy/validation/rules_data.hpp
+          -P ${EMBED_TEXT_SCRIPT}
+  DEPENDS ${RULES_DIR}/validation.json ${EMBED_TEXT_SCRIPT}
+  COMMENT "嵌入一致性校验规则表"
   VERBATIM)
 
 add_custom_command(
@@ -91,9 +105,12 @@ target_sources(genealogy-core
   src/calendar/calendar_tables.cpp
   src/calendar/era.cpp
   src/calendar/era_tables.cpp
+  src/io/gedcom.cpp
+  src/validate/validator.cpp
     ${EMBED_OUT}
     ${RULES_MOURNING_OUT}
     ${RULES_APPEL_OUT}
+    ${RULES_VALID_OUT}
 )
 
 target_include_directories(genealogy-core
