@@ -12,6 +12,8 @@
 namespace genealogy {
 namespace {
 
+using repo_internal::bind_place;
+using repo_internal::place_insert_sql;
 using repo_internal::Stmt;
 using repo_internal::bind_opt_double;
 using repo_internal::bind_opt_text;
@@ -44,22 +46,6 @@ Place row_to_place(sqlite3_stmt* st) {
   p.lng = col_opt_double(st, kLng);
   p.note = col_opt_text(st, kNote);
   return p;
-}
-
-void bind_place(sqlite3_stmt* st, const Place& p) {
-  int i = 1;
-  sqlite3_bind_text(st, i++, p.id.c_str(), -1, SQLITE_TRANSIENT);
-  sqlite3_bind_text(st, i++, p.name.c_str(), -1, SQLITE_TRANSIENT);
-  if (p.type) {
-    sqlite3_bind_text(st, i++, to_string(*p.type).c_str(), -1, SQLITE_TRANSIENT);
-  } else {
-    sqlite3_bind_null(st, i++);
-  }
-  bind_opt_text(st, i++, p.modern_admin);
-  bind_opt_text(st, i++, p.historical_name);
-  bind_opt_double(st, i++, p.lat);
-  bind_opt_double(st, i++, p.lng);
-  bind_opt_text(st, i++, p.note);
 }
 
 }  // namespace
@@ -129,9 +115,7 @@ Result<Place> PlaceRepository::get(const std::string& id) const {
 
 Result<Place> PlaceRepository::insert(Place place) {
   if (place.id.empty()) place.id = generate_ulid();
-  const std::string sql =
-      std::string("INSERT INTO place(").append(kCols) + ") VALUES (?1,?2,?3,?4,?5,?6,?7,?8)";
-  Stmt st(db_.raw(), sql.c_str());
+  Stmt st(db_.raw(), place_insert_sql());
   if (!st.ok()) {
     return Error{ErrorCode::Internal,
                  std::string("准备 INSERT 失败: ") + sqlite3_errmsg(db_.raw())};

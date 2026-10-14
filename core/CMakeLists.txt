@@ -81,6 +81,7 @@ target_sources(genealogy-core
     src/model/union.cpp
     src/model/event.cpp
     src/repository/sqlite_util.cpp
+    src/repository/transaction.cpp
     src/repository/database.cpp
     src/repository/person_repository.cpp
     src/repository/bootstrap.cpp
@@ -106,7 +107,10 @@ target_sources(genealogy-core
   src/calendar/era.cpp
   src/calendar/era_tables.cpp
   src/io/gedcom.cpp
+  src/io/synthetic.cpp
+  src/lineage/tree.cpp
   src/validate/validator.cpp
+  src/repository/bulk_load.cpp
     ${EMBED_OUT}
     ${RULES_MOURNING_OUT}
     ${RULES_APPEL_OUT}

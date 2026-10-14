@@ -124,22 +124,30 @@ const Person* PersonGraph::mother_of(const std::string& id) const {
   return find(*p->mother_id);
 }
 
-std::vector<const Person*> PersonGraph::children_of(
+namespace {
+// 空列表的单例：查不到时返回引用，调用方无需判空
+const std::vector<const Person*>& empty_people() {
+  static const std::vector<const Person*> kEmpty;
+  return kEmpty;
+}
+}  // namespace
+
+const std::vector<const Person*>& PersonGraph::children_of(
     const std::string& id) const {
   const auto it = children_.find(id);
-  return it == children_.end() ? std::vector<const Person*>() : it->second;
+  return it == children_.end() ? empty_people() : it->second;
 }
 
-std::vector<const Person*> PersonGraph::siblings_of(
+const std::vector<const Person*>& PersonGraph::siblings_of(
     const std::string& id) const {
   const auto it = siblings_.find(id);
-  return it == siblings_.end() ? std::vector<const Person*>() : it->second;
+  return it == siblings_.end() ? empty_people() : it->second;
 }
 
-std::vector<const Person*> PersonGraph::spouses_of(
+const std::vector<const Person*>& PersonGraph::spouses_of(
     const std::string& id) const {
   const auto it = spouses_.find(id);
-  return it == spouses_.end() ? std::vector<const Person*>() : it->second;
+  return it == spouses_.end() ? empty_people() : it->second;
 }
 
 bool PersonGraph::is_married(const std::string& id) const {

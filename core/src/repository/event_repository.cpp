@@ -14,7 +14,9 @@ namespace genealogy {
 namespace {
 
 using repo_internal::Stmt;
+using repo_internal::bind_event;
 using repo_internal::bind_opt_date;
+using repo_internal::event_insert_sql;
 using repo_internal::bind_opt_text;
 using repo_internal::col_opt_date;
 using repo_internal::col_opt_text;
@@ -47,19 +49,6 @@ Event row_to_event(sqlite3_stmt* st) {
   e.description = col_opt_text(st, kDescription);
   e.created_at = col_text(st, kCreatedAt);
   return e;
-}
-
-void bind_event(sqlite3_stmt* st, const Event& e) {
-  int i = 1;
-  sqlite3_bind_text(st, i++, e.id.c_str(), -1, SQLITE_TRANSIENT);
-  sqlite3_bind_text(st, i++, to_string(e.subject_type).c_str(), -1,
-                    SQLITE_TRANSIENT);
-  sqlite3_bind_text(st, i++, e.subject_id.c_str(), -1, SQLITE_TRANSIENT);
-  sqlite3_bind_text(st, i++, to_string(e.type).c_str(), -1, SQLITE_TRANSIENT);
-  bind_opt_date(st, i++, e.date);
-  bind_opt_text(st, i++, e.place_id);
-  bind_opt_text(st, i++, e.description);
-  sqlite3_bind_text(st, i++, e.created_at.c_str(), -1, SQLITE_TRANSIENT);
 }
 
 }  // namespace
@@ -124,9 +113,7 @@ Result<Event> EventRepository::get(const std::string& id) const {
 Result<Event> EventRepository::insert(Event event) {
   if (event.id.empty()) event.id = generate_ulid();
   event.created_at = utc_now_iso();
-  const std::string sql = std::string("INSERT INTO event(").append(kCols) +
-                          ") VALUES (?1,?2,?3,?4,?5,?6,?7,?8)";
-  Stmt st(db_.raw(), sql.c_str());
+  Stmt st(db_.raw(), event_insert_sql());
   if (!st.ok()) {
     return Error{ErrorCode::Internal,
                  std::string("准备 INSERT 失败: ") + sqlite3_errmsg(db_.raw())};

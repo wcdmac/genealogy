@@ -4,8 +4,10 @@
 
 #include <cxxopts.hpp>
 
+#include <chrono>
 #include <cstdio>
 #include <cstdlib>
+#include <functional>
 #include <iostream>
 #include <optional>
 #include <string>
@@ -27,6 +29,7 @@
 #include <genealogy/lineage/appellation.hpp>
 #include <genealogy/lineage/generation.hpp>
 #include <genealogy/lineage/graph.hpp>
+#include <genealogy/lineage/tree.hpp>
 #include <genealogy/lineage/mourning.hpp>
 #include <genealogy/lineage/relationship.hpp>
 #include <genealogy/model/genealogy_date.hpp>
@@ -233,6 +236,92 @@ int cmd_person_show(const std::vector<std::string>& args,
   } else {
     print_person_text(*got);
   }
+  return 0;
+}
+
+// person tree <id>：十代子孙树（M1.6 性能验收的查询入口）。
+// 图数据全量装载（M1 规模足够；万级以上的按需加载留待 M2 仓储层）。
+int cmd_person_tree(const std::vector<std::string>& args,
+                    const std::string& db_path, const std::string& format) {
+  cxxopts::Options opts("genea person tree", "后代树（子孙树）");
+  opts.add_options()
+      ("id", "起点人物 ID", cxxopts::value<std::string>())
+      ("depth", "展开层数（1 = 只有本人）",
+       cxxopts::value<int>()->default_value("10"))
+      ("limit", "全量装载上限", cxxopts::value<int>()->default_value("200000"));
+  opts.parse_positional({"id"});
+  const auto r = parse_args(opts, args);
+  if (!r.count("id")) {
+    std::cerr << "用法错误: genea person tree <id> [--depth 10]\n";
+    return 2;
+  }
+
+  auto db = open_db(db_path);
+  if (!db) {
+    print_error(db.error());
+    return exit_code_for(db.error());
+  }
+  PersonService persons(*db);
+  PersonFilter person_filter;
+  person_filter.limit = r["limit"].as<int>();
+  auto person_list = persons.list_persons(person_filter);
+  if (!person_list) {
+    print_error(person_list.error());
+    return exit_code_for(person_list.error());
+  }
+  UnionService unions(*db);
+  UnionFilter union_filter;
+  union_filter.limit = 200000;
+  auto union_list = unions.list_unions(union_filter);
+  if (!union_list) {
+    print_error(union_list.error());
+    return exit_code_for(union_list.error());
+  }
+  auto person_rows = std::move(*person_list);
+  auto union_rows = std::move(*union_list);
+  const lineage::PersonGraph graph =
+      lineage::PersonGraph::build(person_rows, union_rows);
+
+  const auto t0 = std::chrono::steady_clock::now();
+  const auto tree = lineage::descendants_tree(graph, r["id"].as<std::string>(),
+                                              r["depth"].as<int>());
+  const auto t1 = std::chrono::steady_clock::now();
+  if (!tree) {
+    print_error(tree.error());
+    return exit_code_for(tree.error());
+  }
+  const double ms =
+      std::chrono::duration<double, std::milli>(t1 - t0).count();
+  const std::size_t nodes = lineage::tree_node_count(*tree);
+  const int depth_seen = lineage::tree_depth(*tree);
+
+  if (format == "json") {
+    nlohmann::json out;
+    out["root"] = r["id"].as<std::string>();
+    out["nodes"] = nodes;
+    out["depth"] = depth_seen;
+    out["elapsed_ms"] = ms;
+    std::cout << out.dump(2) << "\n";
+    return 0;
+  }
+  // 文本树：缩进两级/代，节点数过多时只打前 200 个
+  std::function<void(const lineage::TreeNode&, int, std::size_t*)> print =
+      [&](const lineage::TreeNode& node, int level, std::size_t* budget) {
+        if (*budget == 0) return;
+        --*budget;
+        const Person* p = node.person;
+        std::cout << std::string(static_cast<std::size_t>(level) * 2, ' ')
+                  << (p ? p->family_name + p->given_name : "（佚名）");
+        if (p && p->generation_no) std::cout << "［第" << *p->generation_no << "世］";
+        if (p && p->birth_date.gregorian) std::cout << " " << *p->birth_date.gregorian;
+        std::cout << "\n";
+        for (const auto& c : node.children) print(c, level + 1, budget);
+      };
+  std::size_t budget = 200;
+  print(*tree, 0, &budget);
+  if (budget == 0) std::cout << "…（只显示前 200 个节点）\n";
+  std::cout << "后代树: " << nodes << " 节点 / " << depth_seen << " 层，耗时 "
+            << ms << " ms\n";
   return 0;
 }
 
@@ -750,25 +839,25 @@ int run(std::vector<std::string> raw_args) {
 
   const auto& unmatched = g.unmatched();
   if (g.count("help") > 0) {
-    std::cout << global.help() << "\n子命令: db init | person add|list|show|relation |"
+    std::cout << global.help() << "\n子命令: db init|seed | person add|list|show|relation|tree |"
               << " lineage add|list|show|remove |"
               << " branch add|list|show|remove |"
               << " place add|list|show|remove |"
               << " union add|list|show|remove |"
               << " event add|list|show|remove |"
               << " date convert|lunar|terms|era|info |"
-              << " io import|export|validate\n";
+              << " io import|export|validate | bench\n";
     return 0;
   }
   if (unmatched.empty()) {
-    std::cout << global.help() << "\n子命令: db init | person add|list|show|relation |"
+    std::cout << global.help() << "\n子命令: db init|seed | person add|list|show|relation|tree |"
               << " lineage add|list|show|remove |"
               << " branch add|list|show|remove |"
               << " place add|list|show|remove |"
               << " union add|list|show|remove |"
               << " event add|list|show|remove |"
               << " date convert|lunar|terms|era|info |"
-              << " io import|export|validate\n";
+              << " io import|export|validate | bench\n";
     return 2;
   }
 
@@ -790,11 +879,15 @@ int run(std::vector<std::string> raw_args) {
 
   try {
     if (command == "db" && sub == "init") return cmd_db_init(db_path, format);
+    if (command == "db" && sub == "seed") {
+      return genea_cli::cmd_db_seed(args, db_path, format);
+    }
     if (command == "person") {
       if (sub == "add") return cmd_person_add(args, db_path, format);
       if (sub == "list") return cmd_person_list(args, db_path, format);
       if (sub == "show") return cmd_person_show(args, db_path, format);
       if (sub == "relation") return cmd_person_relation(args, db_path, format);
+      if (sub == "tree") return cmd_person_tree(args, db_path, format);
     }
     // 实体命令组内部自己拆子命令（add/list/show/remove），故传 rest
     // （含子命令）；person/db 系列直接消费 options，传 args（不含子命令）。
@@ -812,6 +905,8 @@ int run(std::vector<std::string> raw_args) {
       return cmd_date(rest, format);   // 历法引擎，不需要数据库
     if (command == "io")
       return genea_cli::cmd_io(rest, db_path, format);
+    if (command == "bench")
+      return genea_cli::cmd_bench(rest, db_path, format);
   } catch (const cxxopts::exceptions::exception& e) {
     // 参数/用法问题
     std::cerr << "用法错误: " << e.what() << "\n";
@@ -826,7 +921,7 @@ int run(std::vector<std::string> raw_args) {
             << "（支持: db init | person add|list|show |"
             << " lineage|branch|place|union|event add|list|show|remove |"
             << " date convert|lunar|terms|era|info |"
-            << " io import|export|validate）\n";
+            << " io import|export|validate | bench）\n";
   return 2;
 }
 

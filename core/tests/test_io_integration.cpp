@@ -12,6 +12,7 @@
 
 #include <genealogy/error.hpp>
 #include <genealogy/io/gedcom.hpp>
+#include <genealogy/io/synthetic.hpp>
 #include <genealogy/model/lineage.hpp>
 #include <genealogy/repository/bootstrap.hpp>
 #include <genealogy/repository/database.hpp>
@@ -227,4 +228,66 @@ TEST_CASE("GEDCOM 集成：文件 → 库 → 文件 → 库 闭环，回流零�
   CHECK(u2.members.size() == 2);
   CHECK(u2.start_date.has_value());
   CHECK(u2.start_date->gregorian.value() == "1883");
+}
+
+// ---------------------------------------------------------------- 规模往返
+//
+// 这一条同时是**性能回归哨兵**：M1.6 之前导出是 O(结合×人物)、
+// 导入是每条 INSERT 一次 fsync，2000 条数据光导出就要 57 秒、
+// 落库要一分多钟。修好之后整条链路是毫秒级——这个用例会一直被跑，
+// 谁再把复杂度改回去，测试套件会立刻变慢到藏不住。
+TEST_CASE("GEDCOM 集成：2000 条规模往返（性能回归哨兵）") {
+  const std::size_t kN = 2000;
+  io::SyntheticOptions so;
+  so.persons = kN;
+  so.generations = 12;
+  so.lineage_id = kDefaultLineageId;
+  const io::SyntheticData data = io::generate_synthetic(so);
+  REQUIRE(data.persons.size() >= kN * 9 / 10);
+
+  // 导出（这一步曾经是 O(n^2)）
+  io::ExportOptions eo;
+  eo.persons = &data.persons;
+  eo.unions = &data.unions;
+  eo.places = &data.places;
+  const std::string text = io::export_gedcom(eo);
+  CHECK(text.size() > 100000);
+
+  // 读回
+  auto doc = io::parse_gedcom(text);
+  REQUIRE(doc.has_value());
+  io::ImportOptions opt;
+  opt.lineage_id = kDefaultLineageId;
+  opt.default_surname = "陈";
+  auto back = io::import_gedcom(*doc, opt);
+  REQUIRE(back.has_value());
+  // 自家格式往返：不允许 Warning 级损失
+  for (const auto& l : back->losses) {
+    INFO("loss: " << l.xref << " " << l.tag << " " << l.reason);
+    CHECK(l.severity == io::LossSeverity::Info);
+  }
+  CHECK(back->persons.size() == data.persons.size());
+  CHECK(back->unions.size() == data.unions.size());
+
+  // 父母链在规模下依然完整。两次导入的 id 是各自新生成的 ULID，
+  // 不能跨库比对 id；改用计数不变量——「父母双全」的人数必须一致，
+  // 这正好覆盖 FAMC 只挂完整家庭那条规则有没有在规模下走样。
+  const auto both_parents = [](const std::vector<Person>& ps) {
+    std::size_t n = 0;
+    for (const auto& p : ps) {
+      if (p.father_id && p.mother_id) ++n;
+    }
+    return n;
+  };
+  const std::size_t before = both_parents(data.persons);
+  const std::size_t after = both_parents(back->persons);
+  CHECK(before > 0);
+  CHECK(after == before);
+
+  // 配偶边同样不能少：导出只写 HUSB/WIFE/_CONC，读回成员数要一致
+  std::size_t members_before = 0;
+  for (const auto& u : data.unions) members_before += u.members.size();
+  std::size_t members_after = 0;
+  for (const auto& u : back->unions) members_after += u.members.size();
+  CHECK(members_after == members_before);
 }

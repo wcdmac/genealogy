@@ -6,18 +6,19 @@
 设计文档（调研结论 / 架构 / 模块划分 / 数据模型 / 接口规范）位于仓库外：
 `D:/cd/tree/genealogy-design/家谱管理软件-调研与架构设计.md`（v1.0，2026-10-12）。
 
-## 当前状态（M1.5）
+## 当前状态（M1.6）
 
 - [x] monorepo 骨架 + CMake + vcpkg manifest
 - [x] core：领域模型（person/lineage/branch/place/union/event）/ GenealogyDate 多历法值对象 / ULID / SQLite 仓储 + 迁移 / 用例层（五服务，含领域校验）
-- [x] cli：`db init` / `person add|list|show|relation` / `lineage|branch|place|union|event add|list|show|remove` / `date convert|lunar|terms|era|info` / `io import|export|validate`
+- [x] cli：`db init|seed` / `person add|list|show|relation|tree` / `lineage|branch|place|union|event add|list|show|remove` / `date convert|lunar|terms|era|info` / `io import|export|validate` / `bench`
 - [x] **M1.3 世系算法引擎**：世系图快照 + BFS 关系路径 + 世代序号（自始祖起算）+ 辈分差 + 五服（明清定型版）+ 称谓；规则表数据外置（`shared/rules/*.json`，构建时嵌入）
 - [x] **M1.4 历法引擎**：公历↔农历互转（**1583-3000**，1418 个农历年）/ 24 节气时刻（北京时间，到分）/ 干支纪年纪月纪日 / 生肖 / 年号纪年（西汉建元至民国，499 条区间）
 - [x] **M1.5 GEDCOM 5.5.1 导入导出 + 一致性校验规则引擎**：三层解析（字符集/结构/映射）、
   255 字节 CONC 切行、妾与继配用 `_CONC` 扩展标签保留；15 条校验规则全部外置在
   `shared/rules/validation.json`，阈值/等级/启停改 JSON 即生效
-- [x] Catch2 测试（784538 断言 / 80 用例）+ 三平台 CI + 许可证白名单卡点
-- [ ] M1.6：性能灌库验收
+- [x] **M1.6 性能灌库验收**：合成谱生成器（固定种子可复现）+ 灌库快路径 + `genea bench`
+  基准报告（10 万人物 / 8.9 万事件，全部达标，余量 4～12 倍）+ 规模往返哨兵测试
+- [x] Catch2 测试（784547 断言 / 81 用例）+ 三平台 CI + 许可证白名单卡点
 - [ ] M2：REST 服务（Drogon）；M3：GUI（Dear ImGui）
 
 ### 历法引擎的数据从哪来
@@ -176,6 +177,18 @@ cmake -S . -B build -DBUILD_SERVER=ON -DBUILD_GUI=ON ...
 #   [warning] R5 person 01J... — 与另一人同名且生年相同（确认是同一人误录两条，还是同名的两个人）
 ./build/bin/genea io export gedcom --db family.db --out 导出.ged --submitter 谱师
 
+# 性能验收：灌库 + 跑基准（M1.6）
+./build/bin/genea db seed --db family.db --persons 100000     # 合成谱灌库
+./build/bin/genea person tree <始祖ID> --db family.db --depth 10
+./build/bin/genea bench --db family.db --persons 100000      # 退出码 0 = 全达标
+# 指标                       目标          实测        结果
+# 灌库 100000 人物 + 88739 事件 < 60000       13667.0 ms   PASS
+# FTS 检索（10 万级）          < 50             5.2 ms   PASS
+# 十代子孙树（77816 节点/10 层）< 200          17.8 ms   PASS
+# 世系图快照构建（100000 人物） 参考项         303.7 ms   PASS
+# GEDCOM 导出 10000 人物        < 10000        49.0 ms   PASS
+# GEDCOM 导入 10000 人物        < 60000      7709.7 ms   PASS
+
 # 世系算法：两人关系路径 / 辈分差 / 五服 / 称谓
 ./build/bin/genea person relation --db family.db 01J... 01K...
 # 关系路径: H.F
@@ -197,6 +210,13 @@ cmake -S . -B build -DBUILD_SERVER=ON -DBUILD_GUI=ON ...
 >   **不可**当作辈分差使用。
 
 退出码：0 成功 / 1 运行时错误 / 2 用法错误 / 3 不存在 / 4 版本冲突。
+
+> **性能口径**：`bench` 的每一项都对着设计文档的验收线，退出码 0 表示全达标，
+> 可直接当 CI 卡点。合成谱用固定种子（`--seed`），同参数永远长出同一份数据，
+> 数字可复现、可对比。生成的家谱保持世系常理：每代年龄递增、婚姻早于生育、
+> 子女出生不早于父母 + 最小生育年龄、`generation_no` 逐代 +1、行几连续。
+> 户主性别决定配偶性别与结合角色（儿子娶妻、女儿招婿），不产出同性结合——
+> 否则 R6 会被大规模误报，把真要人看的信号淹掉。
 
 > **GEDCOM 换算的三条硬规矩**：
 > - **不猜**。DATE 解不出公历（`INT 1900 (say)`、`30 FEB 1900`）就只留原文 + 记损失，

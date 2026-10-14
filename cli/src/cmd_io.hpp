@@ -10,4 +10,12 @@ namespace genea_cli {
 int cmd_io(const std::vector<std::string>& args, const std::string& db_path,
            const std::string& format);
 
+// 性能验收：灌库 + 跑基准（M1.6）。
+int cmd_bench(const std::vector<std::string>& args, const std::string& db_path,
+              const std::string& format);
+
+// 合成谱灌库（M1.6 性能验收的数据来源）。
+int cmd_db_seed(const std::vector<std::string>& args, const std::string& db_path,
+                const std::string& format);
+
 }  // namespace genea_cli

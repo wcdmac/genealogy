@@ -35,13 +35,14 @@ class PersonGraph {
 
   // 子女排序：birth_order 升序（行几小者在前）→ 出生日期 → id。
   // 排序确定，保证算法输出可复现（快照测试的前提）。
-  std::vector<const Person*> children_of(const std::string& id) const;
+  // 返回常量引用：树展开会逐节点调用，返回副本等于白扔分配。
+  const std::vector<const Person*>& children_of(const std::string& id) const;
 
   // 兄弟姐妹：同父或同母（不含自己）；半亲计入（M1 不区分全/半）。
-  std::vector<const Person*> siblings_of(const std::string& id) const;
+  const std::vector<const Person*>& siblings_of(const std::string& id) const;
 
   // 配偶：union 成员中除自己外的各方（含妾/继配）。
-  std::vector<const Person*> spouses_of(const std::string& id) const;
+  const std::vector<const Person*>& spouses_of(const std::string& id) const;
 
   // 是否已婚（图中存在配偶边）。
   bool is_married(const std::string& id) const;

@@ -25,6 +25,8 @@ using repo_internal::col_date;
 using repo_internal::col_opt_int;
 using repo_internal::col_opt_text;
 using repo_internal::col_text;
+using repo_internal::bind_person;
+using repo_internal::person_insert_sql;
 using repo_internal::qualify_cols;
 using repo_internal::quote_fts;
 
@@ -106,42 +108,6 @@ Person row_to_person(sqlite3_stmt* st) {
   return p;
 }
 
-void bind_person(sqlite3_stmt* st, const Person& p) {
-  int i = 1;
-  sqlite3_bind_text(st, i++, p.id.c_str(), -1, SQLITE_TRANSIENT);
-  sqlite3_bind_text(st, i++, p.lineage_id.c_str(), -1, SQLITE_TRANSIENT);
-  bind_opt_text(st, i++, p.branch_id);
-  sqlite3_bind_text(st, i++, p.family_name.c_str(), -1, SQLITE_TRANSIENT);
-  sqlite3_bind_text(st, i++, p.given_name.c_str(), -1, SQLITE_TRANSIENT);
-  bind_opt_text(st, i++, p.courtesy_name);
-  bind_opt_text(st, i++, p.art_name);
-  bind_opt_text(st, i++, p.posthumous_title);
-  bind_opt_text(st, i++, p.alias);
-  sqlite3_bind_text(st, i++, to_string(p.gender).c_str(), -1, SQLITE_TRANSIENT);
-  bind_opt_int(st, i++, p.birth_order);
-  bind_opt_int(st, i++, p.generation_no);
-  sqlite3_bind_int(st, i++, p.is_heir ? 1 : 0);
-  sqlite3_bind_int(st, i++, p.is_living ? 1 : 0);
-  sqlite3_bind_text(st, i++, to_string(p.privacy).c_str(), -1, SQLITE_TRANSIENT);
-  bind_date(st, i++, p.birth_date);
-  if (p.death_date) {
-    bind_date(st, i++, *p.death_date);
-  } else {
-    sqlite3_bind_null(st, i++);
-  }
-  bind_opt_text(st, i++, p.birth_place_id);
-  bind_opt_text(st, i++, p.death_place_id);
-  bind_opt_text(st, i++, p.burial_place_id);
-  bind_opt_text(st, i++, p.biography);
-  bind_opt_text(st, i++, p.father_id);
-  bind_opt_text(st, i++, p.mother_id);
-  bind_opt_text(st, i++, p.portrait_attachment_id);
-  bind_opt_text(st, i++, p.note);
-  sqlite3_bind_int64(st, i++, static_cast<std::int64_t>(p.rev));
-  sqlite3_bind_text(st, i++, p.created_at.c_str(), -1, SQLITE_TRANSIENT);
-  sqlite3_bind_text(st, i++, p.updated_at.c_str(), -1, SQLITE_TRANSIENT);
-}
-
 }  // namespace
 
 PersonRepository::PersonRepository(Database& db) : db_(db) {}
@@ -217,15 +183,7 @@ Result<Person> PersonRepository::insert(Person p) {
   p.created_at = utc_now_iso();
   p.updated_at = p.created_at;
 
-  Stmt st(db_.raw(),
-          "INSERT INTO person(id, lineage_id, branch_id, family_name,"
-          " given_name, courtesy_name, art_name, posthumous_title, alias,"
-          " gender, birth_order, generation_no, is_heir, is_living, privacy_level,"
-          " birth_date, death_date, birth_place_id, death_place_id,"
-          " burial_place_id, biography, father_id, mother_id,"
-          " portrait_attachment_id, note, rev, created_at, updated_at)"
-          " VALUES (?1,?2,?3,?4,?5,?6,?7,?8,?9,?10,?11,?12,?13,?14,?15,?16,"
-          "?17,?18,?19,?20,?21,?22,?23,?24,?25,?26,?27,?28)");
+  Stmt st(db_.raw(), person_insert_sql());
   if (!st.ok()) return internal("准备 INSERT 失败");
   bind_person(st.get(), p);
   if (sqlite3_step(st.get()) != SQLITE_DONE) {

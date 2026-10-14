@@ -120,12 +120,140 @@ Result<void> exec(sqlite3* db, const char* sql) {
   return {};
 }
 
+// 事务助手是**嵌套感知**的：已在外层事务中时，begin 是空操作，commit 与
+// rollback 也不动作（由最外层收尾）。这样仓储内部「多表必须同事务」的写法
+// （如 union + union_member）可以原样嵌进调用方开的大事务里，
+// 不会撞 "cannot start a transaction within a transaction"。
 Result<void> begin_immediate(sqlite3* db) {
+  if (sqlite3_get_autocommit(db) == 0) return {};
   return exec(db, "BEGIN IMMEDIATE;");
 }
 
-Result<void> commit(sqlite3* db) { return exec(db, "COMMIT;"); }
+Result<void> commit(sqlite3* db) {
+  if (sqlite3_get_autocommit(db) != 0) return {};
+  return exec(db, "COMMIT;");
+}
 
-Result<void> rollback(sqlite3* db) { return exec(db, "ROLLBACK;"); }
+Result<void> rollback(sqlite3* db) {
+  if (sqlite3_get_autocommit(db) != 0) return {};
+  return exec(db, "ROLLBACK;");
+}
+
+
+// ---- 主表 INSERT ----
+
+const char* person_insert_sql() noexcept {
+  return "INSERT INTO person(id, lineage_id, branch_id, family_name,"
+         " given_name, courtesy_name, art_name, posthumous_title, alias,"
+         " gender, birth_order, generation_no, is_heir, is_living, privacy_level,"
+         " birth_date, death_date, birth_place_id, death_place_id,"
+         " burial_place_id, biography, father_id, mother_id,"
+         " portrait_attachment_id, note, rev, created_at, updated_at)"
+         " VALUES (?1,?2,?3,?4,?5,?6,?7,?8,?9,?10,?11,?12,?13,?14,?15,?16,"
+         "?17,?18,?19,?20,?21,?22,?23,?24,?25,?26,?27,?28)";
+}
+
+const char* place_insert_sql() noexcept {
+  return "INSERT INTO place(id, name, type, modern_admin, historical_name,"
+         " lat, lng, note) VALUES (?1,?2,?3,?4,?5,?6,?7,?8)";
+}
+
+void bind_place(sqlite3_stmt* st, const Place& p) {
+  int i = 1;
+  sqlite3_bind_text(st, i++, p.id.c_str(), -1, SQLITE_TRANSIENT);
+  sqlite3_bind_text(st, i++, p.name.c_str(), -1, SQLITE_TRANSIENT);
+  if (p.type) {
+    sqlite3_bind_text(st, i++, to_string(*p.type).c_str(), -1, SQLITE_TRANSIENT);
+  } else {
+    sqlite3_bind_null(st, i++);
+  }
+  bind_opt_text(st, i++, p.modern_admin);
+  bind_opt_text(st, i++, p.historical_name);
+  bind_opt_double(st, i++, p.lat);
+  bind_opt_double(st, i++, p.lng);
+  bind_opt_text(st, i++, p.note);
+}
+
+const char* union_insert_sql() noexcept {
+  return "INSERT INTO \"union\"(id, type, status, sequence, start_date,"
+         " end_date, place_id, note, rev)"
+         " VALUES (?1,?2,?3,?4,?5,?6,?7,?8,?9)";
+}
+
+const char* union_member_insert_sql() noexcept {
+  return "INSERT INTO union_member(union_id, person_id, role)"
+         " VALUES (?1,?2,?3)";
+}
+
+const char* event_insert_sql() noexcept {
+  return "INSERT INTO event(id, subject_type, subject_id, type, date, place_id,"
+         " description, created_at) VALUES (?1,?2,?3,?4,?5,?6,?7,?8)";
+}
+
+void bind_person(sqlite3_stmt* st, const Person& p) {
+  int i = 1;
+  sqlite3_bind_text(st, i++, p.id.c_str(), -1, SQLITE_TRANSIENT);
+  sqlite3_bind_text(st, i++, p.lineage_id.c_str(), -1, SQLITE_TRANSIENT);
+  bind_opt_text(st, i++, p.branch_id);
+  sqlite3_bind_text(st, i++, p.family_name.c_str(), -1, SQLITE_TRANSIENT);
+  sqlite3_bind_text(st, i++, p.given_name.c_str(), -1, SQLITE_TRANSIENT);
+  bind_opt_text(st, i++, p.courtesy_name);
+  bind_opt_text(st, i++, p.art_name);
+  bind_opt_text(st, i++, p.posthumous_title);
+  bind_opt_text(st, i++, p.alias);
+  sqlite3_bind_text(st, i++, to_string(p.gender).c_str(), -1, SQLITE_TRANSIENT);
+  bind_opt_int(st, i++, p.birth_order);
+  bind_opt_int(st, i++, p.generation_no);
+  sqlite3_bind_int(st, i++, p.is_heir ? 1 : 0);
+  sqlite3_bind_int(st, i++, p.is_living ? 1 : 0);
+  sqlite3_bind_text(st, i++, to_string(p.privacy).c_str(), -1,
+                    SQLITE_TRANSIENT);
+  bind_date(st, i++, p.birth_date);
+  bind_opt_date(st, i++, p.death_date);
+  bind_opt_text(st, i++, p.birth_place_id);
+  bind_opt_text(st, i++, p.death_place_id);
+  bind_opt_text(st, i++, p.burial_place_id);
+  bind_opt_text(st, i++, p.biography);
+  bind_opt_text(st, i++, p.father_id);
+  bind_opt_text(st, i++, p.mother_id);
+  bind_opt_text(st, i++, p.portrait_attachment_id);
+  bind_opt_text(st, i++, p.note);
+  sqlite3_bind_int64(st, i++, static_cast<std::int64_t>(p.rev));
+  sqlite3_bind_text(st, i++, p.created_at.c_str(), -1, SQLITE_TRANSIENT);
+  sqlite3_bind_text(st, i++, p.updated_at.c_str(), -1, SQLITE_TRANSIENT);
+}
+
+void bind_union(sqlite3_stmt* st, const Union& u) {
+  int i = 1;
+  sqlite3_bind_text(st, i++, u.id.c_str(), -1, SQLITE_TRANSIENT);
+  sqlite3_bind_text(st, i++, to_string(u.type).c_str(), -1, SQLITE_TRANSIENT);
+  sqlite3_bind_text(st, i++, to_string(u.status).c_str(), -1, SQLITE_TRANSIENT);
+  bind_opt_int(st, i++, u.sequence);
+  bind_opt_date(st, i++, u.start_date);
+  bind_opt_date(st, i++, u.end_date);
+  bind_opt_text(st, i++, u.place_id);
+  bind_opt_text(st, i++, u.note);
+  sqlite3_bind_int64(st, i++, static_cast<std::int64_t>(u.rev));
+}
+
+void bind_event(sqlite3_stmt* st, const Event& e) {
+  int i = 1;
+  sqlite3_bind_text(st, i++, e.id.c_str(), -1, SQLITE_TRANSIENT);
+  sqlite3_bind_text(st, i++, to_string(e.subject_type).c_str(), -1,
+                    SQLITE_TRANSIENT);
+  sqlite3_bind_text(st, i++, e.subject_id.c_str(), -1, SQLITE_TRANSIENT);
+  sqlite3_bind_text(st, i++, to_string(e.type).c_str(), -1, SQLITE_TRANSIENT);
+  bind_opt_date(st, i++, e.date);
+  bind_opt_text(st, i++, e.place_id);
+  bind_opt_text(st, i++, e.description);
+  sqlite3_bind_text(st, i++, e.created_at.c_str(), -1, SQLITE_TRANSIENT);
+}
+
+void bind_union_member(sqlite3_stmt* st, const std::string& union_id,
+                       const UnionMember& m) {
+  sqlite3_bind_text(st, 1, union_id.c_str(), -1, SQLITE_TRANSIENT);
+  sqlite3_bind_text(st, 2, m.person_id.c_str(), -1, SQLITE_TRANSIENT);
+  sqlite3_bind_text(st, 3, to_string(m.role).c_str(), -1, SQLITE_TRANSIENT);
+}
 
 }  // namespace genealogy::repo_internal

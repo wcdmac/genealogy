@@ -5,6 +5,7 @@
 #include <string>
 #include <vector>
 
+#include <genealogy/repository/transaction.hpp>
 #include <genealogy/util/time.hpp>
 #include <genealogy/ulid.hpp>
 
@@ -14,18 +15,18 @@ namespace genealogy {
 namespace {
 
 using repo_internal::Stmt;
-using repo_internal::begin_immediate;
 using repo_internal::bind_opt_date;
 using repo_internal::bind_opt_int;
 using repo_internal::bind_opt_text;
+using repo_internal::bind_union;
 using repo_internal::col_opt_date;
 using repo_internal::col_opt_int;
 using repo_internal::col_opt_int64;
 using repo_internal::col_opt_text;
 using repo_internal::col_text;
-using repo_internal::commit;
 using repo_internal::qualify_cols;
-using repo_internal::rollback;
+using repo_internal::union_insert_sql;
+using repo_internal::union_member_insert_sql;
 
 constexpr const char* kCols =
     "id, type, status, sequence, start_date, end_date, place_id, note, rev";
@@ -72,19 +73,6 @@ Union row_to_union(sqlite3_stmt* st) {
   return u;
 }
 
-void bind_union(sqlite3_stmt* st, const Union& u) {
-  int i = 1;
-  sqlite3_bind_text(st, i++, u.id.c_str(), -1, SQLITE_TRANSIENT);
-  sqlite3_bind_text(st, i++, to_string(u.type).c_str(), -1, SQLITE_TRANSIENT);
-  sqlite3_bind_text(st, i++, to_string(u.status).c_str(), -1, SQLITE_TRANSIENT);
-  bind_opt_int(st, i++, u.sequence);
-  bind_opt_date(st, i++, u.start_date);
-  bind_opt_date(st, i++, u.end_date);
-  bind_opt_text(st, i++, u.place_id);
-  bind_opt_text(st, i++, u.note);
-  sqlite3_bind_int64(st, i++, static_cast<std::int64_t>(u.rev));
-}
-
 std::vector<UnionMember> load_members(sqlite3* db, const std::string& union_id) {
   std::vector<UnionMember> out;
   Stmt st(db, "SELECT person_id, role FROM union_member WHERE union_id = ?1"
@@ -113,9 +101,7 @@ Result<void> replace_members(sqlite3* db, const std::string& union_id,
     }
   }
   for (const auto& m : members) {
-    Stmt ins(db,
-             "INSERT INTO union_member(union_id, person_id, role)"
-             " VALUES (?1,?2,?3)");
+    Stmt ins(db, union_member_insert_sql());
     if (!ins.ok()) return internal("准备 INSERT union_member 失败");
     sqlite3_bind_text(ins.get(), 1, union_id.c_str(), -1, SQLITE_TRANSIENT);
     sqlite3_bind_text(ins.get(), 2, m.person_id.c_str(), -1, SQLITE_TRANSIENT);
@@ -194,29 +180,27 @@ Result<Union> UnionRepository::insert(const Union& u) {
   if (copy.id.empty()) copy.id = generate_ulid();
   copy.rev = 1;
 
-  if (auto tr = begin_immediate(db_.raw()); !tr) return tr.error();
-  auto rollback_on_fail = [&](const Error& err) -> Result<Union> {
-    rollback(db_.raw());
-    return err;
-  };
+  // 事务走 Transaction 类（按所有权判断嵌套），不用自由函数版的
+  // begin/commit：那俩分不清「本层开的」还是「搭上层的车」，内层一提交
+  // 会把外层整个事务结束掉，批量导入时每个结合又变回一次 fsync。
+  Transaction tx(db_);
+  if (tx.error()) return *tx.error();
+  auto fail = [](Error err) -> Result<Union> { return err; };
 
   {
-    Stmt st(db_.raw(),
-            "INSERT INTO \"union\"(id, type, status, sequence, start_date,"
-            " end_date, place_id, note, rev)"
-            " VALUES (?1,?2,?3,?4,?5,?6,?7,?8,?9)");
-    if (!st.ok()) return rollback_on_fail(internal("准备 INSERT union 失败"));
+    Stmt st(db_.raw(), union_insert_sql());
+    if (!st.ok()) return fail(internal("准备 INSERT union 失败"));
     bind_union(st.get(), copy);
     if (sqlite3_step(st.get()) != SQLITE_DONE) {
-      return rollback_on_fail(Error{ErrorCode::Internal,
-                                    std::string("插入结合失败: ") +
-                                        sqlite3_errmsg(db_.raw())});
+      return fail(Error{ErrorCode::Internal,
+                        std::string("插入结合失败: ") +
+                            sqlite3_errmsg(db_.raw())});
     }
   }
   if (auto r = replace_members(db_.raw(), copy.id, u.members); !r) {
-    return rollback_on_fail(r.error());
+    return fail(r.error());
   }
-  if (auto r = commit(db_.raw()); !r) return rollback_on_fail(r.error());
+  if (auto r = tx.commit(); !r) return fail(r.error());
   return copy;
 }
 
@@ -229,11 +213,9 @@ Result<Union> UnionRepository::update(const Union& u) {
   }
   if (u.members.empty()) return invalid_argument("婚姻结合至少需要一名成员");
 
-  if (auto tr = begin_immediate(db_.raw()); !tr) return tr.error();
-  auto rollback_on_fail = [&](const Error& err) -> Result<Union> {
-    rollback(db_.raw());
-    return err;
-  };
+  Transaction tx(db_);
+  if (tx.error()) return *tx.error();
+  auto rollback_on_fail = [](const Error& err) -> Result<Union> { return err; };
 
   {
     Stmt st(db_.raw(),
@@ -262,7 +244,7 @@ Result<Union> UnionRepository::update(const Union& u) {
   if (auto r = replace_members(db_.raw(), u.id, u.members); !r) {
     return rollback_on_fail(r.error());
   }
-  if (auto r = commit(db_.raw()); !r) return rollback_on_fail(r.error());
+  if (auto r = tx.commit(); !r) return rollback_on_fail(r.error());
 
   Union out = u;
   out.rev = u.rev + 1;
@@ -271,11 +253,9 @@ Result<Union> UnionRepository::update(const Union& u) {
 
 Result<void> UnionRepository::remove(const std::string& id) {
   // union_member 无级联删除，先成员后结合，同一事务。
-  if (auto tr = begin_immediate(db_.raw()); !tr) return tr.error();
-  auto fail = [&](Error err) -> Result<void> {
-    rollback(db_.raw());
-    return err;
-  };
+  Transaction tx(db_);
+  if (tx.error()) return *tx.error();
+  auto fail = [](Error err) -> Result<void> { return err; };
   {
     Stmt st(db_.raw(), "DELETE FROM union_member WHERE union_id = ?1");
     if (!st.ok()) return fail(internal("准备 DELETE union_member 失败"));
@@ -294,11 +274,10 @@ Result<void> UnionRepository::remove(const std::string& id) {
                         std::string("删除结合失败: ") + sqlite3_errmsg(db_.raw())});
     }
     if (sqlite3_changes(db_.raw()) == 0) {
-      rollback(db_.raw());
-      return not_found("婚姻结合不存在: " + id);
+      return not_found("婚姻结合不存在: " + id);   // 析构时按需回滚
     }
   }
-  if (auto r = commit(db_.raw()); !r) return r.error();
+  if (auto r = tx.commit(); !r) return r.error();
   return {};
 }
 

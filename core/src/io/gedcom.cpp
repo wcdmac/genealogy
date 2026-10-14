@@ -663,11 +663,13 @@ std::string lookup(const std::unordered_map<std::string, std::string>& id_map,
   return it != id_map.end() ? it->second : std::string{};
 }
 
-Person* find_person(std::vector<Person>& persons, const std::string& id) {
-  for (auto& p : persons) {
-    if (p.id == id) return &p;
-  }
-  return nullptr;
+// 人物 id → Person*。子女挂父母时按 id 取，写成线性扫是 O(人物×CHIL)，
+// 10 万条数据直接卡死。
+Person* find_person(std::vector<Person>& persons,
+                    const std::unordered_map<std::string, Person*>& index,
+                    const std::string& id) {
+  const auto it = index.find(id);
+  return it == index.end() ? nullptr : it->second;
 }
 
 struct EventTagMap {
@@ -702,11 +704,13 @@ const EventTagMap kEventTags[] = {
 // ---------------------------------------------------------------- 映射层
 
 std::vector<Person> order_by_dependency(const std::vector<Person>& all) {
-  auto in_batch = [&all](const std::string& id) {
-    for (const auto& p : all) {
-      if (p.id == id) return true;
-    }
-    return false;
+  // in_batch 用哈希集合：这个函数会被 10 万条数据的灌库路径调用，
+  // 线性扫一遍是 O(n^2)，实测直接卡死。
+  std::unordered_set<std::string> in_batch;
+  in_batch.reserve(all.size() * 2);
+  for (const auto& p : all) in_batch.insert(p.id);
+  auto depends_on_batch = [&in_batch](const std::optional<std::string>& id) {
+    return id && in_batch.count(*id) > 0;
   };
   std::vector<Person> pending = all;
   std::vector<Person> ordered;
@@ -714,10 +718,10 @@ std::vector<Person> order_by_dependency(const std::vector<Person>& all) {
   while (!pending.empty()) {
     const std::size_t before = pending.size();
     for (auto it = pending.begin(); it != pending.end();) {
-      const bool father_ok = !it->father_id || !in_batch(*it->father_id) ||
-                             created.count(*it->father_id) > 0;
-      const bool mother_ok = !it->mother_id || !in_batch(*it->mother_id) ||
-                             created.count(*it->mother_id) > 0;
+      const bool father_ok =
+          !depends_on_batch(it->father_id) || created.count(*it->father_id) > 0;
+      const bool mother_ok =
+          !depends_on_batch(it->mother_id) || created.count(*it->mother_id) > 0;
       if (father_ok && mother_ok) {
         ordered.push_back(*it);
         created.insert(it->id);
@@ -949,6 +953,9 @@ Result<ImportResult> import_gedcom(const GedcomDocument& doc,
   }
 
   // ---- 第二遍：FAM（此时所有人都已建档，可解引用） ----
+  std::unordered_map<std::string, Person*> person_by_id;
+  person_by_id.reserve(res.persons.size() * 2);
+  for (auto& p : res.persons) person_by_id.emplace(p.id, &p);
   std::unordered_map<std::string, int> union_count_per_person;  // person id → 结合数
   struct FamRaw {
     std::string xref;
@@ -1035,11 +1042,11 @@ Result<ImportResult> import_gedcom(const GedcomDocument& doc,
                  "引用了未建档的子女 " + cx);
         continue;
       }
-      Person* child = find_person(res.persons, it->second);
+      Person* child = find_person(res.persons, person_by_id, it->second);
       if (child == nullptr) continue;
       if (!husb_id.empty() && !child->father_id) {
         child->father_id = husb_id;
-        const auto* hp = find_person(res.persons, husb_id);
+        const auto* hp = find_person(res.persons, person_by_id, husb_id);
         if (hp && hp->gender == Gender::Unknown) {
           add_loss(LossSeverity::Info, f.xref, "CHIL",
                    "丈夫性别未知，按 GEDCOM HUSB 角色推定为父亲");
@@ -1047,7 +1054,7 @@ Result<ImportResult> import_gedcom(const GedcomDocument& doc,
       }
       if (!wife_id.empty() && !child->mother_id) {
         child->mother_id = wife_id;
-        const auto* wp = find_person(res.persons, wife_id);
+        const auto* wp = find_person(res.persons, person_by_id, wife_id);
         if (wp && wp->gender == Gender::Unknown) {
           add_loss(LossSeverity::Info, f.xref, "CHIL",
                    "妻子性别未知，按 GEDCOM WIFE 角色推定为母亲");
@@ -1303,41 +1310,66 @@ std::string export_gedcom(const ExportOptions& opt) {
   }
 
   // 配偶/父母反向索引：FAMS 来自 union_member，FAMC 与 FAM.CHIL 由父母
-  // id 反查。父母 id 先按结合存下来，导出 FAM 时还要用来写 CHIL。
+  // id 反查。
+  //
+  // 反查一律走哈希表：写成「每个结合扫一遍全部人物」是 O(结合×人物)，
+  // 10 万人物 2.5 万结合就是 2.5e9 次比较，导出直接卡死（实测 1 万人物
+  // 就要 57 秒，其中大半花在这种扫描上）。
   std::unordered_map<std::string, std::vector<std::string>> fams_of_person;
   std::unordered_map<std::string, std::vector<std::string>> famc_of_person;
+  // 结合 id → (father_id, mother_id)，写 FAM.CHIL 时用
   std::unordered_map<std::string, std::pair<std::string, std::string>>
-      parents_of_union;   // union id → (father_id, mother_id)
+      parents_of_union;
+  // 结合 id → 该结合的子女（人物指针）。GEDCOM 的权威亲子关系在 FAM.CHIL
+  std::unordered_map<std::string, std::vector<const Person*>> children_of_union;
+  // (father_id, mother_id) → 结合 id 列表。人物找自己那个家庭走这张表。
+  // 键用带分隔符的字符串而不是 pair：标准库没有 pair 的哈希。
+  // 分隔符取 \x1F（ASCII 单元分隔符），不会出现在 ULID 里。
+  auto parent_key = [](const std::string& f, const std::string& m) {
+    return f + "\x1F" + m;
+  };
+  std::unordered_map<std::string, std::vector<std::string>> union_of_parents;
+
   if (opt.unions && opt.persons) {
+    std::unordered_map<std::string, const Person*> by_id;
+    by_id.reserve(opt.persons->size() * 2);
+    for (const auto& p : *opt.persons) by_id.emplace(p.id, &p);
+
+    // 第一遍：结合 → 配偶与父母 id
     for (const auto& u : *opt.unions) {
       for (const auto& m : u.members) {
-        if (person_xref.count(m.person_id)) {
+        if (person_xref.count(m.person_id) > 0) {
           fams_of_person[m.person_id].push_back(union_xref[u.id]);
         }
       }
-      const Person* husb = nullptr;
-      const Person* wife = nullptr;
-      for (const auto& p : *opt.persons) {
-        for (const auto& m : u.members) {
-          if (m.person_id == p.id) {
-            if (m.role == MemberRole::Husband) husb = &p;
-            if (m.role == MemberRole::Wife) wife = &p;
-          }
-        }
+      std::string father_id;
+      std::string mother_id;
+      for (const auto& m : u.members) {
+        const auto it = by_id.find(m.person_id);
+        if (it == by_id.end()) continue;
+        if (m.role == MemberRole::Husband) father_id = it->second->id;
+        if (m.role == MemberRole::Wife) mother_id = it->second->id;
       }
-      const std::string father_id = husb ? husb->id : std::string{};
-      const std::string mother_id = wife ? wife->id : std::string{};
       parents_of_union.emplace(u.id, std::make_pair(father_id, mother_id));
       // 只认「夫妻双方齐全」的结合作为亲子关系依据：妾/继配所生的孩子
       // 该挂在哪一房是谱学判断，程序不替谱师决定，挂错比不挂更难发现
       if (father_id.empty() || mother_id.empty()) continue;
-      for (const auto& p : *opt.persons) {
-        // 只有非空的一侧参与匹配，否则空 id 会误抓一堆人
-        const bool father_match = !father_id.empty() && p.father_id == father_id;
-        const bool mother_match = !mother_id.empty() && p.mother_id == mother_id;
-        if (father_match || mother_match) {
-          famc_of_person[p.id].push_back(union_xref[u.id]);
-        }
+      union_of_parents[parent_key(father_id, mother_id)].push_back(u.id);
+      children_of_union.emplace(u.id, std::vector<const Person*>{});
+    }
+
+    // 第二遍：人物 → 所属结合（FAMC）。只查「夫妻齐全」的结合，
+    // 单亲登记的孩子不挂 FAMC——GEDCOM 的亲子链必须落在完整家庭上，
+    // 硬挂会把妾生/私生子归到正室房里。
+    for (const auto& p : *opt.persons) {
+      if (!p.father_id || !p.mother_id) continue;
+      const auto it =
+          union_of_parents.find(parent_key(*p.father_id, *p.mother_id));
+      if (it == union_of_parents.end()) continue;
+      for (const auto& uid : it->second) {
+        famc_of_person[p.id].push_back(union_xref.at(uid));
+        auto kids = children_of_union.find(uid);
+        if (kids != children_of_union.end()) kids->second.push_back(&p);
       }
     }
   }
@@ -1450,20 +1482,12 @@ std::string export_gedcom(const ExportOptions& opt) {
         }
       }
       if (u.note && !u.note->empty()) w.text(1, "NOTE", *u.note);
-      // 子女链：GEDCOM 的权威亲子关系在 FAM.CHIL，只写孩子的 FAMC 是不够的
-      if (opt.persons) {
-        const auto par = parents_of_union.find(u.id);
-        const std::string father_id =
-            par == parents_of_union.end() ? std::string{} : par->second.first;
-        const std::string mother_id =
-            par == parents_of_union.end() ? std::string{} : par->second.second;
-        for (const auto& c : *opt.persons) {
-          const bool father_match =
-              !father_id.empty() && c.father_id == father_id;
-          const bool mother_match =
-              !mother_id.empty() && c.mother_id == mother_id;
-          if (!father_match && !mother_match) continue;
-          auto it = person_xref.find(c.id);
+      // 子女链：GEDCOM 的权威亲子关系在 FAM.CHIL，只写孩子的 FAMC 是不够的。
+      // 反查表在建索引时已算好，这里只按结合取自己那一份。
+      const auto kids = children_of_union.find(u.id);
+      if (kids != children_of_union.end()) {
+        for (const auto* child : kids->second) {
+          const auto it = person_xref.find(child->id);
           if (it != person_xref.end()) w.raw(1, "CHIL " + it->second);
         }
       }
