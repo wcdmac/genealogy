@@ -6,7 +6,7 @@
 设计文档（调研结论 / 架构 / 模块划分 / 数据模型 / 接口规范）位于仓库外：
 `D:/cd/tree/genealogy-design/家谱管理软件-调研与架构设计.md`（v1.0，2026-10-12）。
 
-## 当前状态（M1.6）
+## 当前状态（M2）
 
 - [x] monorepo 骨架 + CMake + vcpkg manifest
 - [x] core：领域模型（person/lineage/branch/place/union/event）/ GenealogyDate 多历法值对象 / ULID / SQLite 仓储 + 迁移 / 用例层（五服务，含领域校验）
@@ -18,8 +18,11 @@
   `shared/rules/validation.json`，阈值/等级/启停改 JSON 即生效
 - [x] **M1.6 性能灌库验收**：合成谱生成器（固定种子可复现）+ 灌库快路径 + `genea bench`
   基准报告（10 万人物 / 8.9 万事件，全部达标，余量 4～12 倍）+ 规模往返哨兵测试
-- [x] Catch2 测试（784547 断言 / 81 用例）+ 三平台 CI + 许可证白名单卡点
-- [ ] M2：REST 服务（Drogon）；M3：GUI（Dear ImGui）
+- [x] **M2 REST 服务（Drogon，MIT）**：`genealogy-server` 起 `http://127.0.0.1:8080/api/v1`，
+  30+ 端点全部走 core 用例层（非旁路）；RFC 9457 problem+json 错误、游标分页、
+  `ETag`/`If-Match` 乐观锁、JWT(HS256) 鉴权；`/openapi.yaml` 原样托管
+- [x] Catch2 测试（core 784547 断言 / 81 用例 + server HTTP 集成 9 用例）+ 三平台 CI + 许可证白名单卡点
+- [ ] M3：GUI（Dear ImGui）
 
 ### 历法引擎的数据从哪来
 
@@ -78,7 +81,10 @@ genealogy/
 │   ├── licenses/     # 依赖许可证白名单
 │   └── openapi/      # OpenAPI 规范（客户端代码生成唯一事实源）
 ├── tools/
-│   ├── gen_calendar/ # 历法/年号数据表离线生成器 + 官方基准 fixtures
+│   ├── gen_calendar/    # 历法/年号数据表离线生成器 + 官方基准 fixtures
+│   ├── vcpkg-install.ps1    # 本机安装 vcpkg 依赖（绕 reg.exe 黑名单/MSYS2 抢编译/并发死锁）
+│   ├── vcpkg-triplets/      # overlay triplet：只编 Release
+│   ├── vcpkg-ports/         # overlay 端口：trantor 去 openssl（服务不需要 TLS）
 │   └── license_check.py 等工程工具
 ```
 
@@ -188,6 +194,24 @@ cmake -S . -B build -DBUILD_SERVER=ON -DBUILD_GUI=ON ...
 # 世系图快照构建（100000 人物） 参考项         303.7 ms   PASS
 # GEDCOM 导出 10000 人物        < 10000        49.0 ms   PASS
 # GEDCOM 导入 10000 人物        < 60000      7709.7 ms   PASS
+
+# REST 服务（M2）
+# 构建（三样缺一不可：BUILD_SERVER 决定编不编、manifest feature 决定装不装
+# Drogon、overlay 决定按哪套规则装——本地见 tools/build-server-msvc.bat 与
+# tools/vcpkg-install.ps1，CI 见 .github/workflows/ci.yml）：
+#   cmake -S . -B build -DBUILD_SERVER=ON -DVCPKG_MANIFEST_FEATURES=server \
+#     -DVCPKG_OVERLAY_TRIPLETS=tools/vcpkg-triplets \
+#     -DVCPKG_OVERLAY_PORTS=tools/vcpkg-ports
+./build/bin/genealogy-server --db family.db --port 8080
+curl -s localhost:8080/api/v1/health
+curl -s -X POST localhost:8080/api/v1/persons \
+  -H 'Content-Type: application/json' \
+  -d '{"lineage_id":"01J...","family_name":"陈","given_name":"文远","gender":"male"}'
+# 错误统一是 problem+json（RFC 9457）：
+#   {"type":"https://genealogy.local/problems/invalid-argument",
+#    "title":"参数校验失败","status":400,"code":1001,
+#    "detail":"...","instance":"/api/v1/persons","errors":[{"field":"given_name","message":"必填"}]}
+# 写操作必须带 If-Match（当前 rev），否则 428；版本不符 409 并告知当前 rev。
 
 # 世系算法：两人关系路径 / 辈分差 / 五服 / 称谓
 ./build/bin/genea person relation --db family.db 01J... 01K...

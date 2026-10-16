@@ -1,5 +1,6 @@
 #pragma once
 
+#include <optional>
 #include <string>
 
 #include <genealogy/error.hpp>
@@ -26,10 +27,19 @@ struct MourningDegree {
   std::string garment_name;  // 斩衰 / 齐衰杖期 / ...
   std::string period;        // 三年 / 一年 / ...
   int period_months = 0;     // 27 / 13 / 9 ...
+  // 命中的规则标识：规则表里以 path（F.M.B+.S 这类步骤序列）为主键，
+  // 同一路径的不同条件分支共用它，故它标识「条文」而非「某一次匹配」。
+  // 兜底推断（规则表未收录）时固定为 "fallback"。
+  std::string rule_id;
   std::string basis;         // 依据条文
   std::string ruleset;       // ming_qing
   bool from_fallback = false;  // 规则表未收录，按世代距兜底推断
 };
+
+// 等级 → 规则表里的 garment 标识（REST 的 garment 字段、客户端本地化都用它）。
+// 与 grade_from_id 互为反函数；未知值返回 "wufu" 并置 ok=false。
+const char* to_string(MourningGrade grade);
+std::optional<MourningGrade> mourning_grade_from_string(const std::string& s);
 
 struct MourningQuery {
   std::string ego;

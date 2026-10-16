@@ -1,6 +1,7 @@
 #include <genealogy/lineage/mourning.hpp>
 
 #include <algorithm>
+#include <optional>
 #include <string>
 #include <vector>
 
@@ -12,23 +13,50 @@ namespace genealogy::lineage {
 
 namespace {
 
+struct GradeEntry {
+  MourningGrade grade;
+  const char* id;
+};
+
+// 唯一一份对照表：id ↔ 枚举都从它出，避免两处漂移
+const GradeEntry kGrades[] = {
+    {MourningGrade::ZhanCui, "zhancui"},
+    {MourningGrade::QiCuiZhang, "qicui_zhang"},
+    {MourningGrade::QiCuiBuZhang, "qicui_buzhang"},
+    {MourningGrade::QiCuiWuYue, "qicui_wuyue"},
+    {MourningGrade::QiCuiSanYue, "qicui_sanyue"},
+    {MourningGrade::DaGong, "dagong"},
+    {MourningGrade::XiaoGong, "xiaogong"},
+    {MourningGrade::SiMa, "sima"},
+    {MourningGrade::TanMian, "tanmian"},
+    {MourningGrade::WuFu, "wufu"},
+};
+
 MourningGrade grade_from_id(const std::string& id, bool* ok) {
-  *ok = true;
-  if (id == "zhancui") return MourningGrade::ZhanCui;
-  if (id == "qicui_zhang") return MourningGrade::QiCuiZhang;
-  if (id == "qicui_buzhang") return MourningGrade::QiCuiBuZhang;
-  if (id == "qicui_wuyue") return MourningGrade::QiCuiWuYue;
-  if (id == "qicui_sanyue") return MourningGrade::QiCuiSanYue;
-  if (id == "dagong") return MourningGrade::DaGong;
-  if (id == "xiaogong") return MourningGrade::XiaoGong;
-  if (id == "sima") return MourningGrade::SiMa;
-  if (id == "tanmian") return MourningGrade::TanMian;
-  if (id == "wufu") return MourningGrade::WuFu;
+  for (const auto& e : kGrades) {
+    if (id == e.id) {
+      *ok = true;
+      return e.grade;
+    }
+  }
   *ok = false;
   return MourningGrade::WuFu;
 }
 
 }  // namespace
+
+const char* to_string(MourningGrade grade) {
+  for (const auto& e : kGrades) {
+    if (e.grade == grade) return e.id;
+  }
+  return "wufu";
+}
+
+std::optional<MourningGrade> mourning_grade_from_string(const std::string& s) {
+  bool ok = false;
+  const auto g = grade_from_id(s, &ok);
+  return ok ? std::optional(g) : std::nullopt;
+}
 
 std::vector<std::string> available_rulesets() { return {"ming_qing"}; }
 
@@ -72,6 +100,7 @@ Result<MourningDegree> compute_mourning_degree(const PersonGraph& g,
     deg.garment_name = info.name;
     deg.period = info.period;
     deg.period_months = info.months;
+    deg.rule_id = rule->path;
     deg.basis = rule->basis;
     deg.ruleset = q.ruleset;
     deg.from_fallback = false;
@@ -81,6 +110,7 @@ Result<MourningDegree> compute_mourning_degree(const PersonGraph& g,
   // 兜底：规则表未收录的路径按血亲世代距推断（袒免/无服边界）。
   const BloodDistance bd = blood_distance(rel);
   MourningDegree deg;
+  deg.rule_id = "fallback";
   deg.ruleset = q.ruleset;
   deg.from_fallback = true;
   if (rel.via_marriage && bd.up == 0 && bd.down == 0) {

@@ -13,7 +13,10 @@ namespace genealogy {
 
 struct PersonFilter {
   std::optional<std::string> branch_id;
-  std::optional<int> generation_no;
+  std::optional<std::string> lineage_id;    // 按宗族过滤（REST /persons?lineage_id=）
+  std::optional<int> generation_no;         // 精确世代
+  std::optional<int> generation_from;       // 世代区间（含端）
+  std::optional<int> generation_to;
   int limit = 50;
   std::optional<std::string> cursor;  // 上页最后一条的 id（ULID 字典序游标）
 };

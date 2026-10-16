@@ -31,11 +31,21 @@ jobs:
 
       - name: Configure（vcpkg manifest 模式自动装依赖）
         shell: bash
+        env:
+          # 与本地 tools/vcpkg-install.ps1 同一套 overlay，保证 CI 与开发机
+          # 装出同一份依赖集：
+          #   vcpkg-triplets —— 只编 Release（x64-windows；其余平台用自带 triplet）
+          #   vcpkg-ports   —— trantor 去掉 openssl（服务只绑回环，不需要 TLS，
+          #                     省掉 openssl 全量构建）
+          VCPKG_OVERLAY_TRIPLETS: ${{ github.workspace }}/tools/vcpkg-triplets
+          VCPKG_OVERLAY_PORTS: ${{ github.workspace }}/tools/vcpkg-ports
         run: |
           cmake -S . -B build -G Ninja -DCMAKE_BUILD_TYPE=Release \
             -DCMAKE_TOOLCHAIN_FILE="$VCPKG_INSTALLATION_ROOT/scripts/buildsystems/vcpkg.cmake" \
             -DVCPKG_TARGET_TRIPLET=${{ matrix.triplet }} \
-            -DVCPKG_INSTALL_OPTIONS="--clean-after-build"
+            -DVCPKG_INSTALL_OPTIONS="--clean-after-build" \
+            -DBUILD_SERVER=ON \
+            -DVCPKG_MANIFEST_FEATURES=server
 
       - name: Build
         run: cmake --build build --config Release --parallel

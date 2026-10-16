@@ -1,6 +1,7 @@
 #pragma once
 
 #include <string>
+#include <vector>
 
 #include <genealogy/error.hpp>
 #include <genealogy/lineage/graph.hpp>
@@ -12,6 +13,12 @@ struct Appellation {
   std::string standard;    // 标准称谓（父亲 / 伯父 / 堂兄）
   std::string colloquial;  // 口语称谓（爸爸 / 大伯 / 堂哥）
   std::string formal;      // 书面称谓（父 / 从父兄，谱式）
+  // 对方是否为长辈（辈分差 < 0）。同辈时为 false——长幼另看 path 末步的
+  // B+/Z+ 标记，这里只回答「尊卑」，不与「长幼」混为一谈。
+  bool elder = false;
+  // 关系路径（规则表字母序列，如 ["F","M","B+"]）。兜底描述也带路径，
+  // 便于谱学顾问据此补录规则。
+  std::vector<std::string> path;
   std::string basis;       // 规则依据
   bool from_fallback = false;  // 规则表未收录，为组合式描述
 };

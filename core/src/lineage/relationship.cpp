@@ -151,6 +151,24 @@ Relationship find_relationship(const PersonGraph& g, const std::string& ego,
   return rel;
 }
 
+// 注意定义在 genealogy::lineage 而非匿名 namespace：头文件里已声明它，
+// 放匿名 namespace 里会让同一作用域出现两个候选，调用点报重载歧义。
+const char* step_letter(StepKind kind) {
+  switch (kind) {
+    case StepKind::Father: return "F";
+    case StepKind::Mother: return "M";
+    case StepKind::Son: return "S";
+    case StepKind::Daughter: return "D";
+    case StepKind::Husband: return "H";
+    case StepKind::Wife: return "W";
+    case StepKind::ElderBrother: return "B+";
+    case StepKind::YoungerBrother: return "B-";
+    case StepKind::ElderSister: return "Z+";
+    case StepKind::YoungerSister: return "Z-";
+  }
+  return "?";
+}
+
 namespace {
 
 std::string relationship_key_impl(const Relationship& rel, const Person* ego) {
@@ -173,18 +191,7 @@ std::string relationship_key_impl(const Relationship& rel, const Person* ego) {
       key += male ? 'B' : 'Z';
       continue;
     }
-    switch (s.kind) {
-      case StepKind::Father: key += 'F'; break;
-      case StepKind::Mother: key += 'M'; break;
-      case StepKind::Son: key += 'S'; break;
-      case StepKind::Daughter: key += 'D'; break;
-      case StepKind::Husband: key += 'H'; break;
-      case StepKind::Wife: key += 'W'; break;
-      case StepKind::ElderBrother: key += "B+"; break;
-      case StepKind::YoungerBrother: key += "B-"; break;
-      case StepKind::ElderSister: key += "Z+"; break;
-      case StepKind::YoungerSister: key += "Z-"; break;
-    }
+    key += step_letter(s.kind);
     // 末端血亲（子/女）的长幼标记：参照 = 路径中同代最早节点；
     // 无路径内同代节点且末端与 ego 同代时，参照为 ego。
     if (terminal && (s.kind == StepKind::Son || s.kind == StepKind::Daughter)) {

@@ -123,14 +123,20 @@ Result<std::vector<Person>> PersonRepository::list(
           " portrait_attachment_id, note, rev, created_at, updated_at"
           " FROM person"
           " WHERE (?1 IS NULL OR branch_id = ?1)"
-          "   AND (?2 IS NULL OR generation_no = ?2)"
-          "   AND (?3 IS NULL OR id > ?3)"
-          " ORDER BY id LIMIT ?4");
+          "   AND (?2 IS NULL OR lineage_id = ?2)"
+          "   AND (?3 IS NULL OR generation_no = ?3)"
+          "   AND (?4 IS NULL OR generation_no >= ?4)"
+          "   AND (?5 IS NULL OR generation_no <= ?5)"
+          "   AND (?6 IS NULL OR id > ?6)"
+          " ORDER BY id LIMIT ?7");
   if (!st.ok()) return internal("准备查询失败");
   bind_opt_text(st.get(), 1, filter.branch_id);
-  bind_opt_int(st.get(), 2, filter.generation_no);
-  bind_opt_text(st.get(), 3, filter.cursor);
-  sqlite3_bind_int(st.get(), 4, filter.limit > 0 ? filter.limit : 50);
+  bind_opt_text(st.get(), 2, filter.lineage_id);
+  bind_opt_int(st.get(), 3, filter.generation_no);
+  bind_opt_int(st.get(), 4, filter.generation_from);
+  bind_opt_int(st.get(), 5, filter.generation_to);
+  bind_opt_text(st.get(), 6, filter.cursor);
+  sqlite3_bind_int(st.get(), 7, filter.limit > 0 ? filter.limit : 50);
 
   std::vector<Person> out;
   while (sqlite3_step(st.get()) == SQLITE_ROW) {

@@ -1,6 +1,7 @@
 #include <genealogy/lineage/graph.hpp>
 
 #include <algorithm>
+#include <utility>
 
 namespace genealogy::lineage {
 
@@ -40,16 +41,19 @@ bool order_less(const Person* a, const Person* b) {
 
 }  // namespace
 
-PersonGraph PersonGraph::build(const std::vector<Person>& persons,
-                               const std::vector<Union>& unions) {
+PersonGraph PersonGraph::build(std::vector<Person> persons,
+                               std::vector<Union> unions) {
   PersonGraph g;
-  // unions 可能是默认实参绑定的临时量，不能存它的地址；
-  // 空的结合表等价于「没有结合」，存 nullptr 即可
-  g.unions_ = unions.empty() ? nullptr : &unions;
-  for (const auto& p : persons) g.nodes_.emplace(p.id, &p);
+  // 先把数据移进来，再建索引——索引里的指针必须落在最终住址上。
+  // 顺序颠倒的写法（先建索引后移入）在 MSVC/GCC 上都会静默出错：
+  // vector 移动后缓冲区易主，早先记下的指针全部指向旧对象的尸骸。
+  g.persons_ = std::move(persons);
+  g.unions_ = std::move(unions);
+
+  for (const auto& p : g.persons_) g.nodes_.emplace(p.id, &p);
 
   // 父母 → 子女索引
-  for (const auto& p : persons) {
+  for (const auto& p : g.persons_) {
     if (p.father_id && g.nodes_.count(*p.father_id)) {
       g.children_[*p.father_id].push_back(&p);
     }
@@ -64,7 +68,7 @@ PersonGraph PersonGraph::build(const std::vector<Person>& persons,
   }
 
   // 兄弟姐妹：父母子女集合的并集去掉自己
-  for (const auto& p : persons) {
+  for (const auto& p : g.persons_) {
     std::vector<const Person*> sibs;
     if (p.father_id) {
       const auto it = g.children_.find(*p.father_id);
@@ -86,7 +90,7 @@ PersonGraph PersonGraph::build(const std::vector<Person>& persons,
   }
 
   // 配偶：union 成员互挂（成员可能不在图中，跳过）
-  for (const auto& u : unions) {
+  for (const auto& u : g.unions_) {
     for (const auto& m : u.members) {
       if (!g.nodes_.count(m.person_id)) continue;
       for (const auto& other : u.members) {

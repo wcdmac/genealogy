@@ -62,6 +62,10 @@ Relationship find_relationship(const PersonGraph& g, const std::string& ego,
 
 // 规则表键：如 "F.B+.S+"。末端为血亲且存在同代参照节点（路径中同代
 // 主干节点，或传入的 ego）时附长幼标记；配偶步与无参照节点不带标记。
+// 单步的规则表字母（与 path_format 一致）：F/M/S/D/H/W/B±/Z±。
+// 兄弟姊妹长幼不可判定时返回无标记的 B/Z。
+const char* step_letter(StepKind kind);
+
 std::string relationship_key(const Relationship& rel, const Person& ego);
 std::string relationship_key(const Relationship& rel);
 

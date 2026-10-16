@@ -21,6 +21,15 @@ class PersonService {
   Result<Person> create_person(const Person& draft);
 
   Result<Person> get_person(const std::string& id);
+
+  // 更新：调用方须传完整实体（含期望 rev），仓储据此做乐观锁比对，
+  // 不匹配返回 Conflict（HTTP 409）。领域不变量与建档同一套校验。
+  Result<Person> update_person(const Person& p);
+
+  // 删除。注意：当前为硬删除——schema 无 deleted_at/audit_log 表，
+  // 规范 5.2.2 的「软删除入 audit_log」待 M3 补表后实现。
+  Result<void> remove_person(const std::string& id);
+
   Result<std::vector<Person>> list_persons(const PersonFilter& filter);
   Result<std::vector<Person>> search_persons(std::string_view keyword,
                                              int limit);

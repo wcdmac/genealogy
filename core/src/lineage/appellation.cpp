@@ -8,6 +8,31 @@
 
 namespace genealogy::lineage {
 
+namespace {
+
+// 关系路径 → 字母序列。兄弟姊妹长幼不可判定时退化为 B/Z，
+// 与 relationship_key 的口径一致（两处都从 step_letter 出）。
+std::vector<std::string> path_letters(const Relationship& rel) {
+  std::vector<std::string> out;
+  out.reserve(rel.steps.size());
+  for (const auto& s : rel.steps) {
+    const bool sibling = s.kind == StepKind::ElderBrother ||
+                         s.kind == StepKind::YoungerBrother ||
+                         s.kind == StepKind::ElderSister ||
+                         s.kind == StepKind::YoungerSister;
+    if (sibling && !s.seniority_known) {
+      const bool male = s.kind == StepKind::ElderBrother ||
+                        s.kind == StepKind::YoungerBrother;
+      out.push_back(male ? "B" : "Z");
+      continue;
+    }
+    out.push_back(step_letter(s.kind));
+  }
+  return out;
+}
+
+}  // namespace
+
 Result<Appellation> compute_appellation(const PersonGraph& g,
                                         const AppellationQuery& q) {
   const Person* ego = g.find(q.ego);
@@ -43,6 +68,8 @@ Result<Appellation> compute_appellation(const PersonGraph& g,
     app.standard = rule->standard;
     app.colloquial = rule->colloquial;
     app.formal = rule->formal;
+    app.elder = rel.generation_gap() < 0;
+    app.path = path_letters(rel);
     app.basis = rule->basis;
     app.from_fallback = false;
     return app;
@@ -54,6 +81,8 @@ Result<Appellation> compute_appellation(const PersonGraph& g,
   app.standard = desc;
   app.colloquial = desc;
   app.formal = desc;
+  app.elder = rel.generation_gap() < 0;
+  app.path = path_letters(rel);
   app.basis = "组合式描述（规则表未收录，待谱学顾问审定）";
   app.from_fallback = true;
   return app;

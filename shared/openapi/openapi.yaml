@@ -395,8 +395,9 @@ paths:
           schema: { type: string }
         - name: ruleset
           in: query
-          description: 礼制规则集
-          schema: { enum: [ming_qing, ancient, custom], default: ming_qing }
+          description: 礼制规则集。当前仅内置明清定型版；古代版与自定义版
+            随规则数据文件（ADR-6）补齐后开放，届时无需改接口。
+          schema: { enum: [ming_qing], default: ming_qing }
       responses:
         "200":
           description: 成功
@@ -1245,13 +1246,18 @@ components:
     MourningDegree:
       type: object
       properties:
+        # garment 取值 = shared/rules/mourning_*.json 里 grades 的 id，
+        # 客户端可据此做本地化；不要按数组顺序推断等级高低。
         garment:
-          enum: [zhancui, qicui_3y, qicui_zhangqi, qicui_buzhangqi,
-                 qicui_5m, qicui_3m, dagong, xiaogong, sima, tanmian, wufu]
+          enum: [zhancui, qicui_zhang, qicui_buzhang, qicui_wuyue,
+                 qicui_sanyue, dagong, xiaogong, sima, tanmian, wufu]
         garment_name: { type: string }
         duration_months: { type: integer }
-        rule_id: { type: string }
-        ruleset: { enum: [ming_qing, ancient, custom] }
+        rule_id:
+          type: string
+          description: 命中的规则标识（规则表的 path 步骤序列）；
+            兜底推断时为 "fallback"。
+        ruleset: { enum: [ming_qing] }
         basis: { type: string }
 
     Appellation:
