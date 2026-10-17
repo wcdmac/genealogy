@@ -45,13 +45,25 @@ jobs:
             -DVCPKG_TARGET_TRIPLET=${{ matrix.triplet }} \
             -DVCPKG_INSTALL_OPTIONS="--clean-after-build" \
             -DBUILD_SERVER=ON \
-            -DVCPKG_MANIFEST_FEATURES=server
+            -DBUILD_GUI=ON \
+            "-DVCPKG_MANIFEST_FEATURES=server;gui"
 
       - name: Build
         run: cmake --build build --config Release --parallel
 
       - name: Test
         run: ctest --test-dir build --build-config Release --output-on-failure
+
+      # GUI 的渲染层要显示环境，CI 的 Linux/macOS runner 无显示服务器。
+      # 分层验收：数据层（DbSession + 面板数据装配）由 genealogy-gui-tests
+      # 覆盖，已在上一步随 ctest 跑过；渲染层用 --headless-check 验证
+      # 「环境判定与报错路径」本身——退出码 2 = 无显示（环境事实，非缺陷），
+      # 0 = 显示可用。真要看到窗口，靠开发者本机与内部试用。
+      - name: GUI 无头自检
+        shell: bash
+        run: |
+          ./build/bin/genealogy-gui --headless-check || \
+          test $? -eq 2
 
       - name: 许可证白名单卡点（含禁 Qt 检查）
         shell: bash

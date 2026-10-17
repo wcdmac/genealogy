@@ -128,9 +128,14 @@ target_include_directories(genealogy-core
 # 注意：spdlog/fmt 暂不引入——M0 核心零日志调用，且本机 VS2026 + SDK 26100
 # 的 rc.exe 与 vcpkg 的 spdlog 端口有兼容问题（RC1107）。M1 落地日志时再接，
 # 届时改用 --static 三元组或升级 vcpkg 端口验证。
+# nlohmann 必须 PUBLIC：core 的公开头（model/person.hpp 等）直接
+# include <nlohmann/json.hpp>，它是 core 接口的一部分。
+# 曾经写 PRIVATE，下游目标（server/gui）因此拿不到 include 路径——
+# server 靠 Drogon 的传递依赖侥幸编过，gui 一接就暴露。
 target_link_libraries(genealogy-core
-  PRIVATE
+  PUBLIC
     nlohmann_json::nlohmann_json
+  PRIVATE
     genealogy-sqlite3
 )
 

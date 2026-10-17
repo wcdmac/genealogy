@@ -6,7 +6,7 @@
 设计文档（调研结论 / 架构 / 模块划分 / 数据模型 / 接口规范）位于仓库外：
 `D:/cd/tree/genealogy-design/家谱管理软件-调研与架构设计.md`（v1.0，2026-10-12）。
 
-## 当前状态（M2）
+## 当前状态（M3）
 
 - [x] monorepo 骨架 + CMake + vcpkg manifest
 - [x] core：领域模型（person/lineage/branch/place/union/event）/ GenealogyDate 多历法值对象 / ULID / SQLite 仓储 + 迁移 / 用例层（五服务，含领域校验）
@@ -21,8 +21,12 @@
 - [x] **M2 REST 服务（Drogon，MIT）**：`genealogy-server` 起 `http://127.0.0.1:8080/api/v1`，
   30+ 端点全部走 core 用例层（非旁路）；RFC 9457 problem+json 错误、游标分页、
   `ETag`/`If-Match` 乐观锁、JWT(HS256) 鉴权；`/openapi.yaml` 原样托管
-- [x] Catch2 测试（core 784547 断言 / 81 用例 + server HTTP 集成 9 用例）+ 三平台 CI + 许可证白名单卡点
-- [ ] M3：GUI（Dear ImGui）
+- [x] **M3 桌面 GUI（Dear ImGui docking + GLFW，MIT/zlib）**：`genealogy-gui` 起 docking 主窗口，
+  人物卡（行内编辑 + rev 乐观锁）/ 世系表（可排序大表格）/ 检索（FTS）/ 关系（路径+辈分+五服+称谓）/
+  世系树（十代展开）/ 校验面板；OpenGL 3.2+/GLSL 130，中文字体按平台探测，
+  高对比度皮肤 + 字体缩放；`--headless-check` 供 CI 区分「无显示环境」与「真故障」
+- [x] Catch2 测试（core 784547 断言 / 81 用例 + server HTTP 集成 9 用例 +
+  GUI 数据层 7 用例）+ 三平台 CI + 许可证白名单卡点
 
 ### 历法引擎的数据从哪来
 
@@ -83,6 +87,7 @@ genealogy/
 ├── tools/
 │   ├── gen_calendar/    # 历法/年号数据表离线生成器 + 官方基准 fixtures
 │   ├── vcpkg-install.ps1    # 本机安装 vcpkg 依赖（绕 reg.exe 黑名单/MSYS2 抢编译/并发死锁）
+│   ├── build-gui-msvc.bat   # 构建 core+server+gui（M3 全家桶脚本）
 │   ├── vcpkg-triplets/      # overlay triplet：只编 Release
 │   ├── vcpkg-ports/         # overlay 端口：trantor 去 openssl（服务不需要 TLS）
 │   └── license_check.py 等工程工具
@@ -212,6 +217,14 @@ curl -s -X POST localhost:8080/api/v1/persons \
 #    "title":"参数校验失败","status":400,"code":1001,
 #    "detail":"...","instance":"/api/v1/persons","errors":[{"field":"given_name","message":"必填"}]}
 # 写操作必须带 If-Match（当前 rev），否则 428；版本不符 409 并告知当前 rev。
+
+# 桌面 GUI（M3）
+tools\build-gui-msvc.bat                        # 构建 core+server+gui 全家
+./build/bin/genealogy-gui --db family.db        # 带库启动
+./build/bin/genealogy-gui --headless-check      # CI/SSH 自检：0=有显示 2=无显示
+# 面板：人物卡 / 世系表 / 检索 / 关系 / 世系树 / 校验（菜单「面板」开关）。
+# 数据层与渲染层分层：面板数据装配（DbSession + 用例层调用）无 ImGui 依赖，
+# 由 genealogy-gui-tests 无头单测；渲染层要显示环境，CI 只验 --headless-check。
 
 # 世系算法：两人关系路径 / 辈分差 / 五服 / 称谓
 ./build/bin/genea person relation --db family.db 01J... 01K...
