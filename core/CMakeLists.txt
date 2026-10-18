@@ -73,6 +73,7 @@ target_sources(genealogy-core
   PRIVATE
     src/ulid.cpp
     src/util/time.cpp
+    src/util/utf8.cpp
     src/model/genealogy_date.cpp
     src/model/person.cpp
     src/model/lineage.cpp
@@ -80,6 +81,7 @@ target_sources(genealogy-core
     src/model/place.cpp
     src/model/union.cpp
     src/model/event.cpp
+    src/model/generation_poem.cpp
     src/repository/sqlite_util.cpp
     src/repository/transaction.cpp
     src/repository/database.cpp
@@ -90,15 +92,18 @@ target_sources(genealogy-core
     src/repository/place_repository.cpp
     src/repository/union_repository.cpp
     src/repository/event_repository.cpp
+    src/repository/generation_poem_repository.cpp
     src/service/person_service.cpp
     src/service/lineage_service.cpp
     src/service/branch_service.cpp
     src/service/place_service.cpp
     src/service/union_service.cpp
     src/service/event_service.cpp
+    src/service/generation_poem_service.cpp
     src/lineage/graph.cpp
     src/lineage/relationship.cpp
     src/lineage/generation.cpp
+    src/lineage/generation_poem.cpp
     src/lineage/mourning.cpp
     src/lineage/appellation.cpp
     src/lineage/rules.cpp

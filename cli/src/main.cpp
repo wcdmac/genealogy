@@ -22,6 +22,7 @@
 #include "cli_util.hpp"
 #include "cmd_entity.hpp"
 #include "cmd_io.hpp"
+#include "cmd_poem.hpp"
 
 #include <genealogy/calendar/chinese_calendar.hpp>
 #include <genealogy/calendar/era.hpp>
@@ -907,6 +908,8 @@ int run(std::vector<std::string> raw_args) {
       return genea_cli::cmd_io(rest, db_path, format);
     if (command == "bench")
       return genea_cli::cmd_bench(rest, db_path, format);
+    if (command == "poem")
+      return genea_cli::cmd_poem(rest, db_path, format);
   } catch (const cxxopts::exceptions::exception& e) {
     // 参数/用法问题
     std::cerr << "用法错误: " << e.what() << "\n";
@@ -920,6 +923,7 @@ int run(std::vector<std::string> raw_args) {
   std::cerr << "未知命令: " << command << " " << sub
             << "（支持: db init | person add|list|show |"
             << " lineage|branch|place|union|event add|list|show|remove |"
+            << " poem set|show|check |"
             << " date convert|lunar|terms|era|info |"
             << " io import|export|validate | bench）\n";
   return 2;

@@ -10,6 +10,8 @@ add_executable(genealogy-core-tests
   test_gedcom.cpp
   test_io_integration.cpp
   test_validation.cpp
+  test_generation_poem.cpp
+  test_rules_snapshot.cpp
 )
 
 target_link_libraries(genealogy-core-tests

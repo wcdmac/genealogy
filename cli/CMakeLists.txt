@@ -3,6 +3,7 @@
 add_executable(genea
   src/main.cpp
   src/cmd_entity.cpp
+  src/cmd_poem.cpp
   src/cmd_io.cpp
 )
 
