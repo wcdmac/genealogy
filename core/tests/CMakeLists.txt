@@ -12,6 +12,7 @@ add_executable(genealogy-core-tests
   test_validation.cpp
   test_generation_poem.cpp
   test_rules_snapshot.cpp
+  test_migration.cpp
 )
 
 target_link_libraries(genealogy-core-tests

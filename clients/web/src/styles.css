@@ -240,6 +240,13 @@ input[type="checkbox"] { width: auto; }
 .edge-birth { stroke: #a89a7c; stroke-width: 1.5; }
 .edge-marriage { stroke: var(--accent); stroke-width: 1.5; stroke-dasharray: 5 4; }
 
+/* ---------- 迁徙地图 ---------- */
+.migration-map { background: #fbfaf6; border: 1px solid var(--line); border-radius: 10px; }
+.map-grid { stroke: #ece5d6; stroke-width: 1; }
+.map-place { fill: #6b6353; }
+.map-label { font-size: 11px; fill: var(--ink); }
+.map-arrow { stroke: var(--accent); stroke-width: 1.5; opacity: 0.75; }
+
 /* ---------- 面板 ---------- */
 .panel {
   background: var(--panel);

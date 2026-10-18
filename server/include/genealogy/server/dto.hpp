@@ -21,6 +21,7 @@
 #include <genealogy/model/branch.hpp>
 #include <genealogy/model/event.hpp>
 #include <genealogy/model/lineage.hpp>
+#include <genealogy/model/migration.hpp>
 #include <genealogy/model/person.hpp>
 #include <genealogy/model/place.hpp>
 #include <genealogy/model/union.hpp>
@@ -96,6 +97,13 @@ struct EventDraft {
   bool ok() const { return errors.empty(); }
 };
 EventDraft parse_event_create(const nlohmann::json& j);
+
+struct MigrationDraft {
+  std::vector<FieldError> errors;
+  Migration migration;
+  bool ok() const { return errors.empty(); }
+};
+MigrationDraft parse_migration_create(const nlohmann::json& j);
 
 // ---------- 分页 ----------
 

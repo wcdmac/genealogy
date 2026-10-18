@@ -244,6 +244,43 @@ async function main(): Promise<number> {
     unsubscribe();
     await client.deletePerson(ssePerson.id);
 
+    // ---- 迁徙（M5-4）----
+    const fromPlace = await client.createPlace({
+      name: "冒烟故里",
+      lat: 27.83,
+      lng: 112.94,
+    });
+    const toPlace = await client.createPlace({
+      name: "冒烟新邑",
+      lat: 29.56,
+      lng: 106.55,
+    });
+    const migration = await client.createMigration({
+      subject_type: "person",
+      subject_id: grandpa.id,
+      from_place_id: fromPlace.id,
+      to_place_id: toPlace.id,
+      reason: "营商",
+    });
+    check("迁徙登记", typeof migration.id === "string", migration.id);
+    const migrationPage = await client.listMigrations({
+      subject_id: grandpa.id,
+    });
+    check(
+      "迁徙按主体可查",
+      (migrationPage.data ?? []).some((row) => row.id === migration.id),
+    );
+    await expectApiError(
+      "缺目的地迁徙被拒（400）",
+      () =>
+        client.createMigration({
+          subject_type: "person",
+          subject_id: grandpa.id,
+          to_place_id: "",
+        }),
+      400,
+    );
+
     // ---- 分页迭代器 ----
     let visited = 0;
     for await (const _person of paginate((cursor) =>

@@ -323,6 +323,37 @@ EventDraft parse_event_create(const nlohmann::json& j) {
   return out;
 }
 
+MigrationDraft parse_migration_create(const nlohmann::json& j) {
+  MigrationDraft out;
+  auto& errs = out.errors;
+  if (const auto it = j.find("subject_type"); it != j.end() &&
+      it->is_string()) {
+    auto t = migration_subject_from_string(it->get<std::string>());
+    if (t) {
+      out.migration.subject_type = *t;
+    } else {
+      errs.push_back({"subject_type", "应为 person/branch"});
+    }
+  } else {
+    errs.push_back({"subject_type", "必填"});
+  }
+  if (auto v = req_string(j, "subject_id", &errs)) {
+    out.migration.subject_id = *v;
+  }
+  if (auto v = opt_string(j, "from_place_id", &errs)) {
+    out.migration.from_place_id = *v;
+  }
+  if (auto v = req_string(j, "to_place_id", &errs)) {
+    out.migration.to_place_id = *v;
+  }
+  // date 按 GenealogyDate 对象接收（规范口径），与 event 同路径
+  if (auto v = opt_date(j, "date", &errs)) out.migration.date = *v;
+  if (auto v = opt_string(j, "reason", &errs)) out.migration.reason = *v;
+  if (auto v = opt_string(j, "route", &errs)) out.migration.route = *v;
+  if (auto v = opt_string(j, "note", &errs)) out.migration.note = *v;
+  return out;
+}
+
 // ---------------------------------------------------------------- 分页
 
 Page parse_page(const drogon::HttpRequestPtr& req,

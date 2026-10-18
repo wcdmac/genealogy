@@ -36,6 +36,11 @@ export type MourningDegree = components["schemas"]["MourningDegree"];
 export type Appellation = components["schemas"]["Appellation"];
 export type Role = components["schemas"]["Role"];
 export type EventNotice = components["schemas"]["EventNotice"];
+// Migration 同实体收紧：id 与 subject_id 必有（server 仓储层保证）
+export type Migration = Omit<
+  components["schemas"]["Migration"],
+  "id" | "subject_id"
+> & { id: string; subject_id: string };
 
 /** 列表端点统一返回的分页信封（spec components/responses/Page）。 */
 export interface PageEnvelope {
@@ -579,8 +584,6 @@ export class GenealogyClient {
     });
   }
 
-  // ---------------------------------------------------------------- SSE
-
   async exportTree(
     personId: string,
     format: "dot" | "mermaid" = "dot",
@@ -589,6 +592,32 @@ export class GenealogyClient {
       query: { person_id: personId, format },
       accept: "text/plain",
     });
+  }
+
+  // ---------------------------------------------------------------- 迁徙
+
+  async listMigrations(params?: {
+    branch_id?: string;
+    subject_id?: string;
+    subject_type?: "person" | "branch";
+    limit?: number;
+    cursor?: string;
+  }): Promise<PageEnvelope> {
+    return this.request("GET", "/migrations", { query: { ...params } });
+  }
+
+  /** 登记迁徙。date 传 GenealogyDate 对象（或省略）。 */
+  async createMigration(body: {
+    subject_type: "person" | "branch";
+    subject_id: string;
+    to_place_id: string;
+    from_place_id?: string;
+    date?: unknown;
+    reason?: string;
+    route?: string;
+    note?: string;
+  }): Promise<Migration> {
+    return this.request("POST", "/migrations", { body });
   }
 
   // ---------------------------------------------------------------- SSE

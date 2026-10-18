@@ -180,6 +180,10 @@ int main(int argc, char** argv) {
   app.registerHandler(base + "/places/{id}", &place_patch, {drogon::Patch});
   app.registerHandler(base + "/places/{id}", &place_delete, {drogon::Delete});
 
+  // 迁徙（M5-4）
+  app.registerHandler(base + "/migrations", &migrations_list, {drogon::Get});
+  app.registerHandler(base + "/migrations", &migrations_create, {drogon::Post});
+
   // 检索 / 统计 / 校验 / 导入导出
   app.registerHandler(base + "/search", &search, {drogon::Get});
   app.registerHandler(base + "/stats", &stats, {drogon::Get});

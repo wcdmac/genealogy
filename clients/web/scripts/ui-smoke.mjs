@@ -199,6 +199,36 @@ async function main() {
     const dotDownload = await dotPromise;
     check("世系图导出触发下载", dotDownload.suggestedFilename().endsWith(".dot"), dotDownload.suggestedFilename());
 
+    // ---- 迁徙（M5-4）：登记地点 → 登记迁徙 → 地图与列表 ----
+    await page.getByRole("button", { name: /迁徙/ }).click();
+    await page.getByRole("button", { name: "登记地点" }).click();
+    await page.getByLabel("地名").fill("UI故里");
+    await page.getByLabel("纬度 lat").fill("27.83");
+    await page.getByLabel("经度 lng").fill("112.94");
+    await page
+      .locator(".modal")
+      .getByRole("button", { name: "登记", exact: true })
+      .click();
+    // 有坐标地点后迁徙地图应渲染出来
+    await page.waitForSelector("svg.migration-map", { timeout: 10000 });
+    check("迁徙地图渲染", true);
+
+    await page.getByRole("button", { name: "登记迁徙" }).click();
+    await page.locator(".modal").getByLabel("主体 ID").fill(personId);
+    await page
+      .locator(".modal")
+      .getByLabel("迁入地")
+      .selectOption({ label: "UI故里" });
+    await page
+      .locator(".modal")
+      .getByRole("button", { name: "登记", exact: true })
+      .click();
+    await page.waitForSelector(
+      "table.grid tbody tr:has-text('UI故里')",
+      { timeout: 10000 },
+    );
+    check("迁徙登记出现在列表", true);
+
     // ---- 校验视图 ----
     await page.getByRole("button", { name: /校验/ }).click();
     await page.waitForSelector("table.grid", { timeout: 15000 });

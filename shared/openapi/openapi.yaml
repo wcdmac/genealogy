@@ -37,7 +37,7 @@ tags:
   - name: unions
   - name: events
   - name: migrations
-    description: 迁徙（规划中，M5；见根级 x-roadmap）
+    description: 迁徙登记与迁徙地图数据源
   - name: places
   - name: sources
     description: 文献来源（规划中，M5；见根级 x-roadmap）
@@ -640,6 +640,44 @@ paths:
       responses:
         "204": { description: 已删除 }
 
+  /migrations:
+    get:
+      tags: [migrations]
+      summary: 迁徙列表
+      operationId: listMigrations
+      parameters:
+        - name: branch_id
+          in: query
+          description: 支派 ID——返回该支派自身的迁徙及其成员个人的迁徙
+          schema: { type: string }
+        - name: subject_id
+          in: query
+          description: 按主体精确查（与 branch_id 二选一）
+          schema: { type: string }
+        - name: subject_type
+          in: query
+          schema: { enum: [person, branch] }
+        - $ref: "#/components/parameters/Limit"
+        - $ref: "#/components/parameters/Cursor"
+      responses:
+        "200": { $ref: "#/components/responses/Page" }
+    post:
+      tags: [migrations]
+      summary: 登记迁徙
+      operationId: createMigration
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/MigrationCreate" }
+      responses:
+        "201":
+          description: 已创建
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Migration" }
+        "400": { $ref: "#/components/responses/BadRequest" }
+
   /places:
     get:
       tags: [places]
@@ -1187,6 +1225,35 @@ components:
         lat: { type: number }
         lng: { type: number }
 
+    Migration:
+      type: object
+      description: |
+        迁徙记录。date 为 GenealogyDate 对象（谱面原文优先）；
+        from/to 挂 place id，地图渲染按 place 的经纬度连线。
+      properties:
+        id: { type: string }
+        subject_type: { enum: [person, branch] }
+        subject_id: { type: string }
+        from_place_id: { type: string }
+        to_place_id: { type: string }
+        date: { $ref: "#/components/schemas/GenealogyDate" }
+        reason: { type: string }
+        route: { type: string }
+        note: { type: string }
+
+    MigrationCreate:
+      type: object
+      required: [subject_type, subject_id, to_place_id]
+      properties:
+        subject_type: { enum: [person, branch] }
+        subject_id: { type: string }
+        from_place_id: { type: string }
+        to_place_id: { type: string }
+        date: { $ref: "#/components/schemas/GenealogyDate" }
+        reason: { type: string, description: 迁因（经商/避乱/仕进/投亲…） }
+        route: { type: string, description: 迁经路线文字描述 }
+        note: { type: string }
+
     MourningDegree:
       type: object
       properties:
@@ -1325,7 +1392,6 @@ components:
 x-roadmap:
   planned_paths:
     - /persons/{id}/names        # 名号变更（谱名/乳名/学名/改后名），M5
-    - /migrations                # 迁徙登记 + 迁徙地图数据，M5
     - /sources                   # 文献来源，M5 证据链
     - /citations                 # 事实↔证据挂接，M5 证据链
     - /documents                 # 谱序/凡例/家训/艺文/契约，M5
@@ -1333,8 +1399,6 @@ x-roadmap:
   planned_schemas:
     - PersonName
     - PersonNameCreate
-    - Migration
-    - MigrationCreate
     - Source
     - SourceType
     - SourceCreate

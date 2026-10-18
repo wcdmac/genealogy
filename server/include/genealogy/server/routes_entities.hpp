@@ -51,4 +51,8 @@ void place_get(const drogon::HttpRequestPtr& req, Callback&& cb);
 void place_patch(const drogon::HttpRequestPtr& req, Callback&& cb);
 void place_delete(const drogon::HttpRequestPtr& req, Callback&& cb);
 
+// ---- 迁徙 ----
+void migrations_list(const drogon::HttpRequestPtr& req, Callback&& cb);
+void migrations_create(const drogon::HttpRequestPtr& req, Callback&& cb);
+
 }  // namespace genealogy::server

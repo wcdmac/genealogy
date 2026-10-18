@@ -7,6 +7,8 @@
 #include <unordered_map>
 #include <vector>
 
+#include <algorithm>
+
 #include <drogon/HttpTypes.h>
 #include <nlohmann/json.hpp>
 
@@ -22,9 +24,11 @@
 #include <genealogy/server/event_bus.hpp>
 #include <genealogy/server/problem.hpp>
 #include <genealogy/server/runtime.hpp>
+#include <genealogy/repository/person_repository.hpp>
 #include <genealogy/service/branch_service.hpp>
 #include <genealogy/service/event_service.hpp>
 #include <genealogy/service/lineage_service.hpp>
+#include <genealogy/service/migration_service.hpp>
 #include <genealogy/service/person_service.hpp>
 #include <genealogy/service/place_service.hpp>
 #include <genealogy/service/union_service.hpp>
@@ -859,6 +863,134 @@ void place_delete(const drogon::HttpRequestPtr& req, Callback&& cb) {
   resp->setStatusCode(drogon::k204NoContent);
   cb(resp);
   GENEALOGY_PUBLISH_CHANGE("place.deleted", "place", removed_id,
+                           std::nullopt);
+}
+
+// ================================================================ 迁徙
+
+void migrations_list(const drogon::HttpRequestPtr& req, Callback&& cb) {
+  std::string why;
+  auto* db = db_from(req, &why);
+  if (db == nullptr) {
+    cb(problem_response(500, 9001, "内部错误", why, req->path()));
+    return;
+  }
+  const std::string instance = req->path();
+  Page page;
+  if (bad_page(req, instance, cb, &page)) return;
+
+  MigrationService svc(*db);
+  std::vector<Migration> rows;
+
+  const std::string branch_id = req->getParameter("branch_id");
+  const std::string subject_id = req->getParameter("subject_id");
+
+  if (!branch_id.empty()) {
+    // 按支派查 = 支派自身的迁徙 + 其成员个人的迁徙。
+    // 为什么不在仓储层 JOIN person：迁徙表按 subject 精确索引，
+    // 本地规模（一支几十到几百人）逐主体查足够快；JOIN 反而把
+    // 游标分页搞复杂（同一条迁徙可能经多人命中）。
+    MigrationFilter bf;
+    bf.subject_type = MigrationSubjectType::Branch;
+    bf.subject_id = branch_id;
+    bf.limit = page.limit + 1;
+    auto own = svc.list_migrations(bf);
+    if (!own) {
+      cb(error_to_response(own.error(), instance));
+      return;
+    }
+    rows = std::move(*own);
+
+    PersonRepository persons(*db);
+    PersonFilter pf;
+    pf.branch_id = branch_id;
+    pf.limit = 200000;
+    auto members = persons.list(pf);
+    if (!members) {
+      cb(error_to_response(members.error(), instance));
+      return;
+    }
+    for (const auto& person : *members) {
+      MigrationFilter mf;
+      mf.subject_type = MigrationSubjectType::Person;
+      mf.subject_id = person.id;
+      mf.limit = page.limit + 1;
+      auto got = svc.list_migrations(mf);
+      if (!got) {
+        cb(error_to_response(got.error(), instance));
+        return;
+      }
+      for (auto& m : *got) rows.push_back(std::move(m));
+    }
+    // 多主体合并后重新按 id 排序，游标口径与单主体查询一致
+    std::sort(rows.begin(), rows.end(),
+              [](const Migration& a, const Migration& b) { return a.id < b.id; });
+  } else {
+    MigrationFilter f;
+    if (!subject_id.empty()) f.subject_id = subject_id;
+    if (const auto s = req->getParameter("subject_type"); !s.empty()) {
+      auto t = migration_subject_from_string(s);
+      if (!t) {
+        cb(problem_response(400, 1001, "参数校验失败",
+                            "subject_type 应为 person/branch", instance));
+        return;
+      }
+      f.subject_type = *t;
+    }
+    f.limit = page.limit + 1;
+    if (!page.cursor.empty()) f.cursor = page.cursor;
+    auto got = svc.list_migrations(f);
+    if (!got) {
+      cb(error_to_response(got.error(), instance));
+      return;
+    }
+    rows = std::move(*got);
+  }
+
+  // 游标：合并路径下仓储层没替我们过滤，这里统一做
+  if (!page.cursor.empty()) {
+    rows.erase(std::remove_if(rows.begin(), rows.end(),
+                              [&](const Migration& m) {
+                                return m.id <= page.cursor;
+                              }),
+               rows.end());
+  }
+  const bool more = rows.size() > static_cast<std::size_t>(page.limit);
+  if (more) rows.pop_back();
+  std::vector<nlohmann::json> items;
+  for (const auto& m : rows) items.push_back(to_json(m));
+  std::string next;
+  if (more && !rows.empty()) next = rows.back().id;
+  cb(json_ok(page_envelope(std::move(items), next, more), std::nullopt));
+}
+
+void migrations_create(const drogon::HttpRequestPtr& req, Callback&& cb) {
+  std::string why;
+  auto* db = db_from(req, &why);
+  if (db == nullptr) {
+    cb(problem_response(500, 9001, "内部错误", why, req->path()));
+    return;
+  }
+  const std::string instance = req->path();
+  bool ok = false;
+  const auto body = parse_body(req, instance, &ok, cb);
+  if (!ok) return;
+
+  const MigrationDraft d = parse_migration_create(body);
+  if (!d.ok()) {
+    cb(validation_problem(instance, d.errors, "迁徙登记参数不合法"));
+    return;
+  }
+
+  MigrationService svc(*db);
+  auto made = svc.create_migration(d.migration);
+  if (!made) {
+    cb(error_to_response(made.error(), instance));
+    return;
+  }
+  // migration 表无 rev，故不设 ETag
+  cb(json_created(to_json(*made)));
+  GENEALOGY_PUBLISH_CHANGE("migration.created", "migration", made->id,
                            std::nullopt);
 }
 

@@ -365,6 +365,24 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/migrations": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** 迁徙列表 */
+        get: operations["listMigrations"];
+        put?: never;
+        /** 登记迁徙 */
+        post: operations["createMigration"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/places": {
         parameters: {
             query?: never;
@@ -763,6 +781,35 @@ export interface components {
             historical_name?: string;
             lat?: number;
             lng?: number;
+        };
+        /**
+         * @description 迁徙记录。date 为 GenealogyDate 对象（谱面原文优先）；
+         *     from/to 挂 place id，地图渲染按 place 的经纬度连线。
+         */
+        Migration: {
+            id?: string;
+            /** @enum {unknown} */
+            subject_type?: "person" | "branch";
+            subject_id?: string;
+            from_place_id?: string;
+            to_place_id?: string;
+            date?: components["schemas"]["GenealogyDate"];
+            reason?: string;
+            route?: string;
+            note?: string;
+        };
+        MigrationCreate: {
+            /** @enum {unknown} */
+            subject_type: "person" | "branch";
+            subject_id: string;
+            from_place_id?: string;
+            to_place_id: string;
+            date?: components["schemas"]["GenealogyDate"];
+            /** @description 迁因（经商/避乱/仕进/投亲…） */
+            reason?: string;
+            /** @description 迁经路线文字描述 */
+            route?: string;
+            note?: string;
         };
         MourningDegree: {
             /** @enum {unknown} */
@@ -1743,6 +1790,51 @@ export interface operations {
                 };
                 content?: never;
             };
+        };
+    };
+    listMigrations: {
+        parameters: {
+            query?: {
+                /** @description 支派 ID——返回该支派自身的迁徙及其成员个人的迁徙 */
+                branch_id?: string;
+                /** @description 按主体精确查（与 branch_id 二选一） */
+                subject_id?: string;
+                subject_type?: "person" | "branch";
+                limit?: components["parameters"]["Limit"];
+                cursor?: components["parameters"]["Cursor"];
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            200: components["responses"]["Page"];
+        };
+    };
+    createMigration: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["MigrationCreate"];
+            };
+        };
+        responses: {
+            /** @description 已创建 */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Migration"];
+                };
+            };
+            400: components["responses"]["BadRequest"];
         };
     };
     listPlaces: {
