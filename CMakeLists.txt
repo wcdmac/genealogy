@@ -79,3 +79,44 @@ endif()
 if(BUILD_GUI)
   add_subdirectory(gui)
 endif()
+
+# ---------- 打包（M6-1：三平台产物） ----------
+# 生成器按平台选：Windows ZIP / macOS DRAGNDROP(dmg) / Linux TGZ。
+# 都不引外部打包工具（NSIS 要在 CI 装、hdiutil 只有 macOS 有），
+# CPack 内置支持，本地 cpack 一条命令出包。
+set(CPACK_PACKAGE_NAME "genealogy")
+set(CPACK_PACKAGE_VERSION ${PROJECT_VERSION})
+set(CPACK_PACKAGE_DESCRIPTION_SUMMARY "${PROJECT_DESCRIPTION}")
+set(CPACK_PACKAGE_VENDOR "wcdmac")
+set(CPACK_PACKAGE_HOMEPAGE_URL "https://github.com/wcdmac/genealogy")
+set(CPACK_RESOURCE_FILE_LICENSE "${PROJECT_SOURCE_DIR}/LICENSE")
+if(WIN32)
+  set(CPACK_GENERATOR "ZIP")
+elseif(APPLE)
+  set(CPACK_GENERATOR "DRAGNDROP")
+else()
+  set(CPACK_GENERATOR "TGZ")
+endif()
+set(CPACK_PACKAGE_FILE_NAME
+    "${CPACK_PACKAGE_NAME}-${PROJECT_VERSION}-${CMAKE_SYSTEM_NAME}-${CMAKE_SYSTEM_PROCESSOR}")
+set(CPACK_SOURCE_IGNORE_FILES "/\\\\.git/;/build/;/clients/web/node_modules/;/clients/web/dist/")
+include(CPack)
+
+# Windows 运行时 DLL 统一收进包的 bin/。server/gui 的 POST_BUILD 已把
+# vcpkg DLL 全量拷到 build/bin，这里 install 期 glob 收集。
+# 两个前车之鉴：
+# ① install(CODE [[ ... ]]) —— bracket 参数不展开 ${CMAKE_BINARY_DIR}，
+#    glob 到字面路径，静悄悄地装出没有 DLL 的包；必须用普通字符串 +
+#    转义 install 期变量（\${...}）。
+# ② $<TARGET_RUNTIME_DLLS> genex —— 只解析到直接传递依赖（drogon/
+#    trantor/cares/glfw3），drogon 内部的 jsoncpp/zlib/brotli/openssl
+#    不在其依赖树里，会漏。POST_BUILD 的 glob 拷贝才是全量。
+if(WIN32)
+  install(CODE "
+    file(GLOB _runtime_dlls \"${CMAKE_BINARY_DIR}/bin/*.dll\")
+    if(_runtime_dlls)
+      file(INSTALL DESTINATION \"\${CMAKE_INSTALL_PREFIX}/bin\"
+           TYPE SHARED_LIBRARY FILES \${_runtime_dlls})
+    endif()
+  ")
+endif()

@@ -16,10 +16,13 @@ jobs:
         include:
           - os: windows-latest
             triplet: x64-windows
+            cpack_gen: ZIP
           - os: macos-latest
             triplet: arm64-osx
+            cpack_gen: DRAGNDROP
           - os: ubuntu-latest
             triplet: x64-linux
+            cpack_gen: TGZ
     steps:
       - uses: actions/checkout@v4
 
@@ -53,6 +56,25 @@ jobs:
 
       - name: Test
         run: ctest --test-dir build --build-config Release --output-on-failure
+
+      # M6-1：三平台打包。CPack 内置生成器（ZIP/DRAGNDROP/TGZ），
+      # 不引外部打包工具；产物上传供试装试跑。
+      - name: 打包（CPack）
+        shell: bash
+        run: |
+          cd build
+          cpack -G "${{ matrix.cpack_gen }}" --verbose
+          ls -la *.zip *.dmg *.tar.gz 2>/dev/null || true
+
+      - name: 上传打包产物
+        uses: actions/upload-artifact@v4
+        with:
+          name: genealogy-${{ matrix.os }}
+          path: |
+            build/*.zip
+            build/*.dmg
+            build/*.tar.gz
+          if-no-files-found: error
 
       # GUI 的渲染层要显示环境，CI 的 Linux/macOS runner 无显示服务器。
       # 分层验收：数据层（DbSession + 面板数据装配）由 genealogy-gui-tests

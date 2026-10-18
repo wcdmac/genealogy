@@ -60,6 +60,13 @@ add_custom_command(TARGET genealogy-server POST_BUILD
   COMMENT "拷贝 openapi.yaml 到 genealogy-server 旁边"
 )
 
+# 分发：exe 进 bin/，openapi.yaml 跟 exe 同目录（服务的查找顺序第一站）。
+# OPTIONAL：install 期该文件必在（POST_BUILD 已拷），留着是防 strip 场景。
+# Windows 运行时 DLL 由根 CMakeLists 的 install(CODE) 从 build/bin 全量收拢
+# （TARGET_RUNTIME_DLLS genex 会漏 drogon 内部的 jsoncpp/zlib/brotli/openssl）。
+install(TARGETS genealogy-server RUNTIME DESTINATION bin)
+install(FILES "${CMAKE_BINARY_DIR}/bin/openapi.yaml" DESTINATION bin OPTIONAL)
+
 # ---------------------------------------------------------------- 测试
 # HTTP 集成测试：起真实 Drogon 服务打真实 HTTP（见 tests/test_http.cpp 头部说明）
 if(BUILD_TESTS)

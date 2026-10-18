@@ -80,6 +80,11 @@ target_link_libraries(genealogy-gui
     imgui
 )
 
+# 分发：GUI 直接以可执行文件形式进包（非 .app bundle）——GLFW 窗口
+# 不需要 bundle 结构，M6 的验收是「产物可安装、GUI 可启动」。
+# Windows 运行时 DLL 由根 CMakeLists 的 install(CODE) 从 build/bin 收拢。
+install(TARGETS genealogy-gui RUNTIME DESTINATION bin)
+
 # ---------------------------------------------------------------- 测试
 # GUI 的数据层（DbSession + 面板状态刷新）不依赖 ImGui，可无头单测；
 # 渲染层（GLFW/OpenGL）需要显示环境，只保证编译通过与运行时报错路径。
