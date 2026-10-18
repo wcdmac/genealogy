@@ -6,11 +6,11 @@
 设计文档（调研结论 / 架构 / 模块划分 / 数据模型 / 接口规范）位于仓库外：
 `D:/cd/tree/genealogy-design/家谱管理软件-调研与架构设计.md`（v1.0，2026-10-12）。
 
-## 当前状态（M3）
+## 当前状态（M6）
 
 - [x] monorepo 骨架 + CMake + vcpkg manifest
-- [x] core：领域模型（person/lineage/branch/place/union/event）/ GenealogyDate 多历法值对象 / ULID / SQLite 仓储 + 迁移 / 用例层（五服务，含领域校验）
-- [x] cli：`db init|seed` / `person add|list|show|relation|tree` / `lineage|branch|place|union|event add|list|show|remove` / `date convert|lunar|terms|era|info` / `io import|export|validate` / `bench`
+- [x] core：领域模型（person/lineage/branch/place/union/event/migration）/ GenealogyDate 多历法值对象 / ULID / SQLite 仓储 + 迁移 / 用例层
+- [x] cli：`db init|seed|backup|restore` / `person add|list|show|relation|tree` / `lineage|branch|place|union|event|poem add|list|show|remove` / `date convert|lunar|terms|era|info` / `io import|export|validate` / `bench`
 - [x] **M1.3 世系算法引擎**：世系图快照 + BFS 关系路径 + 世代序号（自始祖起算）+ 辈分差 + 五服（明清定型版）+ 称谓；规则表数据外置（`shared/rules/*.json`，构建时嵌入）
 - [x] **M1.4 历法引擎**：公历↔农历互转（**1583-3000**，1418 个农历年）/ 24 节气时刻（北京时间，到分）/ 干支纪年纪月纪日 / 生肖 / 年号纪年（西汉建元至民国，499 条区间）
 - [x] **M1.5 GEDCOM 5.5.1 导入导出 + 一致性校验规则引擎**：三层解析（字符集/结构/映射）、
@@ -19,14 +19,24 @@
 - [x] **M1.6 性能灌库验收**：合成谱生成器（固定种子可复现）+ 灌库快路径 + `genea bench`
   基准报告（10 万人物 / 8.9 万事件，全部达标，余量 4～12 倍）+ 规模往返哨兵测试
 - [x] **M2 REST 服务（Drogon，MIT）**：`genealogy-server` 起 `http://127.0.0.1:8080/api/v1`，
-  30+ 端点全部走 core 用例层（非旁路）；RFC 9457 problem+json 错误、游标分页、
-  `ETag`/`If-Match` 乐观锁、JWT(HS256) 鉴权；`/openapi.yaml` 原样托管
+  47 端点全部走 core 用例层（非旁路）；RFC 9457 problem+json 错误、游标分页、
+  `ETag`/`If-Match` 乐观锁、JWT(HS256) 鉴权、CORS（Web 外接）、`/openapi.yaml` 原样托管；
+  spec 与实现严格对齐（`tools/validate_openapi.py` 是 CI 卡点）
+- [x] **M2 TS 客户端**：`clients/web` 类型由 openapi-typescript 从 spec 生成（勿手改）+
+  薄封装 + 读写冒烟（26 项）+ 浏览器 UI 冒烟（16 项，playwright 驱动真实 Chromium）
 - [x] **M3 桌面 GUI（Dear ImGui docking + GLFW，MIT/zlib）**：`genealogy-gui` 起 docking 主窗口，
   人物卡（行内编辑 + rev 乐观锁）/ 世系表（可排序大表格）/ 检索（FTS）/ 关系（路径+辈分+五服+称谓）/
   世系树（十代展开）/ 校验面板；OpenGL 3.2+/GLSL 130，中文字体按平台探测，
   高对比度皮肤 + 字体缩放；`--headless-check` 供 CI 区分「无显示环境」与「真故障」
-- [x] Catch2 测试（core 784547 断言 / 81 用例 + server HTTP 集成 9 用例 +
-  GUI 数据层 7 用例）+ 三平台 CI + 许可证白名单卡点
+- [x] **M4 算法与互通**：五服/称谓/世代/字辈引擎（派语解析/辈字定位/世代一致性，CLI `genea poem`）+
+  五服规则表快照测试 + GEDCOM 双向（往返零严重损失）
+- [x] **M5 多客户端外接**：Web UI 参考实现（Vite + React，建档→关系→世系图→导出浏览器闭环）+
+  SSE 变更协同（`/events/stream`，写操作实时推送）+ 迁徙登记与 SVG 迁徙地图
+- [x] **M6 发行**：三平台打包（CPack：Windows ZIP / macOS dmg / Linux tar.gz，
+  Windows DLL 全量随包）+ 文档站（`docs/`：使用手册 + 修谱工作流）+
+  备份恢复（`genea db backup|restore`，VACUUM INTO 一致性快照；演练 13 项断言，CI 卡点）
+- [x] Catch2 测试（core 786187 断言 / 105 用例 + server HTTP 集成 + GUI 数据层）+
+  三平台 CI（构建/测试/打包/规范校验/TS 客户端/UI 冒烟/备份演练）+ 许可证白名单卡点
 
 ### 历法引擎的数据从哪来
 
@@ -79,19 +89,33 @@ genealogy/
 ├── cli/              # genea 命令行
 ├── server/           # REST 服务（Drogon，BUILD_SERVER=ON 启用）
 ├── gui/              # 桌面 GUI（Dear ImGui + GLFW，BUILD_GUI=ON 启用）
-├── clients/web/      # Web UI 参考实现（TS + React）
+├── clients/web/      # Web UI 参考实现（TS + React；类型由 openapi 生成）
+├── shared/
 │   ├── schema/       # SQLite DDL 与迁移脚本（构建时嵌入二进制）
 │   ├── rules/        # 五服/称谓/校验规则表（JSON，构建时嵌入；换规则不改代码）
 │   ├── licenses/     # 依赖许可证白名单
 │   └── openapi/      # OpenAPI 规范（客户端代码生成唯一事实源）
+├── docs/             # 文档站：使用手册 + 修谱工作流
 ├── tools/
 │   ├── gen_calendar/    # 历法/年号数据表离线生成器 + 官方基准 fixtures
 │   ├── vcpkg-install.ps1    # 本机安装 vcpkg 依赖（绕 reg.exe 黑名单/MSYS2 抢编译/并发死锁）
-│   ├── build-gui-msvc.bat   # 构建 core+server+gui（M3 全家桶脚本）
+│   ├── build-msvc.bat        # 构建 core+cli（Windows 一条龙）
+│   ├── build-gui-msvc.bat    # 构建 core+server+gui 全家桶
+│   ├── build-server-msvc.bat # 构建 server（带 overlay 环境变量）
+│   ├── validate_openapi.py   # 规范校验（CI 卡点）
+│   ├── drill_backup_restore.py  # 备份恢复演练（CI 卡点）
+│   ├── license_check.py      # 许可证白名单卡点（含禁 Qt）
 │   ├── vcpkg-triplets/      # overlay triplet：只编 Release
-│   ├── vcpkg-ports/         # overlay 端口：trantor 去 openssl（服务不需要 TLS）
-│   └── license_check.py 等工程工具
+│   └── vcpkg-ports/         # overlay 端口：trantor 去 openssl（服务不需要 TLS）
+└── .github/workflows/ci.yml  # 三平台 CI
 ```
+
+## 文档站
+
+`docs/` 下有完整文档（Markdown，GitHub 直接渲染；`docs/index.html` 为静态入口）：
+
+- [使用手册](docs/manual/使用手册.md)：安装（三平台包 / 源码构建）、CLI、REST 服务、Web UI、桌面 GUI、字辈引擎、备份恢复
+- [修谱工作流](docs/manual/修谱工作流.md)：从筹备（收谱/访谈/定派语）到成谱（校验/字辈/导出/备份）的完整步骤与常见坑
 
 ## 构建（Windows / MSVC）
 
@@ -217,6 +241,21 @@ curl -s -X POST localhost:8080/api/v1/persons \
 #    "title":"参数校验失败","status":400,"code":1001,
 #    "detail":"...","instance":"/api/v1/persons","errors":[{"field":"given_name","message":"必填"}]}
 # 写操作必须带 If-Match（当前 rev），否则 428；版本不符 409 并告知当前 rev。
+# 本地免鉴权模式（默认绑 127.0.0.1）任意口令可换 JWT；--require-auth 后必须
+# 带 Bearer 头。CORS 默认放开（跨端口开发）；GENEALOGY_CORS_ORIGINS 收紧白名单。
+# SSE 协同：GET /events/stream，任一写操作实时推送 event: change 帧。
+
+# Web UI（M5）
+cd clients/web && npm install && npm run build && npm run preview   # 生产预览
+# 或开发模式：npm run dev（/api 自动代理到 127.0.0.1:8080）
+# 页面里填服务器地址（默认 /api/v1 同源；跨端口填 http://127.0.0.1:8080/api/v1）→ 连接
+# 闭环：宗族建档 → 人物建档/编辑 → 婚姻登记 → 世系图 → GEDCOM/DOT 导出 → 校验
+# 冒烟：npm run smoke（API 层 26 项）/ npm run ui-smoke（浏览器层 16 项）
+
+# 备份恢复（M6）
+./build/bin/genea db backup --db family.db --out backup/     # 一致性快照（VACUUM INTO）
+./build/bin/genea db restore --db family.db --from backup/   # 恢复（目标已存在需 --force）
+python3 tools/drill_backup_restore.py                        # 完整演练（灌库→备份→删库→恢复→核对）
 
 # 桌面 GUI（M3）
 tools\build-gui-msvc.bat                        # 构建 core+server+gui 全家

@@ -1,0 +1,94 @@
+<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>genealogy · 家谱管理软件文档</title>
+    <style>
+      :root {
+        --bg: #f6f4ef;
+        --panel: #ffffff;
+        --ink: #2b2b2b;
+        --muted: #8a8577;
+        --line: #e3ddd0;
+        --accent: #8c2f1b;
+        --mono: "Cascadia Mono", "JetBrains Mono", Consolas, monospace;
+      }
+      * { box-sizing: border-box; }
+      body {
+        margin: 0;
+        background: var(--bg);
+        color: var(--ink);
+        font-family: "PingFang SC", "Microsoft YaHei", "Noto Sans CJK SC", system-ui, sans-serif;
+        line-height: 1.7;
+      }
+      .wrap { max-width: 760px; margin: 0 auto; padding: 48px 20px 80px; }
+      header { border-bottom: 2px solid var(--accent); padding-bottom: 16px; margin-bottom: 28px; }
+      h1 { margin: 0 0 6px; font-size: 26px; }
+      .sub { color: var(--muted); font-size: 14px; }
+      h2 { font-size: 18px; margin: 32px 0 10px; }
+      a { color: var(--accent); }
+      .card {
+        display: block;
+        background: var(--panel);
+        border: 1px solid var(--line);
+        border-radius: 10px;
+        padding: 16px 20px;
+        margin: 10px 0;
+        text-decoration: none;
+        color: inherit;
+      }
+      .card:hover { border-color: var(--accent); }
+      .card h3 { margin: 0 0 4px; font-size: 16px; }
+      .card p { margin: 0; color: var(--muted); font-size: 13px; }
+      table { border-collapse: collapse; width: 100%; margin: 12px 0; font-size: 14px; }
+      th, td { border: 1px solid var(--line); padding: 6px 10px; text-align: left; }
+      th { background: #faf7f0; }
+      code { font-family: var(--mono); background: #f3eee3; padding: 1px 5px; border-radius: 4px; font-size: 13px; }
+      .foot { margin-top: 48px; color: var(--muted); font-size: 12px; border-top: 1px solid var(--line); padding-top: 12px; }
+    </style>
+  </head>
+  <body>
+    <div class="wrap">
+      <header>
+        <h1>genealogy · 家谱管理软件</h1>
+        <div class="sub">
+          跨平台家谱管理：核心 C++20 · REST API（OpenAPI 3.1）· Web UI · 桌面 GUI · CLI
+        </div>
+      </header>
+
+      <h2>文档</h2>
+      <a class="card" href="manual/使用手册.md">
+        <h3>使用手册</h3>
+        <p>安装（三平台包/源码构建）、CLI、字辈引擎、历法工具、GEDCOM、REST 服务、Web UI、桌面 GUI、备份恢复、退出码排障</p>
+      </a>
+      <a class="card" href="manual/修谱工作流.md">
+        <h3>修谱工作流</h3>
+        <p>从筹备（收谱/访谈/定派语）到成谱（校验/字辈/导出/备份）的完整步骤、常见坑与一页流程总览</p>
+      </a>
+      <a class="card" href="../README.md">
+        <h3>仓库 README</h3>
+        <p>架构、里程碑状态、目录结构、构建说明、设计决策记录</p>
+      </a>
+      <a class="card" href="../shared/openapi/openapi.yaml">
+        <h3>OpenAPI 规范</h3>
+        <p>REST API 唯一事实源（47 个 operation）；TypeScript 客户端类型由其生成</p>
+      </a>
+
+      <h2>里程碑</h2>
+      <table>
+        <tr><th>里程碑</th><th>内容</th><th>状态</th></tr>
+        <tr><td>M0–M1</td><td>核心库 / 世系算法 / 历法引擎 / GEDCOM / 校验 / 性能验收</td><td>完工</td></tr>
+        <tr><td>M2</td><td>REST 服务 + OpenAPI 定稿 + TS 客户端</td><td>完工</td></tr>
+        <tr><td>M3</td><td>桌面 GUI（Dear ImGui + GLFW）</td><td>完工</td></tr>
+        <tr><td>M4</td><td>五服/称谓/世代/字辈引擎 + GEDCOM 双向</td><td>完工</td></tr>
+        <tr><td>M5</td><td>Web UI 闭环 + SSE 协同 + 迁徙地图</td><td>完工</td></tr>
+        <tr><td>M6</td><td>三平台打包 + 文档站 + 备份恢复演练</td><td>完工</td></tr>
+      </table>
+
+      <div class="foot">
+        依赖全部宽松许可（MIT / BSD / zlib / BSL / 公有领域），CI 有白名单卡点（禁 Qt）。
+      </div>
+    </div>
+  </body>
+</html>
