@@ -15,15 +15,23 @@
 import type { components } from "./types";
 
 export type Problem = components["schemas"]["Problem"];
-export type Person = components["schemas"]["Person"];
+
+// spec 未给实体 schema 标 required，生成的 id/rev 都是可选的；但
+// server 对实体必然返回 ULID 与版本号（仓储层保证）。在使用侧收敛为
+// 必填——否则每个组件都要跟 undefined 搏斗。
+// 注意 event/place 两表无 rev（追加型事实），保持可选。
+type Entity<T> = Omit<T, "id" | "rev"> & { id: string; rev?: number };
+type Versioned<T> = Omit<T, "id" | "rev"> & { id: string; rev: number };
+
+export type Person = Versioned<components["schemas"]["Person"]>;
 export type PersonCreate = components["schemas"]["PersonCreate"];
 export type PersonUpdate = components["schemas"]["PersonUpdate"];
-export type Lineage = components["schemas"]["Lineage"];
+export type Lineage = Versioned<components["schemas"]["Lineage"]>;
 export type LineageCreate = components["schemas"]["LineageCreate"];
-export type Branch = components["schemas"]["Branch"];
-export type Union = components["schemas"]["Union"];
-export type Event = components["schemas"]["Event"];
-export type Place = components["schemas"]["Place"];
+export type Branch = Versioned<components["schemas"]["Branch"]>;
+export type Union = Versioned<components["schemas"]["Union"]>;
+export type Event = Entity<components["schemas"]["Event"]>;
+export type Place = Entity<components["schemas"]["Place"]>;
 export type MourningDegree = components["schemas"]["MourningDegree"];
 export type Appellation = components["schemas"]["Appellation"];
 export type Role = components["schemas"]["Role"];

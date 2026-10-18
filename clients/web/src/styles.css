@@ -1,0 +1,237 @@
+/* 家谱管理 Web 参考实现样式（手写，无组件库）。
+   浅色主题；中文界面字体走系统栈。 */
+
+:root {
+  --bg: #f6f4ef;
+  --panel: #ffffff;
+  --ink: #2b2b2b;
+  --muted: #8a8577;
+  --line: #e3ddd0;
+  --accent: #8c2f1b;       /* 朱砂红，谱册气质 */
+  --accent-ink: #ffffff;
+  --ok: #2e7d32;
+  --warn: #b26a00;
+  --error: #b3261e;
+  --mono: "Cascadia Mono", "JetBrains Mono", Consolas, "Courier New", monospace;
+}
+
+* { box-sizing: border-box; }
+
+body {
+  margin: 0;
+  background: var(--bg);
+  color: var(--ink);
+  font-family: "PingFang SC", "Microsoft YaHei", "Noto Sans CJK SC", system-ui, sans-serif;
+  font-size: 14px;
+}
+
+.app { min-height: 100vh; display: flex; flex-direction: column; }
+
+/* ---------- 顶栏 ---------- */
+.topbar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 10px 16px;
+  background: var(--panel);
+  border-bottom: 1px solid var(--line);
+}
+.brand { font-weight: 600; font-size: 16px; }
+.connection { display: flex; align-items: center; gap: 8px; }
+
+.badge {
+  display: inline-block;
+  padding: 2px 8px;
+  border-radius: 10px;
+  background: #efe9dc;
+  color: var(--ink);
+  font-size: 12px;
+}
+.badge-ok { background: #e3f0e3; color: var(--ok); }
+.badge-error { background: #f7e2e0; color: var(--error); }
+.badge-warn { background: #f7ecd9; color: var(--warn); }
+
+.banner {
+  padding: 8px 16px;
+  background: #fdf6e3;
+  border-bottom: 1px solid var(--line);
+}
+.banner-error { background: #fbe9e7; color: var(--error); }
+.banner-ok { background: #e8f5e9; color: var(--ok); }
+
+/* ---------- 主体布局 ---------- */
+.body { display: flex; flex: 1; }
+.nav {
+  width: 148px;
+  padding: 12px 8px;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  border-right: 1px solid var(--line);
+  background: var(--panel);
+}
+.nav-item {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  padding: 8px 10px;
+  border: none;
+  border-radius: 8px;
+  background: transparent;
+  cursor: pointer;
+  text-align: left;
+}
+.nav-item:hover { background: #f3eee3; }
+.nav-item.active { background: #f3e6d8; }
+.nav-label { font-weight: 600; }
+.nav-hint { font-size: 11px; color: var(--muted); }
+
+.content { flex: 1; padding: 16px; overflow: auto; }
+.stack { display: flex; flex-direction: column; gap: 14px; }
+
+/* ---------- 控件 ---------- */
+button {
+  padding: 6px 12px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: var(--panel);
+  color: var(--ink);
+  cursor: pointer;
+  font-size: 13px;
+}
+button:hover:not(:disabled) { border-color: #c9bfa8; }
+button:disabled { opacity: 0.5; cursor: not-allowed; }
+button.primary { background: var(--accent); border-color: var(--accent); color: var(--accent-ink); }
+button.danger { color: var(--error); border-color: #e0b4b0; }
+button.ghost { border: none; background: transparent; }
+button.link {
+  border: none;
+  background: none;
+  color: var(--accent);
+  padding: 0 4px;
+  text-decoration: underline;
+}
+
+input, select, textarea {
+  padding: 6px 8px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: var(--panel);
+  color: var(--ink);
+  font-size: 13px;
+  font-family: inherit;
+}
+input[type="checkbox"] { width: auto; }
+.mono { font-family: var(--mono); font-size: 12px; }
+.muted { color: var(--muted); }
+.spacer { flex: 1; }
+
+.toolbar {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+  margin-bottom: 12px;
+}
+.inline-field { display: flex; align-items: center; gap: 6px; color: var(--muted); }
+
+/* ---------- 表格 ---------- */
+.grid {
+  width: 100%;
+  border-collapse: collapse;
+  background: var(--panel);
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  overflow: hidden;
+}
+.grid th, .grid td {
+  padding: 8px 10px;
+  border-bottom: 1px solid var(--line);
+  text-align: left;
+}
+.grid th { background: #faf7f0; font-weight: 600; }
+.grid tr.clickable { cursor: pointer; }
+.grid tr.clickable:hover { background: #faf6ec; }
+.grid .empty { text-align: center; color: var(--muted); padding: 24px; }
+
+/* ---------- 弹层 ---------- */
+.modal-backdrop {
+  position: fixed;
+  inset: 0;
+  background: rgba(43, 43, 43, 0.35);
+  display: flex;
+  align-items: flex-start;
+  justify-content: center;
+  padding-top: 6vh;
+  z-index: 50;
+}
+.modal {
+  background: var(--panel);
+  border-radius: 12px;
+  box-shadow: 0 12px 40px rgba(0, 0, 0, 0.18);
+  max-height: 86vh;
+  display: flex;
+  flex-direction: column;
+}
+.modal-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 12px 16px;
+  border-bottom: 1px solid var(--line);
+}
+.modal-head h3 { margin: 0; }
+.modal-body { padding: 16px; overflow: auto; }
+.modal-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 8px;
+  margin-top: 16px;
+}
+
+/* ---------- 表单 ---------- */
+.field { display: flex; flex-direction: column; gap: 4px; margin-bottom: 12px; }
+.field-label { font-size: 12px; color: var(--muted); }
+.field-hint { margin-left: 6px; color: #b5ad9c; }
+.field-row { display: flex; gap: 12px; align-items: flex-end; flex-wrap: wrap; }
+.field-row .field { flex: 1; min-width: 140px; }
+
+/* ---------- 人物卡 ---------- */
+.card-grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 20px;
+}
+.card-grid h4 { margin: 0 0 8px; }
+.props { display: grid; grid-template-columns: auto 1fr; gap: 4px 12px; margin: 0; }
+.props dt { color: var(--muted); }
+.props dd { margin: 0; }
+.bio { white-space: pre-wrap; background: #faf7f0; padding: 8px; border-radius: 8px; }
+.link-list { list-style: none; padding: 0; margin: 0 0 12px; }
+.link-list li { padding: 2px 0; }
+.kinship {
+  margin-top: 16px;
+  padding: 12px;
+  background: #faf7f0;
+  border-radius: 10px;
+}
+
+/* ---------- 世系图 ---------- */
+.tree-scroll { overflow: auto; background: var(--panel); border: 1px solid var(--line); border-radius: 10px; padding: 12px; }
+.tree-node { cursor: pointer; }
+.tree-node:hover .node-box { stroke: var(--accent); }
+.node-box { fill: #fdfcf9; stroke: #c9bfa8; stroke-width: 1; }
+.node-name { font-size: 13px; fill: var(--ink); }
+.node-meta { font-size: 11px; fill: var(--muted); }
+.edge-birth { stroke: #a89a7c; stroke-width: 1.5; }
+.edge-marriage { stroke: var(--accent); stroke-width: 1.5; stroke-dasharray: 5 4; }
+
+/* ---------- 面板 ---------- */
+.panel {
+  background: var(--panel);
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  padding: 14px 16px;
+}
+.panel h3 { margin: 0 0 10px; }
+code { font-family: var(--mono); background: #f3eee3; padding: 1px 4px; border-radius: 4px; }

@@ -95,3 +95,14 @@ jobs:
           # smoke 自拉的 server 才找得到 drogon/trantor/jsoncpp
           export PATH="$VCPKG_INSTALLATION_ROOT/installed/x64-windows/bin:$PATH"
           npm run smoke
+
+      # M5 验收硬指标：「浏览器端完成建档→关系→世系图→导出闭环」。
+      # playwright 驱动真实 Chromium 实际操作 UI（12 项断言），
+      # 失败即闭环有洞——比任何单元测试都接近真实用户路径。
+      - name: UI 浏览器闭环（playwright）
+        if: runner.os == 'Windows'
+        shell: bash
+        run: |
+          cd clients/web
+          npx playwright install chromium
+          npm run ui-smoke

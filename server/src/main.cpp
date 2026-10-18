@@ -22,6 +22,7 @@
 #include <genealogy/error.hpp>
 #include <genealogy/repository/bootstrap.hpp>
 #include <genealogy/repository/database.hpp>
+#include <genealogy/server/cors.hpp>
 #include <genealogy/server/routes_entities.hpp>
 #include <genealogy/server/routes_misc.hpp>
 #include <genealogy/server/routes_auth.hpp>
@@ -210,6 +211,11 @@ int main(int argc, char** argv) {
 
   app.addListener(opt.host, opt.port);
   app.setThreadNum(std::max<std::size_t>(1, opt.threads));
+
+  // CORS：Web 客户端外接必需（设计文档 5.2）。默认放开（只绑回环，
+  // 无跨站风险）；GENEALOGY_CORS_ORIGINS 收紧白名单。
+  const char* cors_env = std::getenv("GENEALOGY_CORS_ORIGINS");
+  install_cors(app, cors_env != nullptr ? cors_env : "");
   // 请求体上限：GEDCOM 导入走 multipart，万条人物约几十 MB，
   // 用 Drogon 默认上限会直接 413。上限放到 512 MB——
   // 再大的导入应走 CLI 的 io import（流式），HTTP 边界不做流式。

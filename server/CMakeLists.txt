@@ -22,6 +22,7 @@ add_library(genealogy-server-lib STATIC
   src/runtime.cpp
   src/problem.cpp
   src/dto.cpp
+  src/cors.cpp
   src/routes_persons.cpp
   src/routes_entities.cpp
   src/routes_misc.cpp
