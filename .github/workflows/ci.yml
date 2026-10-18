@@ -91,6 +91,12 @@ jobs:
         shell: bash
         run: python3 tools/license_check.py
 
+      # M6-3 验收硬指标：「备份恢复演练通过」。灌合成谱 → 备份 →
+      # 删库（模拟事故）→ 恢复 → 核对人物数一致，另验 --force 保护。
+      - name: 备份恢复演练
+        shell: bash
+        run: python tools/drill_backup_restore.py --genea build/bin/genea.exe
+
       # spec 是客户端代码生成的唯一事实源：spec 写坏（断引用、类型错误）
       # 不会让任何 C++ 编译失败，只会在几个月后对接第三方时炸。
       # 元 schema + 项目约定（$ref 可解析、每 operation 有 operationId 与

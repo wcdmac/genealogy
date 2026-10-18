@@ -20,6 +20,7 @@
 #include <nlohmann/json.hpp>
 
 #include "cli_util.hpp"
+#include "cmd_backup.hpp"
 #include "cmd_entity.hpp"
 #include "cmd_io.hpp"
 #include "cmd_poem.hpp"
@@ -882,6 +883,12 @@ int run(std::vector<std::string> raw_args) {
     if (command == "db" && sub == "init") return cmd_db_init(db_path, format);
     if (command == "db" && sub == "seed") {
       return genea_cli::cmd_db_seed(args, db_path, format);
+    }
+    if (command == "db" && sub == "backup") {
+      return genea_cli::cmd_db_backup(args, db_path, format);
+    }
+    if (command == "db" && sub == "restore") {
+      return genea_cli::cmd_db_restore(args, db_path, format);
     }
     if (command == "person") {
       if (sub == "add") return cmd_person_add(args, db_path, format);
