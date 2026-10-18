@@ -26,6 +26,10 @@ attachments/
 .ccache/
 compile_commands.json
 
+# 前端依赖（types.ts 是生成物但入库——与 calendar_tables.cpp 同策略：
+# 第三方消费者不装 node 也能拿类型；改动走 npm run generate）
+clients/web/node_modules/
+
 # 本地临时工作区：下载的原始资料（如紫金山天文台日历 PDF）、构建/测试日志
 .data/
 

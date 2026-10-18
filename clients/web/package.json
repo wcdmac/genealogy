@@ -1,0 +1,16 @@
+{
+  "name": "genealogy-web-client",
+  "version": "0.1.0",
+  "private": true,
+  "description": "genealogy REST 客户端参考实现：openapi-typescript 生成类型 + 薄封装",
+  "type": "module",
+  "scripts": {
+    "generate": "node scripts/generate-types.mjs",
+    "typecheck": "tsc --noEmit",
+    "smoke": "node src/api/smoke.ts"
+  },
+  "devDependencies": {
+    "openapi-typescript": "^7.4.0",
+    "typescript": "^5.6.0"
+  }
+}
