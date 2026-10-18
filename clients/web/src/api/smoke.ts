@@ -23,7 +23,11 @@ import { ApiError, GenealogyClient, paginate } from "./client.ts";
 const here = fileURLToPath(new URL(".", import.meta.url));
 // here = clients/web/src/api/，上四级才是仓库根（clients/web/src/api → … → genealogy）
 const serverBin = join(here, "..", "..", "..", "..", "build", "bin", "genealogy-server.exe");
-const vcpkgBin = "D:\\vcpkg\\installed\\x64-windows\\bin";
+// Drogon 等 DLL 在 vcpkg installed bin；CI 上 vcpkg 不在 D 盘，
+// 用 VCPKG_ROOT 覆盖（CI 步骤里 export PATH 亦可，双保险）。
+const vcpkgBin = process.env.VCPKG_ROOT
+  ? join(process.env.VCPKG_ROOT, "installed", "x64-windows", "bin")
+  : "D:\\vcpkg\\installed\\x64-windows\\bin";
 
 let failures = 0;
 

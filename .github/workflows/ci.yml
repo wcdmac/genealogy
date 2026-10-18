@@ -68,3 +68,30 @@ jobs:
       - name: 许可证白名单卡点（含禁 Qt 检查）
         shell: bash
         run: python3 tools/license_check.py
+
+      # spec 是客户端代码生成的唯一事实源：spec 写坏（断引用、类型错误）
+      # 不会让任何 C++ 编译失败，只会在几个月后对接第三方时炸。
+      # 元 schema + 项目约定（$ref 可解析、每 operation 有 operationId 与
+      # 2xx）全在这里当天红。
+      - name: OpenAPI 规范校验
+        shell: bash
+        run: |
+          pip install pyyaml openapi-spec-validator
+          python tools/validate_openapi.py
+
+      # M2 验收硬指标：「TS 客户端由生成器产出并可跑通读写」。
+      # 只在 Windows 跑（server 二进制与 vcpkg DLL 路径都已就绪；
+      # spec 与生成器本身跨平台无差异，无需三平台重复）。
+      # smoke 会自建临时库、自选端口、跑完自清理，不碰真实数据。
+      - name: TS 客户端（生成 + 类型检查 + 读写冒烟）
+        if: runner.os == 'Windows'
+        shell: bash
+        run: |
+          cd clients/web
+          npm ci
+          npm run generate
+          npm run typecheck
+          # runner 预置 $VCPKG_INSTALLATION_ROOT；DLL 上 PATH，
+          # smoke 自拉的 server 才找得到 drogon/trantor/jsoncpp
+          export PATH="$VCPKG_INSTALLATION_ROOT/installed/x64-windows/bin:$PATH"
+          npm run smoke
