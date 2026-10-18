@@ -35,6 +35,7 @@ export type Place = Entity<components["schemas"]["Place"]>;
 export type MourningDegree = components["schemas"]["MourningDegree"];
 export type Appellation = components["schemas"]["Appellation"];
 export type Role = components["schemas"]["Role"];
+export type EventNotice = components["schemas"]["EventNotice"];
 
 /** 列表端点统一返回的分页信封（spec components/responses/Page）。 */
 export interface PageEnvelope {
@@ -578,6 +579,8 @@ export class GenealogyClient {
     });
   }
 
+  // ---------------------------------------------------------------- SSE
+
   async exportTree(
     personId: string,
     format: "dot" | "mermaid" = "dot",
@@ -586,6 +589,63 @@ export class GenealogyClient {
       query: { person_id: personId, format },
       accept: "text/plain",
     });
+  }
+
+  // ---------------------------------------------------------------- SSE
+
+  /**
+   * 订阅 SSE 变更流（GET /events/stream，M5-3）。
+   *
+   * 用 fetch 流而不是 EventSource：后者不发自定义头，带不上
+   * Bearer 令牌（--require-auth 部署下必须）。
+   * 帧解析按 SSE 协议：空行分帧、data: 行取载荷；注释帧（: 开头）
+   * 与 retry/id/event 帧按需忽略。
+   *
+   * 返回取消函数；断线不自动重连（调用方决定何时重订——
+   * 通常配合视图刷新即可，见 App.tsx 的实时条）。
+   */
+  subscribe(
+    onEvent: (notice: EventNotice) => void,
+    onError?: (error: unknown) => void,
+  ): () => void {
+    const controller = new AbortController();
+    const url = new URL(this.baseUrl + "/events/stream");
+    const headers: Record<string, string> = {};
+    if (this.token) headers["Authorization"] = `Bearer ${this.token}`;
+
+    (async () => {
+      const response = await fetch(url, { headers, signal: controller.signal });
+      if (!response.ok || !response.body) {
+        throw new ApiError(response.status);
+      }
+      const reader = response.body.getReader();
+      const decoder = new TextDecoder();
+      let buffer = "";
+      for (;;) {
+        const { done, value } = await reader.read();
+        if (done) break;
+        buffer += decoder.decode(value, { stream: true });
+        let separator = buffer.indexOf("\n\n");
+        while (separator >= 0) {
+          const frame = buffer.slice(0, separator);
+          buffer = buffer.slice(separator + 2);
+          for (const line of frame.split("\n")) {
+            if (line.startsWith("data: ")) {
+              try {
+                onEvent(JSON.parse(line.slice(6)) as EventNotice);
+              } catch {
+                // 单帧解析失败不致命：跳过，等下一帧
+              }
+            }
+          }
+          separator = buffer.indexOf("\n\n");
+        }
+      }
+    })().catch((error) => {
+      if (!controller.signal.aborted) onError?.(error);
+    });
+
+    return () => controller.abort();
   }
 }
 

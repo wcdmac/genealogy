@@ -23,9 +23,11 @@
 #include <genealogy/repository/bootstrap.hpp>
 #include <genealogy/repository/database.hpp>
 #include <genealogy/server/cors.hpp>
+#include <genealogy/server/event_bus.hpp>
 #include <genealogy/server/routes_entities.hpp>
 #include <genealogy/server/routes_misc.hpp>
 #include <genealogy/server/routes_auth.hpp>
+#include <genealogy/server/routes_stream.hpp>
 #include <genealogy/server/runtime.hpp>
 #include <genealogy/server/routes_persons.hpp>
 
@@ -186,6 +188,11 @@ int main(int argc, char** argv) {
                       {drogon::Post});
   app.registerHandler(base + "/exports/gedcom", &export_gedcom, {drogon::Get});
   app.registerHandler(base + "/exports/tree", &export_tree, {drogon::Get});
+
+  // SSE 变更流（多端协同；本地单机模式同样无害）
+  app.registerHandler(base + "/events/stream", &stream_events, {drogon::Get});
+  // 事件总线：写操作广播 + 15s ping 定时器
+  EventBus::instance().install(app);
 
   // 404 也走 problem+json：客户端生成器对错误体的解析只有一条路径，
   // 框架默认的 HTML 404 会让它炸在第 3 方库里而不是业务代码里。

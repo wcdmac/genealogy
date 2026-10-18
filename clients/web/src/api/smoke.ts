@@ -217,6 +217,33 @@ async function main(): Promise<number> {
     await client.deletePerson(son.id);
     await expectApiError("软删除后 get 得 404", () => client.getPerson(son.id), 404);
 
+    // ---- SSE 变更流（M5-3）----
+    const notices: Array<{ type?: string; subject_id?: string }> = [];
+    const unsubscribe = client.subscribe((notice) =>
+      notices.push(notice as { type?: string; subject_id?: string }),
+    );
+    const ssePerson = await client.createPerson({
+      lineage_id: lineage.id,
+      family_name: "测",
+      given_name: "SSE探针",
+      gender: "male",
+    });
+    // 写操作应实时推到已订阅的连接（本地总线同步广播）
+    const sseDeadline = Date.now() + 3000;
+    while (notices.length === 0 && Date.now() < sseDeadline) {
+      await new Promise((resolve) => setTimeout(resolve, 100));
+    }
+    check(
+      "SSE 实时收到 person.created",
+      notices.some(
+        (notice) =>
+          notice.type === "person.created" && notice.subject_id === ssePerson.id,
+      ),
+      JSON.stringify(notices),
+    );
+    unsubscribe();
+    await client.deletePerson(ssePerson.id);
+
     // ---- 分页迭代器 ----
     let visited = 0;
     for await (const _person of paginate((cursor) =>

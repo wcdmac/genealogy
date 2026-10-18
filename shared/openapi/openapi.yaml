@@ -837,6 +837,26 @@ paths:
             text/plain:
               schema: { type: string }
 
+  /events/stream:
+    get:
+      tags: [events]
+      summary: SSE 变更通知（多端协同）
+      description: |
+        text/event-stream 长连接。任一写操作（人物/宗族/支派/婚姻/
+        事件/地点的建档、更新、删除）成功后，所有连接实时收到一帧
+        event: change，data 为 EventNotice JSON。
+
+        断线重连间隔见初始帧的 retry: 3000。本地单机模式同样可用
+        （只有本机能连，开了无害）；补偿读取代游标分页的 list 端点
+        （总线不重放历史事件）。
+      operationId: streamEvents
+      responses:
+        "200":
+          description: 事件流
+          content:
+            text/event-stream:
+              schema: { type: string }
+
 components:
   securitySchemes:
     bearerAuth:
@@ -1282,6 +1302,20 @@ components:
               field: { type: string }
               message: { type: string }
 
+    EventNotice:
+      type: object
+      description: |
+        SSE 变更帧的 data 载荷（GET /events/stream）。
+        type 形如 person.updated / union.created；rev 对无版本表的
+        实体（event/place）缺省。
+      properties:
+        type: { type: string }
+        subject_type:
+          enum: [person, lineage, branch, union, event, place]
+        subject_id: { type: string }
+        rev: { type: integer }
+        at: { type: string, format: date-time }
+
 # ---------------------------------------------------------------- 路线图
 # 以下端点族 schema 表已在 M0 建好（shared/schema），但 core 领域模型与
 # REST 实现属于 M5 交付范围（设计文档里程碑表：M5 多客户端外接 =
@@ -1296,7 +1330,6 @@ x-roadmap:
     - /citations                 # 事实↔证据挂接，M5 证据链
     - /documents                 # 谱序/凡例/家训/艺文/契约，M5
     - /attachments               # 遗像/扫描件上传下载（内容寻址），M5
-    - /events/stream             # SSE 多端协同（本地单机可不启用），M5
   planned_schemas:
     - PersonName
     - PersonNameCreate

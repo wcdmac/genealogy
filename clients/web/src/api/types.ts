@@ -506,6 +506,32 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/events/stream": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * SSE 变更通知（多端协同）
+         * @description text/event-stream 长连接。任一写操作（人物/宗族/支派/婚姻/
+         *     事件/地点的建档、更新、删除）成功后，所有连接实时收到一帧
+         *     event: change，data 为 EventNotice JSON。
+         *
+         *     断线重连间隔见初始帧的 retry: 3000。本地单机模式同样可用
+         *     （只有本机能连，开了无害）；补偿读取代游标分页的 list 端点
+         *     （总线不重放历史事件）。
+         */
+        get: operations["streamEvents"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
 }
 export type webhooks = Record<string, never>;
 export interface components {
@@ -813,6 +839,20 @@ export interface components {
                 field?: string;
                 message?: string;
             }[];
+        };
+        /**
+         * @description SSE 变更帧的 data 载荷（GET /events/stream）。
+         *     type 形如 person.updated / union.created；rev 对无版本表的
+         *     实体（event/place）缺省。
+         */
+        EventNotice: {
+            type?: string;
+            /** @enum {unknown} */
+            subject_type?: "person" | "lineage" | "branch" | "union" | "event" | "place";
+            subject_id?: string;
+            rev?: number;
+            /** Format: date-time */
+            at?: string;
         };
     };
     responses: {
@@ -1963,6 +2003,26 @@ export interface operations {
                 };
                 content: {
                     "text/plain": string;
+                };
+            };
+        };
+    };
+    streamEvents: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description 事件流 */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "text/event-stream": string;
                 };
             };
         };

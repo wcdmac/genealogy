@@ -6,6 +6,7 @@
 import { useState } from "react";
 
 import { useClient } from "./context";
+import { EventFeed } from "./components/EventFeed";
 import { PersonsView } from "./views/PersonsView";
 import { TreeView } from "./views/TreeView";
 import { ExportView } from "./views/ExportView";
@@ -61,6 +62,7 @@ export function App() {
       {connection.error && (
         <div className="banner banner-error">连接失败：{connection.error}</div>
       )}
+      {connection.connected && <EventFeed />}
       {!connection.connected && !connection.error && (
         <div className="banner">
           未连接。先启动 <code>genealogy-server</code>（默认 127.0.0.1:8080），

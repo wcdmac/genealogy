@@ -21,6 +21,7 @@
 #include <genealogy/repository/person_repository.hpp>
 #include <genealogy/repository/union_repository.hpp>
 #include <genealogy/server/dto.hpp>
+#include <genealogy/server/event_bus.hpp>
 #include <genealogy/server/problem.hpp>
 #include <genealogy/server/runtime.hpp>
 #include <genealogy/service/person_service.hpp>
@@ -203,6 +204,7 @@ void persons_create(const drogon::HttpRequestPtr& req, Callback&& cb) {
     return;
   }
   cb(json_created(to_json(*made), made->rev));
+  GENEALOGY_PUBLISH_CHANGE("person.created", "person", made->id, made->rev);
 }
 
 // ---------------------------------------------------------------- 详情
@@ -299,6 +301,7 @@ void person_patch(const drogon::HttpRequestPtr& req, Callback&& cb) {
     return;
   }
   cb(json_ok(to_json(*saved), saved->rev));
+  GENEALOGY_PUBLISH_CHANGE("person.updated", "person", saved->id, saved->rev);
 }
 
 // ---------------------------------------------------------------- 删除
@@ -320,6 +323,8 @@ void person_delete(const drogon::HttpRequestPtr& req, Callback&& cb) {
   auto resp = drogon::HttpResponse::newHttpResponse();
   resp->setStatusCode(drogon::k204NoContent);
   cb(resp);
+  GENEALOGY_PUBLISH_CHANGE("person.deleted", "person", path_id(req),
+                           std::nullopt);
 }
 
 // ---------------------------------------------------------------- 祖先链

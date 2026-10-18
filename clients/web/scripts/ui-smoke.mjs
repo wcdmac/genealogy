@@ -136,6 +136,14 @@ async function main() {
     await page.waitForSelector(".modal-head:has-text('测UI始祖')", { timeout: 10000 });
     check("人物建档并弹出人物卡", true);
 
+    // ---- SSE 实时条（M5-3）：建档的变更应实时推到界面 ----
+    await page.waitForSelector(".event-feed .badge-ok", { timeout: 10000 });
+    check("实时协同徽标在线", true);
+    await page.waitForSelector(".event-item:has-text('person.created')", {
+      timeout: 10000,
+    });
+    check("实时条收到 person.created", true);
+
     // 人物卡要素：五服/称谓工具 + 编辑按钮
     check("人物卡含五服/称谓工具", await page.locator("text=五服 / 称谓").count() > 0);
 
