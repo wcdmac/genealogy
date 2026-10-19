@@ -10,6 +10,10 @@ namespace genea_cli {
 int cmd_io(const std::vector<std::string>& args, const std::string& db_path,
            const std::string& format);
 
+// 世系树导出（DOT / Mermaid，渲染走 core io::render_tree）。
+int cmd_export_tree(const std::vector<std::string>& args,
+                    const std::string& db_path, const std::string& format);
+
 // 性能验收：灌库 + 跑基准（M1.6）。
 int cmd_bench(const std::vector<std::string>& args, const std::string& db_path,
               const std::string& format);

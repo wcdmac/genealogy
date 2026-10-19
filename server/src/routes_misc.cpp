@@ -25,6 +25,9 @@
 
 #include <genealogy/error.hpp>
 #include <genealogy/io/gedcom.hpp>
+#include <genealogy/io/tree_render.hpp>
+#include <genealogy/service/graph_service.hpp>
+#include <genealogy/service/tree_service.hpp>
 #include <genealogy/lineage/graph.hpp>
 #include <genealogy/lineage/tree.hpp>
 #include <genealogy/model/event.hpp>
@@ -45,32 +48,6 @@
 namespace genealogy::server {
 
 namespace {
-
-// 全库快照：检索/统计/校验共用。与 routes_persons 里那份同口径
-// （M1 规模全量装载；更大规模改按需子图，见设计文档 4.4.1）。
-lineage::PersonGraph load_graph(Database& db, std::string* why) {
-  PersonRepository persons(db);
-  PersonFilter pf;
-  pf.limit = 200000;
-  auto rows = persons.list(pf);
-  if (!rows) {
-    *why = rows.error().message();
-    return {};
-  }
-  UnionRepository unions(db);
-  UnionFilter uf;
-  uf.limit = 200000;
-  auto urows = unions.list(uf);
-  if (!urows) {
-    *why = urows.error().message();
-    return {};
-  }
-  // 零拷贝：图按值接收后把两个结果向量移进去自持（见 graph.hpp 的
-  // 生命周期说明）。曾经的写法是 build(*rows, *urows)——图里存的是
-  // 指向这两个局部 Result 的裸指针，函数一返回全图悬空，
-  // 症状是 validate 时 SIGSEGV，而 stats/search 靠未覆写内存侥幸正常。
-  return lineage::PersonGraph::build(std::move(*rows), std::move(*urows));
-}
 
 }  // namespace
 
@@ -134,11 +111,13 @@ void stats(const drogon::HttpRequestPtr& req, Callback&& cb) {
   }
   const std::string instance = req->path();
 
-  const lineage::PersonGraph graph = load_graph(*db, &why);
-  if (!why.empty()) {
-    cb(problem_response(500, 9001, "内部错误", why, instance));
+  GraphService graphs(*db);
+  auto loaded = graphs.load_full();
+  if (!loaded) {
+    cb(error_to_response(loaded.error(), instance));
     return;
   }
+  const lineage::PersonGraph graph = std::move(*loaded);
 
   EventRepository events(*db);
   EventFilter ef;
@@ -199,11 +178,13 @@ void validate_run(const drogon::HttpRequestPtr& req, Callback&& cb) {
     }
   }
 
-  const lineage::PersonGraph graph = load_graph(*db, &why);
-  if (!why.empty()) {
-    cb(problem_response(500, 9001, "内部错误", why, instance));
+  GraphService graphs(*db);
+  auto loaded = graphs.load_full();
+  if (!loaded) {
+    cb(error_to_response(loaded.error(), instance));
     return;
   }
+  const lineage::PersonGraph graph = std::move(*loaded);
   EventRepository events(*db);
   EventFilter ef;
   ef.limit = 300000;
@@ -493,62 +474,24 @@ void export_tree(const drogon::HttpRequestPtr& req, Callback&& cb) {
     return;
   }
 
-  const lineage::PersonGraph graph = load_graph(*db, &why);
-  if (!why.empty()) {
-    cb(problem_response(500, 9001, "内部错误", why, instance));
+  // 组树 + 渲染全在 core（TreeService + io::render_tree），server 不
+  // 手拼字符串——CLI 的 io export tree 与这里共用同一份实现（ADR-1）。
+  // svg 需 graphviz 管线，属展示层，这里明确 501 而不是假装支持。
+  if (format == "svg") {
+    cb(problem_response(501, 9001, "尚未实现",
+                        "svg 需接 graphviz，可先取 dot", instance));
     return;
   }
-  auto tree = lineage::descendants_tree(graph, id, 10);
-  if (!tree) {
-    cb(error_to_response(tree.error(), instance));
+  TreeService trees(*db);
+  auto text = trees.export_tree(
+      id, format == "mermaid" ? io::TreeFormat::Mermaid : io::TreeFormat::Dot, 10);
+  if (!text) {
+    cb(error_to_response(text.error(), instance));
     return;
-  }
-
-  // 节点标识一律用人物 id，标签才是姓名。用姓名当 key 是错的：
-  // 同名同姓在同族里太常见（行辈 + 派语字决定了重名率），
-  // 那样导出图会把不同的人并成一个点，且 dot/mermaid 语法都会坏。
-  std::ostringstream os;
-  if (format == "mermaid") {
-    os << "graph TD\n";
-    std::function<void(const lineage::TreeNode&, const std::string&)> emit =
-        [&](const lineage::TreeNode& n, const std::string& parent) {
-          const std::string self =
-              n.person ? n.person->id : std::string("root");
-          const std::string label =
-              n.person ? n.person->family_name + n.person->given_name : "?";
-          if (!parent.empty()) {
-            os << "  " << parent << " --> \"" << self << "\"\n";
-          }
-          os << "  \"" << self << "\"[\"" << label << "\"]\n";
-          for (const auto& c : n.children) emit(c, self);
-        };
-    emit(*tree, "");
-  } else {
-    // dot 与 svg 都先出 DOT（svg 由 graphviz 渲染，这里不引其依赖）
-    os << "digraph genealogy {\n  rankdir=TB;\n";
-    std::function<void(const lineage::TreeNode&, const std::string&)> emit =
-        [&](const lineage::TreeNode& n, const std::string& parent) {
-          const std::string self =
-              n.person ? n.person->id : std::string("root");
-          const std::string label =
-              n.person ? n.person->family_name + n.person->given_name : "?";
-          if (!parent.empty()) {
-            os << "  \"" << parent << "\" -> \"" << self << "\"\n";
-          }
-          os << "  \"" << self << "\" [label=\"" << label << "\"]\n";
-          for (const auto& c : n.children) emit(c, self);
-        };
-    emit(*tree, "");
-    os << "}\n";
-    if (format == "svg") {
-      cb(problem_response(501, 9001, "尚未实现",
-                          "svg 需接 graphviz，M3 补；可先取 dot", instance));
-      return;
-    }
   }
 
   auto resp = drogon::HttpResponse::newHttpResponse();
-  resp->setBody(os.str());
+  resp->setBody(*text);
   resp->setContentTypeString("text/plain; charset=utf-8");
   cb(resp);
 }

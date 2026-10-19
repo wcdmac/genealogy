@@ -29,6 +29,7 @@
 #include <genealogy/error.hpp>
 #include <genealogy/io/gedcom.hpp>
 #include <genealogy/io/synthetic.hpp>
+#include <genealogy/io/tree_render.hpp>
 #include <genealogy/lineage/graph.hpp>
 #include <genealogy/lineage/tree.hpp>
 #include <genealogy/model/lineage.hpp>
@@ -39,6 +40,7 @@
 #include <genealogy/service/lineage_service.hpp>
 #include <genealogy/service/person_service.hpp>
 #include <genealogy/service/place_service.hpp>
+#include <genealogy/service/tree_service.hpp>
 #include <genealogy/service/union_service.hpp>
 #include <genealogy/validate/validation.hpp>
 
@@ -332,7 +334,8 @@ int cmd_export_gedcom(const std::vector<std::string>& args,
   return 0;
 }
 
-int cmd_validate(const std::vector<std::string>& args, const std::string& db_path,
+int cmd_validate(const std::vector<std::string>& args,
+                 const std::string& db_path,
                  const std::string& format) {
   cxxopts::Options opts("genea io validate", "运行一致性校验规则");
   opts.add_options()
@@ -438,6 +441,75 @@ int cmd_validate(const std::vector<std::string>& args, const std::string& db_pat
 
 }  // namespace
 
+// 世系树导出（DOT / Mermaid）。渲染在 core 的 io::render_tree——
+// server 的 /exports/tree 与这里同一份实现（ADR-1）。节点标识一律
+// 用人物 ID，标签才是姓名：同名同姓在同族里太常见，用姓名当 key
+// 会把不同的人并成一个点。
+// 定义位置有讲究：genea_cli 内、匿名 namespace 之外——放进匿名
+// namespace 会与 cmd_io.hpp 的声明形成重载歧义（踩过，C2668）。
+int cmd_export_tree(const std::vector<std::string>& args,
+                    const std::string& db_path, const std::string& format) {
+  cxxopts::Options opts("genea io export tree", "导出世系树（DOT / Mermaid）");
+  // 局部格式选项不能叫 --format：全局 --format（text|json）在 main 里
+  // 先行解析，会把这个值吃掉并拒之门外（踩过）。REST 的 query 叫
+  // format 无碍，CLI 侧用 --tree-format 区分输出管线与图形格式。
+  opts.add_options()
+      ("person", "中心人物 ID", cxxopts::value<std::string>())
+      ("depth", "展开层数", cxxopts::value<int>()->default_value("10"))
+      ("tree-format", "dot|mermaid",
+       cxxopts::value<std::string>()->default_value("dot"))
+      ("out", "输出文件路径（缺省打到标准输出）", cxxopts::value<std::string>());
+  const auto r = parse_args(opts, args);
+
+  if (!r.count("person")) {
+    std::cerr << "用法错误: genea io export tree --person <ID> [--tree-format dot|mermaid]"
+                 " [--depth 10] [--out 文件]\n";
+    return 2;
+  }
+  const std::string tree_format = r["tree-format"].as<std::string>();
+  if (tree_format != "dot" && tree_format != "mermaid") {
+    std::cerr << "用法错误: --format 应为 dot 或 mermaid\n";
+    return 2;
+  }
+
+  auto db = open_db(db_path);
+  if (!db) {
+    print_error(db.error());
+    return exit_code_for(db.error());
+  }
+  TreeService trees(*db);
+  auto text = trees.export_tree(r["person"].as<std::string>(),
+                                tree_format == "mermaid" ? io::TreeFormat::Mermaid
+                                                         : io::TreeFormat::Dot,
+                                r["depth"].as<int>());
+  if (!text) {
+    print_error(text.error());
+    return exit_code_for(text.error());
+  }
+
+  if (r.count("out")) {
+    bool ok = false;
+    write_file(r["out"].as<std::string>(), *text, &ok);
+    if (!ok) {
+      std::cerr << "错误[6001]: 写不出文件 " << r["out"].as<std::string>() << "\n";
+      return 1;
+    }
+    if (format == "json") {
+      std::cout << nlohmann::json{{"file", r["out"].as<std::string>()},
+                                  {"bytes", text->size()},
+                                  {"format", tree_format}}
+                       .dump(2)
+                << "\n";
+    } else {
+      std::cout << "已导出 " << text->size() << " 字节到 "
+                << r["out"].as<std::string>() << "（" << tree_format << "）\n";
+    }
+    return 0;
+  }
+  std::cout << *text;
+  return 0;
+}
+
 int cmd_io(const std::vector<std::string>& args, const std::string& db_path,
            const std::string& format) {
   if (args.empty()) {
@@ -455,12 +527,16 @@ int cmd_io(const std::vector<std::string>& args, const std::string& db_path,
       return cmd_export_gedcom(
           std::vector<std::string>(rest.begin() + 1, rest.end()), db_path, format);
     }
+    if (sub == "export" && !rest.empty() && rest[0] == "tree") {
+      return cmd_export_tree(
+          std::vector<std::string>(rest.begin() + 1, rest.end()), db_path, format);
+    }
     if (sub == "validate") return cmd_validate(rest, db_path, format);
   } catch (const cxxopts::exceptions::exception& e) {
     std::cerr << "用法错误: " << e.what() << "\n";
     return 2;
   }
-  std::cerr << "用法错误: genea io import gedcom|export gedcom|validate\n";
+  std::cerr << "用法错误: genea io import gedcom|export gedcom|export tree|validate\n";
   return 2;
 }
 

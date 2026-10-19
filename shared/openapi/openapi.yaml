@@ -363,7 +363,7 @@ paths:
           explode: false
       responses:
         "200":
-          description: 成功（在世者按隐私级别脱敏）
+          description: 成功（privacy_level 为声明式标记；在世者脱敏属隐私合规规划项，尚未实现，见 x-roadmap）
           headers:
             ETag: { $ref: "#/components/headers/ETag" }
           content:
@@ -1407,3 +1407,11 @@ x-roadmap:
     - Document
     - DocumentCreate
     - Attachment
+  planned_behaviors:
+    - 在世者脱敏          # 设计文档 4.9/6.5：is_living + privacy_level 联动，
+                         # API 与导出按级别屏蔽生卒/住址/肖像。本地单机模式
+                         # 无跨用户暴露面，故后置；viewer 角色落地时同步做
+    - audit_log 写入      # 设计文档 4.9：全部写操作的 JSON diff 审计轨迹。
+                         # schema 表已建（audit_log），service 层未接线
+    - 写串行化队列        # 设计文档 3.3/8：SQLite 单写者。当前多线程并发写
+                         # 依赖 SQLite 自带锁，10 万级灌库验收为单线程口径

@@ -23,6 +23,7 @@
 #include "cmd_backup.hpp"
 #include "cmd_entity.hpp"
 #include "cmd_io.hpp"
+#include "cmd_migration.hpp"
 #include "cmd_poem.hpp"
 
 #include <genealogy/calendar/chinese_calendar.hpp>
@@ -44,6 +45,24 @@
 namespace {
 
 using namespace genealogy;
+
+// 子命令总览。**加新命令组时同步更新这里**——曾经漏更过（backup/
+// restore/poem/migration 上线后帮助文本还是旧的一份，新功能对
+// 用户不可见，而没有任何测试会因此变红）。
+const char* kSubcommandsHelp =
+    "子命令:\n"
+    "  db       init|seed|backup|restore\n"
+    "  person   add|list|show|relation|tree\n"
+    "  lineage  add|list|show|remove\n"
+    "  branch   add|list|show|remove\n"
+    "  place    add|list|show|remove\n"
+    "  union    add|list|show|remove\n"
+    "  event    add|list|show|remove\n"
+    "  migration add|list|show|remove\n"
+    "  poem     set|show|check\n"
+    "  date     convert|lunar|terms|era|info\n"
+    "  io       import|export|validate\n"
+    "  bench";
 
 // 退出码映射 / 错误输出 / cxxopts 适配 / 开库 / 日期解析见 cli_util.hpp
 // （与 cmd_entity.cpp 共用）。kDefaultLineageId 见 bootstrap.hpp。
@@ -841,25 +860,11 @@ int run(std::vector<std::string> raw_args) {
 
   const auto& unmatched = g.unmatched();
   if (g.count("help") > 0) {
-    std::cout << global.help() << "\n子命令: db init|seed | person add|list|show|relation|tree |"
-              << " lineage add|list|show|remove |"
-              << " branch add|list|show|remove |"
-              << " place add|list|show|remove |"
-              << " union add|list|show|remove |"
-              << " event add|list|show|remove |"
-              << " date convert|lunar|terms|era|info |"
-              << " io import|export|validate | bench\n";
+    std::cout << global.help() << "\n" << kSubcommandsHelp;
     return 0;
   }
   if (unmatched.empty()) {
-    std::cout << global.help() << "\n子命令: db init|seed | person add|list|show|relation|tree |"
-              << " lineage add|list|show|remove |"
-              << " branch add|list|show|remove |"
-              << " place add|list|show|remove |"
-              << " union add|list|show|remove |"
-              << " event add|list|show|remove |"
-              << " date convert|lunar|terms|era|info |"
-              << " io import|export|validate | bench\n";
+    std::cout << global.help() << "\n" << kSubcommandsHelp;
     return 2;
   }
 
@@ -917,6 +922,8 @@ int run(std::vector<std::string> raw_args) {
       return genea_cli::cmd_bench(rest, db_path, format);
     if (command == "poem")
       return genea_cli::cmd_poem(rest, db_path, format);
+    if (command == "migration")
+      return genea_cli::cmd_migration(rest, db_path, format);
   } catch (const cxxopts::exceptions::exception& e) {
     // 参数/用法问题
     std::cerr << "用法错误: " << e.what() << "\n";

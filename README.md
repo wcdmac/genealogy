@@ -252,6 +252,15 @@ cd clients/web && npm install && npm run build && npm run preview   # 生产预�
 # 闭环：宗族建档 → 人物建档/编辑 → 婚姻登记 → 世系图 → GEDCOM/DOT 导出 → 校验
 # 冒烟：npm run smoke（API 层 26 项）/ npm run ui-smoke（浏览器层 16 项）
 
+# 迁徙（M5）
+./build/bin/genea migration add --db family.db --subject-type person \
+  --subject 01J... --from 01P... --to 01Q... --reason 营商 --route "中湘 → 渝州"
+./build/bin/genea migration list --db family.db --subject 01J...
+
+# 字辈（M4）
+./build/bin/genea poem set --db family.db --lineage 01J... --text "德茂光先祖，文章振万邦"
+./build/bin/genea poem check --db family.db --lineage 01J...   # 辈字/世代一致性，退出码 1 = 有不一致
+
 # 备份恢复（M6）
 ./build/bin/genea db backup --db family.db --out backup/     # 一致性快照（VACUUM INTO）
 ./build/bin/genea db restore --db family.db --from backup/   # 恢复（目标已存在需 --force）

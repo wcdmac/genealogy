@@ -97,6 +97,8 @@ target_sources(genealogy-core
     src/repository/generation_poem_repository.cpp
     src/service/person_service.cpp
     src/service/lineage_service.cpp
+    src/service/graph_service.cpp
+    src/service/tree_service.cpp
     src/service/branch_service.cpp
     src/service/place_service.cpp
     src/service/union_service.cpp
@@ -115,6 +117,7 @@ target_sources(genealogy-core
   src/calendar/era.cpp
   src/calendar/era_tables.cpp
   src/io/gedcom.cpp
+  src/io/tree_render.cpp
   src/io/synthetic.cpp
   src/lineage/tree.cpp
   src/validate/validator.cpp

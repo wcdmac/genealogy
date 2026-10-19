@@ -21,6 +21,9 @@ struct TreeNode {
   std::vector<TreeNode> children;
 };
 
+// load_descendants_tree 的返回：失败时是 Error。
+using TreeNodeOrError = Result<TreeNode>;
+
 // 以 root_id 为起点向下展开后代树。
 //   max_depth = 1 表示只有根节点；<= 0 表示不限制（危险，可能有环）。
 // 子节点排序与 PersonGraph::children_of 一致（行几 → 出生日期 → id），
