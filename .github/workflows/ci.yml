@@ -80,19 +80,45 @@ jobs:
           VCPKG_OVERLAY_PORTS: ${{ github.workspace }}/tools/vcpkg-ports
         run: |
           mkdir -p "$VCPKG_DEFAULT_BINARY_CACHE"
+          set -o pipefail
           cmake -S . -B build -G Ninja -DCMAKE_BUILD_TYPE=Release \
             -DCMAKE_TOOLCHAIN_FILE="$VCPKG_INSTALLATION_ROOT/scripts/buildsystems/vcpkg.cmake" \
             -DVCPKG_TARGET_TRIPLET=${{ matrix.triplet }} \
             -DVCPKG_INSTALL_OPTIONS="--clean-after-build" \
             -DBUILD_SERVER=ON \
             -DBUILD_GUI=ON \
-            "-DVCPKG_MANIFEST_FEATURES=server;gui"
+            "-DVCPKG_MANIFEST_FEATURES=server;gui" 2>&1 | tee configure.log
 
       - name: Build
-        run: cmake --build build --config Release --parallel
+        shell: bash
+        run: |
+          set -o pipefail
+          cmake --build build --config Release --parallel 2>&1 | tee build.log
 
       - name: Test
-        run: ctest --test-dir build --build-config Release --output-on-failure
+        shell: bash
+        run: |
+          set -o pipefail
+          ctest --test-dir build --build-config Release --output-on-failure 2>&1 | tee test.log
+
+      # 失败诊断：完整日志只有认证后才能经 API 拉取，而 annotations
+      # 匿名可读（含本机网络只通 api.github.com 的场景）。失败时把
+      # 对应日志尾部切成 ::error:: 注解回传，拿正文不再依赖 gh 登录。
+      - name: 失败诊断（日志尾部回传 annotations）
+        if: failure()
+        shell: bash
+        run: |
+          for pair in "configure.log Configure" "build.log Build" "test.log Test"; do
+            set -- $pair
+            LOG=$1; LABEL=$2
+            [ -f "$LOG" ] || continue
+            tail -n 120 "$LOG" | sed -e 's/\r$//' -e 's/%/%25/g' | \
+            awk -v label="$LABEL" -v file="$LOG" '
+              {buf = buf (NR>1 ? "%0A" : "") $0}
+              NR%30==0 {print "::error title=" label "（" file "）尾段" NR/30 "::" buf; buf=""}
+              END {if (buf != "") print "::error title=" label "（" file "）尾段末::" buf}
+            '
+          done
 
       # M6-1：三平台打包。CPack 内置生成器（ZIP/DRAGNDROP/TGZ），
       # 不引外部打包工具；产物上传供试装试跑。
