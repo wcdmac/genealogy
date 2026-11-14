@@ -19,7 +19,10 @@ ROOT = Path(__file__).resolve().parent.parent
 ALLOWLIST = ROOT / "shared" / "licenses" / "allowlist.txt"
 MANIFEST = ROOT / "vcpkg.json"
 
-SKIP_DIR_PARTS = {".git", "vcpkg_installed", "out", "__pycache__", "node_modules"}
+# 「vcpkg」必须跳过：CI 在工作区里同时检出 pinned vcpkg 工具链克隆
+# （ci.yml「检出 vcpkg」步骤），ports 树内有海量 Qt 引用，不是项目内容；
+# 本地开发机 vcpkg 在仓库外（D:\vcpkg），所以本机跑不出来这个问题。
+SKIP_DIR_PARTS = {".git", "vcpkg", "vcpkg_installed", "out", "__pycache__", "node_modules"}
 TEXT_SUFFIXES = {
     ".json", ".cmake", ".txt", ".cpp", ".hpp", ".cxx", ".cc", ".h",
     ".py", ".yml", ".yaml", ".md", ".sql",

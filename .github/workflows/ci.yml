@@ -122,7 +122,7 @@ jobs:
         if: failure()
         shell: bash
         run: |
-          for pair in "configure.log Configure" "build.log Build" "test.log Test"; do
+          for pair in "configure.log Configure" "build.log Build" "test.log Test" "cpack.log 打包" "license.log 许可证" "drill.log 演练" "openapi.log OpenAPI" "ts.log TS客户端" "uismoke.log UI闭环"; do
             set -- $pair
             LOG=$1; LABEL=$2
             [ -f "$LOG" ] || continue
@@ -140,7 +140,8 @@ jobs:
         shell: bash
         run: |
           cd build
-          cpack -G "${{ matrix.cpack_gen }}" --verbose
+          set -o pipefail
+          cpack -G "${{ matrix.cpack_gen }}" --verbose 2>&1 | tee "$GITHUB_WORKSPACE/cpack.log"
           ls -la *.zip *.dmg *.tar.gz 2>/dev/null || true
 
       - name: 上传打包产物
@@ -168,14 +169,19 @@ jobs:
 
       - name: 许可证白名单卡点（含禁 Qt 检查）
         shell: bash
-        run: python3 tools/license_check.py
+        run: |
+          set -o pipefail
+          python3 tools/license_check.py 2>&1 | tee "$GITHUB_WORKSPACE/license.log"
 
       # M6-3 验收硬指标：「备份恢复演练通过」。灌合成谱 → 备份 →
       # 删库（模拟事故）→ 恢复 → 核对人物数一致，另验 --force 保护。
       - name: 备份恢复演练
         shell: bash
-        # CLI 产物名平台各异（Windows 有 .exe 后缀），从 matrix 取
-        run: python tools/drill_backup_restore.py --genea "${{ matrix.genea_bin }}"
+        # CLI 产物名平台各异（Windows 有 .exe 后缀），从 matrix 取；
+        # 统一 python3（ubuntu-24.04 没有裸 python 命令）
+        run: |
+          set -o pipefail
+          python3 tools/drill_backup_restore.py --genea "${{ matrix.genea_bin }}" 2>&1 | tee "$GITHUB_WORKSPACE/drill.log"
 
       # spec 是客户端代码生成的唯一事实源：spec 写坏（断引用、类型错误）
       # 不会让任何 C++ 编译失败，只会在几个月后对接第三方时炸。
@@ -184,8 +190,9 @@ jobs:
       - name: OpenAPI 规范校验
         shell: bash
         run: |
-          pip install pyyaml openapi-spec-validator
-          python tools/validate_openapi.py
+          set -o pipefail
+          python3 -m pip install pyyaml openapi-spec-validator 2>&1 | tee "$GITHUB_WORKSPACE/openapi.log"
+          python3 tools/validate_openapi.py 2>&1 | tee -a "$GITHUB_WORKSPACE/openapi.log"
 
       # M2 验收硬指标：「TS 客户端由生成器产出并可跑通读写」。
       # 只在 Windows 跑（server 二进制与 vcpkg DLL 路径都已就绪；
@@ -195,15 +202,16 @@ jobs:
         if: runner.os == 'Windows'
         shell: bash
         run: |
+          set -o pipefail
           cd clients/web
-          npm ci
-          npm run generate
-          npm run typecheck
+          npm ci 2>&1 | tee "$GITHUB_WORKSPACE/ts.log"
+          npm run generate 2>&1 | tee -a "$GITHUB_WORKSPACE/ts.log"
+          npm run typecheck 2>&1 | tee -a "$GITHUB_WORKSPACE/ts.log"
           # manifest 模式的依赖装在 build/vcpkg_installed/（不是 vcpkg 根的
           # installed/，那里从没人填过）；DLL 上 PATH，smoke 自拉的 server
           # 才找得到 drogon/trantor/jsoncpp
           export PATH="$GITHUB_WORKSPACE/build/vcpkg_installed/x64-windows/bin:$PATH"
-          npm run smoke
+          npm run smoke 2>&1 | tee -a "$GITHUB_WORKSPACE/ts.log"
 
       # M5 验收硬指标：「浏览器端完成建档→关系→世系图→导出闭环」。
       # playwright 驱动真实 Chromium 实际操作 UI，失败即闭环有洞——
@@ -214,9 +222,10 @@ jobs:
         if: runner.os == 'Windows'
         shell: bash
         run: |
+          set -o pipefail
           cd clients/web
-          npm run build
-          npx playwright install chromium
+          npm run build 2>&1 | tee "$GITHUB_WORKSPACE/uismoke.log"
+          npx playwright install chromium 2>&1 | tee -a "$GITHUB_WORKSPACE/uismoke.log"
           # ui-smoke 自拉 server 二进制，同样需要 manifest 依赖的 DLL 在 PATH
           export PATH="$GITHUB_WORKSPACE/build/vcpkg_installed/x64-windows/bin:$PATH"
-          npm run ui-smoke
+          npm run ui-smoke 2>&1 | tee -a "$GITHUB_WORKSPACE/uismoke.log"
