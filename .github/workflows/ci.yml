@@ -29,6 +29,13 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
+      # Windows 的 runner PATH 上 mingw64 排在 MSVC 前，-G Ninja 时 CMake
+      # 会选中 GNU 编译器（2026-11-14 CI 实测），而依赖端口是 MSVC ABI
+      # 装出来的，链接必炸；显式装载 MSVC 环境让 cl 成为默认编译器。
+      - name: 装载 MSVC 环境（Windows）
+        if: runner.os == 'Windows'
+        uses: ilammy/msvc-dev-cmd@v1
+
       # vcpkg 不用 runner 预装版：预装版本随 runner 镜像漂移，git 历史不
       # 含 manifest 的 builtin-baseline 时要现场 fetch，且「哪天镜像换了
       # 版本」这种变量不该出现在构建结果里。按 vcpkg.json 的
@@ -63,6 +70,13 @@ jobs:
         run: |
           sudo apt-get update
           sudo apt-get install -y ninja-build pkg-config
+          # vcpkg 端口在 Linux 上的系统依赖：
+          #   autotools 套件 —— pthread-stubs（GLFW→xcb 依赖链）端口走
+          #     autoreconf，runner 没有它（2026-11-14 CI 实测）
+          #   uuid-dev —— drogon 的 FindUUID 需要 libuuid 开发文件
+          #   xorg-dev + libgl1-mesa-dev —— GLFW 端口的 X11/OpenGL 头与库
+          sudo apt-get install -y autoconf autoconf-archive automake libtool \
+            uuid-dev xorg-dev libgl1-mesa-dev
 
       - name: Configure（vcpkg manifest 模式自动装依赖）
         shell: bash

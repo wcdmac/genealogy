@@ -20,6 +20,13 @@ vcpkg_cmake_configure(
     SOURCE_PATH "${SOURCE_PATH}"
     OPTIONS
         ${feature_options}
+        # 钉死无 TLS。默认 ''（auto-detect）会在端口构建期碰巧找到系统
+        # OpenSSL——Windows runner 的 mingw64、macOS 的 Homebrew——把 TLS
+        # 代码编进端口并让安装出的 TrantorConfig 以 if(OpenSSL_FOUND)
+        # 要求消费方也找得到 OpenSSL；本地开发机找不到时反而 if(FALSE)。
+        # 同一份 overlay 在不同机器上装出不同语义不可接受，且本项目
+        # 服务只绑回环不需要 TLS（2026-11-14 CI 三平台实测）。
+        -DTRANTOR_USE_TLS=none
 )
 
 vcpkg_cmake_install()

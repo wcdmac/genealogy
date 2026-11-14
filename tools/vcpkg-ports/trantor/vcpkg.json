@@ -23,5 +23,5 @@
       ]
     }
   },
-  "$comment": "本地 overlay：去掉 openssl 依赖。本项目 REST 服务只绑 127.0.0.1、不需要 TLS；trantor 的 CMakeLists 在找不到 OpenSSL 时静默降级为 TRANTOR_TLS_PROVIDER=None（USE_OPENSSL 全程 #if 守卫），drogon 亦不直接引用 OpenSSL。去掉后省掉 openssl 全量构建（本机单并发要一小时以上）。"
+  "$comment": "本地 overlay：去掉 openssl 依赖。本项目 REST 服务只绑 127.0.0.1、不需要 TLS；drogon 亦不直接引用 OpenSSL。去掉后省掉 openssl 全量构建（本机单并发要一小时以上）。注意：仅去掉 vcpkg 依赖声明还不够——trantor 的 CMakeLists 默认 TRANTOR_USE_TLS=''（自动探测），portfile 已钉死 -DTRANTOR_USE_TLS=none；否则端口构建期碰巧找到系统 OpenSSL 时（CI runner 的 mingw64 / macOS Homebrew），安装出的 TrantorConfig 会反过来要求消费方也找得到 OpenSSL。"
 }

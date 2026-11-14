@@ -90,8 +90,11 @@ TEST_CASE("DbSession：开库、建档、读取、关闭") {
 TEST_CASE("DbSession：坏路径报错且不带半截状态") {
   DbSession session;
   std::string why;
-  // 指向一个不存在的目录：打开必须失败并给出原因
-  const bool ok = session.open("Z:\\no\\such\\dir\\x.db", &why);
+  // 指向一个不存在的目录：打开必须失败并给出原因。
+  // 必须用正斜杠+不存在的目录链：反斜杠在 POSIX 上只是文件名字符，
+  // "Z:\\no\\such\\dir\\x.db" 会被 SQLite 当成合法相对路径建出文件
+  // （2026-11-14 macOS CI 实测 open 成功致测试失败）。
+  const bool ok = session.open("no/such/dir/x.db", &why);
   CHECK_FALSE(ok);
   CHECK_FALSE(why.empty());
   CHECK_FALSE(session.is_open());
