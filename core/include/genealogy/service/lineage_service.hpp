@@ -22,6 +22,8 @@ class LineageService {
   Result<void> remove_lineage(const std::string& id);
 
  private:
+  // 引用保护计数需要 CitationRepository（remove）
+  Database* db_ = nullptr;
   LineageRepository repo_;
 };
 

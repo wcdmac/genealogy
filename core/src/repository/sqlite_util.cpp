@@ -71,6 +71,12 @@ void bind_opt_date(sqlite3_stmt* st, int idx,
 GenealogyDate col_date(sqlite3_stmt* st, int col) {
   const auto raw = col_opt_text(st, col);
   if (!raw) return {};
+  // 已知取舍：库中日期 JSON 损坏（外部工具改库/历史 bug）时静默返回
+  // 空值——「曾登记过日期」这一事实丢失，校验规则（R10/R12）无法感知。
+  // 不这样做的代价是读路径全线上抬错误通道：col_date 是所有实体行
+  // 映射的公共件，一处损坏会让整个列表 500。仓储层也没有日志设施
+  // （spdlog 暂缓，见根 CMakeLists）可供留痕。列入 ROADMAP 暂缓项，
+  // 日志落地时改为「返回错误 + 记日志」。
   const auto j = nlohmann::json::parse(*raw, nullptr, false);
   if (j.is_discarded()) return {};
   auto d = GenealogyDate::from_json(j);

@@ -80,7 +80,7 @@ TEST_CASE("GEDCOM 集成：文件 → 库 → 文件 → 库 闭环，回流零�
   DbGuard guard{temp_db_path()};
   auto db = Database::open(guard.p.string());
   REQUIRE(db.has_value());
-  ensure_default_lineage(*db);
+  REQUIRE(ensure_default_lineage(*db));
 
   LineageService lineages(*db);
   Lineage lineage;
@@ -171,7 +171,7 @@ TEST_CASE("GEDCOM 集成：文件 → 库 → 文件 → 库 闭环，回流零�
   DbGuard guard2{temp_db_path()};
   auto db2 = Database::open(guard2.p.string());
   REQUIRE(db2.has_value());
-  ensure_default_lineage(*db2);
+  REQUIRE(ensure_default_lineage(*db2));
   LineageService lineages2(*db2);
   Lineage l2;
   l2.name = "回流谱";

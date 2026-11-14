@@ -395,6 +395,67 @@ int month_index(const std::string& tok) {
   return 0;
 }
 
+// ISO 日期时间（utc_now_iso 的 "2020-01-02T03:04:05Z"）→ GEDCOM 文法
+// 的 "<DATE_EXACT> [TIME]"（"2 JAN 2020 03:04:05"，日不补零）。
+// HEAD/CHAN.DATE 此前直接写 ISO 串——那是 XML 的写法，宽容读取器
+// 没事，严格读取器按 5.5.1 文法会拒。无法识别的格式原样返回。
+std::string iso_to_gedcom_datetime(const std::string& iso) {
+  if (iso.size() < 10 || iso[4] != '-' || iso[7] != '-') return iso;
+  try {
+    const int y = std::stoi(iso.substr(0, 4));
+    const int m = std::stoi(iso.substr(5, 2));
+    const int d = std::stoi(iso.substr(8, 2));
+    if (m < 1 || m > 12) return iso;
+    std::string out =
+        std::to_string(d) + " " + kMonthAbbr[m - 1] + " " + std::to_string(y);
+    if (iso.size() >= 19 && iso[10] == 'T') {
+      out += " " + iso.substr(11, 8);   // HH:MM:SS
+    }
+    return out;
+  } catch (const std::exception&) {
+    return iso;
+  }
+}
+
+// 上式的逆：GEDCOM 日期时间 → ISO（补 Z 后缀），导入 CHAN.DATE 用。
+// 与 iso_to_gedcom_datetime 精确互逆，自家往返 updated_at 不丢精度；
+// 非 GEDCOM 格式（第三方任意写法、自家旧库残留的 ISO）原样返回。
+std::string gedcom_datetime_to_iso(const std::string& v) {
+  std::vector<std::string> toks;
+  std::string cur;
+  for (const char c : v) {
+    if (c == ' ') {
+      if (!cur.empty()) toks.push_back(std::move(cur));
+      cur.clear();
+    } else {
+      cur.push_back(c);
+    }
+  }
+  if (!cur.empty()) toks.push_back(std::move(cur));
+  // 文法：<日> <月缩写> <年> [HH:MM:SS]
+  if (toks.size() < 3 || toks.size() > 4) return v;
+  if (toks[0].empty() || toks[0].size() > 2) return v;
+  const bool day_digits =
+      std::all_of(toks[0].begin(), toks[0].end(),
+                  [](char c) { return c >= '0' && c <= '9'; });
+  if (!day_digits) return v;
+  const int m = month_index(upper_ascii(toks[1]));
+  if (m == 0) return v;
+  const std::string& y = toks[2];
+  if (y.size() != 4 ||
+      !std::all_of(y.begin(), y.end(),
+                   [](char c) { return c >= '0' && c <= '9'; })) {
+    return v;
+  }
+  std::string iso = y + "-" + (m < 10 ? "0" : "") + std::to_string(m) + "-" +
+                    (toks[0].size() == 1 ? "0" : "") + toks[0];
+  if (toks.size() == 4) {
+    if (toks[3].size() != 8 || toks[3][2] != ':' || toks[3][5] != ':') return v;
+    iso += "T" + toks[3] + "Z";
+  }
+  return iso;
+}
+
 std::vector<std::string> split_ws(std::string_view s) {
   std::vector<std::string> out;
   std::string cur;
@@ -703,6 +764,72 @@ const EventTagMap kEventTags[] = {
 
 // ---------------------------------------------------------------- 映射层
 
+// 父母链环检测（限本批次内）：从每个人物沿 father/mother 双边上溯，
+// 同一 id 二次入栈即环。返回环上一个人名（空 = 无环）——谱师认名不认 ID。
+// 单链走查会漏「只有经母亲边才可达」的环，故用显式栈 DFS + safe 剪枝。
+std::string find_ancestry_cycle(const std::vector<Person>& persons) {
+  std::unordered_map<std::string, const Person*> by_id;
+  by_id.reserve(persons.size() * 2);
+  for (const auto& p : persons) by_id.emplace(p.id, &p);
+  std::unordered_set<std::string> safe;   // 已确认无环，剪枝用
+  for (const auto& start : persons) {
+    if (safe.count(start.id) > 0) continue;
+    std::vector<std::pair<std::string, int>> stack;   // (id, 下一条父母边)
+    std::unordered_set<std::string> on_path;
+    stack.emplace_back(start.id, 0);
+    on_path.insert(start.id);
+    bool cycle = false;
+    std::string culprit;
+    while (!stack.empty() && !cycle) {
+      // 取值不用引用：emplace 可能令 vector 重分配、引用失效
+      const std::string id = stack.back().first;
+      int idx = stack.back().second;
+      const auto it = by_id.find(id);
+      if (it == by_id.end()) {
+        on_path.erase(id);
+        safe.insert(id);
+        stack.pop_back();
+        continue;
+      }
+      const Person* p = it->second;
+      const std::string parents[2] = {
+          p->father_id ? *p->father_id : std::string{},
+          p->mother_id ? *p->mother_id : std::string{}};
+      bool advanced = false;
+      while (idx < 2) {
+        const std::string nxt = parents[idx++];
+        stack.back().second = idx;
+        if (nxt.empty() || by_id.count(nxt) == 0) continue;
+        if (on_path.count(nxt) > 0) {
+          cycle = true;
+          culprit = nxt;
+          break;
+        }
+        if (safe.count(nxt) > 0) continue;
+        stack.emplace_back(nxt, 0);
+        on_path.insert(nxt);
+        advanced = true;
+        break;
+      }
+      if (cycle) break;
+      if (!advanced) {
+        on_path.erase(id);
+        safe.insert(id);
+        stack.pop_back();
+      }
+    }
+    if (cycle) {
+      const auto cit = by_id.find(culprit);
+      const std::string name = cit != by_id.end()
+                                   ? cit->second->family_name +
+                                         cit->second->given_name
+                                   : culprit;
+      return name + "（父母链成环）";
+    }
+  }
+  return {};
+}
+
 std::vector<Person> order_by_dependency(const std::vector<Person>& all) {
   // in_batch 用哈希集合：这个函数会被 10 万条数据的灌库路径调用，
   // 线性扫一遍是 O(n^2)，实测直接卡死。
@@ -853,11 +980,20 @@ Result<ImportResult> import_gedcom(const GedcomDocument& doc,
                            const char* ev_desc) {
       const auto* node = rec.child(fact_tag);
       if (node == nullptr) return;
-      // GEDCOM 用 "1 DEAT Y" 表示此人仍在世，那不是一条死亡事实
-      if (ev_type == EventType::Death &&
-          upper_ascii(trim(node->value)) == "Y") {
-        p.is_living = true;
-        return;
+      // GEDCOM 5.5.1 的 EVENT_Y_OR_N：Y（或空值，两者同义）= 事件已发生，
+      // N = 未发生。"1 DEAT Y" 的标准语义是「死亡事件已发生、日期未知」
+      // ——此前读成「在世」把生死读反了。凡出现 DEAT 事实即此人已故；
+      // 显式 N（未死亡）则在世保护照旧。Y 与裸值走同一条通用路径：
+      // 日期照常解析（Y 本无日期）、地点照常落 death_place_id——
+      // 曾把 Y 提前返回，`1 DEAT Y` + `2 PLAC` 的地点被静默丢弃，
+      // 且裸 DEAT 建事件而 DEAT Y 不建，同一语义两种库内状态。
+      const std::string fact_val = upper_ascii(trim(node->value));
+      if (ev_type == EventType::Death) {
+        if (fact_val == "N") {
+          p.is_living = true;   // 显式在世：恢复在世保护标记
+          return;
+        }
+        p.is_living = false;
       }
       DateOutcome o;
       if (const auto* d = node->child("DATE")) {
@@ -925,7 +1061,8 @@ Result<ImportResult> import_gedcom(const GedcomDocument& doc,
     }
     if (const auto* chan = rec.child("CHAN")) {
       const std::string v = trim(chan->child_value("DATE"));
-      if (!v.empty()) p.updated_at = v;
+      // GEDCOM 文法的日期时间转回 ISO 存库；其他写法（第三方）原样照录
+      if (!v.empty()) p.updated_at = gedcom_datetime_to_iso(v);
     }
     for (const auto* obje : rec.children_all("OBJE")) {
       (void)obje;
@@ -948,7 +1085,13 @@ Result<ImportResult> import_gedcom(const GedcomDocument& doc,
                "关联人（ASSO）关系未建模，已忽略");
     }
 
-    res.id_map.emplace(xref, p.id);
+    // 重复 xref：emplace 不覆盖是刻意的（保留第一条），但必须记账——
+    // 此前静默跳过，后续所有同 xref 的 FAM 引用都指向首条而无人知晓。
+    if (!res.id_map.emplace(xref, p.id).second) {
+      add_loss(LossSeverity::Warning, xref, "XREF",
+               "重复的人物标识（文件内出现多次），保留第一条，"
+               "后续同 xref 引用都指向首条");
+    }
     res.persons.push_back(std::move(p));
   }
 
@@ -969,10 +1112,17 @@ Result<ImportResult> import_gedcom(const GedcomDocument& doc,
     bool has_obje = false;
   };
   std::vector<FamRaw> fams;
+  std::unordered_set<std::string> fam_xrefs_seen;
   for (const auto& rec : doc.records) {
     if (rec.tag != "FAM") continue;
     FamRaw f;
     f.xref = "@" + rec.xref + "@";
+    // 重复 FAM xref：与 INDI 重复同一纪律——不静默。结合 id 本就是
+    // 生成的 ULID，两份都会导入，但谱师必须知道文件里有重复标识。
+    if (!fam_xrefs_seen.insert(f.xref).second) {
+      add_loss(LossSeverity::Warning, f.xref, "XREF",
+               "重复的结合标识（文件内出现多次），两份都会导入为独立结合");
+    }
     if (const auto* h = rec.child("HUSB")) f.husb = normalize_xref(h->value);
     if (const auto* w = rec.child("WIFE")) f.wife = normalize_xref(w->value);
     // 妾/继配：GEDCOM 5.5.1 无此角色，自家导出写扩展标签 _CONC
@@ -1024,9 +1174,20 @@ Result<ImportResult> import_gedcom(const GedcomDocument& doc,
       add_loss(LossSeverity::Warning, f.xref, "WIFE", "引用了文件中不存在的妻子");
     }
 
+    // 单亲家庭（只有 HUSB 或只有 WIFE + CHIL，无配偶无妾）：FAM 本义
+    // 是家庭单位而非婚姻——只还原父/母链接，不造单成员的结合。
+    // （自家单亲合成 FAM 与第三方单亲文件都走这条路径。）
+    const bool single_parent_family =
+        wife_id.empty() && conc_ids.empty() && f.marr == nullptr;
+
     Union u;
     u.id = generate_ulid();
     u.rev = 1;
+    // 无正室而有妾成员的结合 = 妾室结合（自家 _CONC 往返恢复 type；
+    // 第三方文件不会有 _CONC，不受影响）
+    if (wife_id.empty() && !conc_ids.empty()) {
+      u.type = UnionType::Concubinage;
+    }
     if (!husb_id.empty()) u.members.push_back(UnionMember{husb_id, MemberRole::Husband});
     if (!wife_id.empty()) u.members.push_back(UnionMember{wife_id, MemberRole::Wife});
     for (const auto& cid : conc_ids) {
@@ -1060,6 +1221,17 @@ Result<ImportResult> import_gedcom(const GedcomDocument& doc,
                    "妻子性别未知，按 GEDCOM WIFE 角色推定为母亲");
         }
       }
+      // 妾室结合无正室：子女的母位按唯一妾成员恢复——不是谱学判断
+      // （数据里该结合只有一位母位候选），否则妾出子女的母链往返丢失
+      // （高阳李氏试修实证：东涵母夏氏）。
+      if (wife_id.empty() && conc_ids.size() == 1 && !child->mother_id) {
+        child->mother_id = conc_ids[0];
+      }
+    }
+
+    if (single_parent_family) {
+      // 纯亲子 FAM：父母链接已在上面的循环里还原，不需要结合记录
+      continue;
     }
 
     if (f.marr) {
@@ -1126,6 +1298,13 @@ Result<ImportResult> import_gedcom(const GedcomDocument& doc,
     }
     add_loss(LossSeverity::Info, "@" + rec.xref + "@", rec.tag,
              "记录类型 " + rec.tag + " 暂无对应模型，未导入");
+  }
+
+  // 世系环检测（落库前最后一道）：父母链上溯回到自己，含互环。
+  // order_by_dependency 对环只能按 id 硬灌，落库时报「父亲不存在」——
+  // 对谱师是误导性错误，真正的病因是环。映射层拦下并报出环上人名。
+  if (const std::string cyc = find_ancestry_cycle(res.persons); !cyc.empty()) {
+    return invalid_argument("世系环，无法导入: " + cyc);
   }
   return res;
 }
@@ -1200,20 +1379,26 @@ std::string gedcom_date_value(const GenealogyDate& d) {
     else if (*d.qualifier == "以后") prefix = "AFT ";
   }
   const std::string& iso = *d.gregorian;
-  if (iso.size() == 10) {
-    const int y = std::stoi(iso.substr(0, 4));
-    const int m = std::stoi(iso.substr(5, 2));
-    const int day = std::stoi(iso.substr(8, 2));
-    if (m >= 1 && m <= 12) {
-      return prefix + std::to_string(day) + " " + kMonthAbbr[m - 1] + " " +
-             std::to_string(y);
+  // from_json 保证过格式，但导出边界不做假设：畸形 ISO 宁可原样
+  // 带前缀输出，也不能在导出路径上抛异常炸掉整个文件。
+  try {
+    if (iso.size() == 10) {
+      const int y = std::stoi(iso.substr(0, 4));
+      const int m = std::stoi(iso.substr(5, 2));
+      const int day = std::stoi(iso.substr(8, 2));
+      if (m >= 1 && m <= 12) {
+        return prefix + std::to_string(day) + " " + kMonthAbbr[m - 1] + " " +
+               std::to_string(y);
+      }
+    } else if (iso.size() == 7) {
+      const int y = std::stoi(iso.substr(0, 4));
+      const int m = std::stoi(iso.substr(5, 2));
+      if (m >= 1 && m <= 12) {
+        return prefix + std::string(kMonthAbbr[m - 1]) + " " + std::to_string(y);
+      }
     }
-  } else if (iso.size() == 7) {
-    const int y = std::stoi(iso.substr(0, 4));
-    const int m = std::stoi(iso.substr(5, 2));
-    if (m >= 1 && m <= 12) {
-      return prefix + std::string(kMonthAbbr[m - 1]) + " " + std::to_string(y);
-    }
+  } catch (const std::exception&) {
+    return prefix + iso;
   }
   return prefix + iso;
 }
@@ -1254,6 +1439,23 @@ const std::vector<std::string>& lookup_vec(
 
 std::string export_gedcom(const ExportOptions& opt) {
   LineWriter w;
+  // 导出侧损失台账。部分导出时缺集引用、无法表达的亲子链都在这里
+  // 逐条记账——导出与导入同样不许静默丢（高阳李氏试修实证）。
+  std::vector<MappingLoss> fallback_losses;
+  std::vector<MappingLoss>* losses =
+      opt.losses != nullptr ? opt.losses : &fallback_losses;
+  auto export_loss = [&](LossSeverity sev, const std::string& xref,
+                         const std::string& tag, const std::string& reason) {
+    losses->push_back(MappingLoss{sev, xref, tag, reason});
+  };
+  std::unordered_set<std::string> person_ids;
+  if (opt.persons) {
+    for (const auto& p : *opt.persons) person_ids.insert(p.id);
+  }
+  std::unordered_set<std::string> union_ids;
+  if (opt.unions) {
+    for (const auto& u : *opt.unions) union_ids.insert(u.id);
+  }
   std::unordered_map<std::string, std::string> place_names;
   if (opt.places) {
     for (const auto& p : *opt.places) place_names.emplace(p.id, p.name);
@@ -1261,7 +1463,13 @@ std::string export_gedcom(const ExportOptions& opt) {
   auto place_name = [&](const std::optional<std::string>& id) -> std::string {
     if (!id) return {};
     auto it = place_names.find(*id);
-    return it != place_names.end() ? it->second : std::string{};
+    if (it == place_names.end()) {
+      // 地点不在导出集内：PLAC 缺失，地点引用断链——记账
+      export_loss(LossSeverity::Warning, "", "PLAC",
+                  "地点 " + *id + " 不在导出集内，地名无法表达");
+      return std::string{};
+    }
+    return it->second;
   };
 
   w.raw(0, "HEAD");
@@ -1270,7 +1478,7 @@ std::string export_gedcom(const ExportOptions& opt) {
   if (!opt.source_version.empty()) w.raw(2, "VERS " + opt.source_version);
   w.raw(2, "CORP 本地家谱库");
   w.raw(1, "DEST GEDCOM");
-  w.raw(1, "DATE " + utc_now_iso());
+  w.raw(1, "DATE " + iso_to_gedcom_datetime(utc_now_iso()));
   w.raw(1, "SUBM @U1@");
   w.raw(1, "GEDC");
   w.raw(2, "VERS 5.5.1");
@@ -1301,6 +1509,18 @@ std::string export_gedcom(const ExportOptions& opt) {
   std::unordered_map<std::string, std::vector<const Event*>> events_of_union;
   if (opt.events) {
     for (const auto& e : *opt.events) {
+      // 主体不在导出集内的事件：GEDCOM 里没有挂靠点，静默丢等于
+      // 谱师看不到这条事实——记账
+      const std::string where =
+          e.subject_type == EventSubjectType::Person
+              ? (person_ids.count(e.subject_id) > 0 ? "in" : "person-missing")
+              : (union_ids.count(e.subject_id) > 0 ? "in" : "union-missing");
+      if (where == "person-missing" || where == "union-missing") {
+        export_loss(LossSeverity::Warning, "", "EVENT",
+                    "事件（" + std::string(to_string(e.type)) + "）的主体 " +
+                        e.subject_id + " 不在导出集内，事件无法挂靠");
+        continue;
+      }
       if (e.subject_type == EventSubjectType::Person) {
         events_of_person[e.subject_id].push_back(&e);
       } else if (e.subject_type == EventSubjectType::Union) {
@@ -1329,6 +1549,11 @@ std::string export_gedcom(const ExportOptions& opt) {
     return f + "\x1F" + m;
   };
   std::unordered_map<std::string, std::vector<std::string>> union_of_parents;
+  // 单亲合成 FAM 的分组（仅父/仅母 → 子女列表）
+  std::unordered_map<std::string, std::vector<const Person*>>
+      solo_children_by_father;
+  std::unordered_map<std::string, std::vector<const Person*>>
+      solo_children_by_mother;
 
   if (opt.unions && opt.persons) {
     std::unordered_map<std::string, const Person*> by_id;
@@ -1351,16 +1576,27 @@ std::string export_gedcom(const ExportOptions& opt) {
         if (m.role == MemberRole::Wife) mother_id = it->second->id;
       }
       parents_of_union.emplace(u.id, std::make_pair(father_id, mother_id));
-      // 只认「夫妻双方齐全」的结合作为亲子关系依据：妾/继配所生的孩子
-      // 该挂在哪一房是谱学判断，程序不替谱师决定，挂错比不挂更难发现
-      if (father_id.empty() || mother_id.empty()) continue;
-      union_of_parents[parent_key(father_id, mother_id)].push_back(u.id);
-      children_of_union.emplace(u.id, std::vector<const Person*>{});
+      // 亲子挂靠依据：夫妻齐全的结合照旧；妾室结合（无正室）时子女的
+      // 母位由妾成员顶上——数据里 mother_id 明确指向妾本人，不存在
+      // 「该挂哪一房」的谱学判断（那是正室与妾并存的混合 FAM 才有的
+      // 问题，本模型里妾是独立结合）。此前一律不挂，妾出子女的父母链
+      // 在往返中静默丢失（高阳李氏试修实证：东涵母夏氏往返归零）。
+      if (!father_id.empty() && !mother_id.empty()) {
+        union_of_parents[parent_key(father_id, mother_id)].push_back(u.id);
+        children_of_union.emplace(u.id, std::vector<const Person*>{});
+      } else if (u.type == UnionType::Concubinage && !father_id.empty()) {
+        for (const auto& m : u.members) {
+          if (m.role == MemberRole::Concubine) {
+            union_of_parents[parent_key(father_id, m.person_id)].push_back(u.id);
+            children_of_union.emplace(u.id, std::vector<const Person*>{});
+            break;
+          }
+        }
+      }
     }
 
-    // 第二遍：人物 → 所属结合（FAMC）。只查「夫妻齐全」的结合，
-    // 单亲登记的孩子不挂 FAMC——GEDCOM 的亲子链必须落在完整家庭上，
-    // 硬挂会把妾生/私生子归到正室房里。
+    // 第二遍：人物 → 所属结合（FAMC）。父+母成对时挂对应结合；
+    // 妾室结合按上面的母位顶替规则命中。
     for (const auto& p : *opt.persons) {
       if (!p.father_id || !p.mother_id) continue;
       const auto it =
@@ -1370,6 +1606,41 @@ std::string export_gedcom(const ExportOptions& opt) {
         famc_of_person[p.id].push_back(union_xref.at(uid));
         auto kids = children_of_union.find(uid);
         if (kids != children_of_union.end()) kids->second.push_back(&p);
+      }
+    }
+
+    // 单亲（仅父或仅母）且无任何结合可挂的子女：合成交子/交母专用
+    // FAM。GEDCOM 的 FAM 本义是家庭单位而非婚姻——HUSB+CHIL 的单亲
+    // 家庭合法（第三方文件里常见）。不合成的话父母链在往返中静默
+    // 丢失（高阳李氏试修实证：国橑仅父知先，往返后父链归零）。
+    for (const auto& p : *opt.persons) {
+      if (famc_of_person.count(p.id) > 0) continue;
+      if (p.father_id && !p.mother_id) {
+        if (person_xref.count(*p.father_id) > 0) {
+          solo_children_by_father[*p.father_id].push_back(&p);
+        } else {
+          export_loss(LossSeverity::Warning, person_xref.at(p.id), "FAMC",
+                      "父亲 " + *p.father_id + " 不在导出集内，" +
+                          p.family_name + p.given_name + " 的父链无法表达");
+        }
+      } else if (p.mother_id && !p.father_id) {
+        if (person_xref.count(*p.mother_id) > 0) {
+          solo_children_by_mother[*p.mother_id].push_back(&p);
+        } else {
+          export_loss(LossSeverity::Warning, person_xref.at(p.id), "FAMC",
+                      "母亲 " + *p.mother_id + " 不在导出集内，" +
+                          p.family_name + p.given_name + " 的母链无法表达");
+        }
+      } else if (p.father_id && p.mother_id) {
+        // 父母都有却没有可挂的结合：双方至少一方缺集
+        const bool f_in = person_xref.count(*p.father_id) > 0;
+        const bool m_in = person_xref.count(*p.mother_id) > 0;
+        if (!f_in || !m_in) {
+          export_loss(LossSeverity::Warning, person_xref.at(p.id), "FAMC",
+                      "父母（" + *p.father_id + " / " + *p.mother_id +
+                          "）不在导出集内，" + p.family_name + p.given_name +
+                          " 的亲子链无法表达");
+        }
       }
     }
   }
@@ -1432,8 +1703,21 @@ std::string export_gedcom(const ExportOptions& opt) {
         const std::string n = place_name(p.death_place_id);
         if (!n.empty()) w.text(2, "PLAC", n);
       } else if (p.is_living) {
-        w.raw(1, "DEAT Y");   // GEDCOM 约定：Y = 此人仍在世
+        // 在世：显式 DEAT N（EVENT_Y_OR_N，N = 未发生）。此前写成
+        // 「在世者输出 DEAT Y」——标准语义 Y = 死亡事件已发生，
+        // 第三方软件会把活人读成死人，生死颠倒。
+        w.raw(1, "DEAT N");
+      } else if (const std::string n = place_name(p.death_place_id); !n.empty()) {
+        // 已故、日期未知但卒地已登记：地点本身是死亡事实存在的证据，
+        // 写 DEAT + PLAC 保住它（空值 = Y，同「事件已发生」），否则
+        // 导入时记录的地点在往返后无声蒸发。
+        w.raw(1, "DEAT");
+        w.text(2, "PLAC", n);
       }
+      // is_living=false 且无死亡日期、无卒地的人不写 DEAT：模型里
+      // 「未登记」与「已故而无任何信息」同为 (is_living=false, 空)，
+      // 无从区分——宁可不标，也不能把大片未知误标为已故。
+      // 导入侧仍认 DEAT Y（第三方文件），见 handle_fact。
       const std::string burial = place_name(p.burial_place_id);
       if (!burial.empty()) {
         w.raw(1, "BURI");
@@ -1446,7 +1730,7 @@ std::string export_gedcom(const ExportOptions& opt) {
       for (const auto& f : lookup_vec(fams_of_person, p.id)) w.raw(1, "FAMS " + f);
       if (!p.updated_at.empty()) {
         w.raw(1, "CHAN");
-        w.raw(2, "DATE " + p.updated_at);
+        w.raw(2, "DATE " + iso_to_gedcom_datetime(p.updated_at));
       }
     }
   }
@@ -1456,7 +1740,12 @@ std::string export_gedcom(const ExportOptions& opt) {
       w.raw(0, union_xref[u.id] + " FAM");
       for (const auto& m : u.members) {
         auto it = person_xref.find(m.person_id);
-        if (it == person_xref.end()) continue;   // 成员不在本次导出集内
+        if (it == person_xref.end()) {
+          // 成员不在导出集内：FAM 少一个配偶，家庭结构受损——记账
+          export_loss(LossSeverity::Warning, union_xref.at(u.id), m.role == MemberRole::Husband ? "HUSB" : (m.role == MemberRole::Wife ? "WIFE" : "_CONC"),
+                      "结合成员 " + m.person_id + " 不在导出集内，配偶链缺失");
+          continue;
+        }
         // 妾/继配在 GEDCOM 5.5.1 无对应角色，用扩展标签 _CONC 保留
         // （自家读取器认它，其它软件会忽略，不会读错）
         const char* tag = m.role == MemberRole::Husband
@@ -1488,11 +1777,37 @@ std::string export_gedcom(const ExportOptions& opt) {
       if (kids != children_of_union.end()) {
         for (const auto* child : kids->second) {
           const auto it = person_xref.find(child->id);
-          if (it != person_xref.end()) w.raw(1, "CHIL " + it->second);
+          if (it != person_xref.end()) {
+            w.raw(1, "CHIL " + it->second);
+          } else {
+            export_loss(LossSeverity::Warning, union_xref.at(u.id), "CHIL",
+                        "子女 " + child->id + " 不在导出集内，亲子链缺失");
+          }
         }
       }
       emit_facts(1, lookup_ptr(events_of_union, u.id), EventType::Marriage,
                  EventType::Annotation);
+    }
+
+    // 单亲合成 FAM：无婚姻语义，只有亲子女链。xref 用 SF 前缀与
+    // 结合 FAM 区分；重导入只还原父/母链接、不造多余的结合。
+    auto emit_solo_fam = [&](const std::string& parent_id,
+                             const std::vector<const Person*>& kids,
+                             const char* role) {
+      const auto pit = person_xref.find(parent_id);
+      if (pit == person_xref.end() || kids.empty()) return;
+      w.raw(0, "@SF" + parent_id + "@ FAM");
+      w.raw(1, std::string(role) + " " + pit->second);
+      for (const auto* child : kids) {
+        const auto it = person_xref.find(child->id);
+        if (it != person_xref.end()) w.raw(1, "CHIL " + it->second);
+      }
+    };
+    for (const auto& [father_id, kids] : solo_children_by_father) {
+      emit_solo_fam(father_id, kids, "HUSB");
+    }
+    for (const auto& [mother_id, kids] : solo_children_by_mother) {
+      emit_solo_fam(mother_id, kids, "WIFE");
     }
   }
 

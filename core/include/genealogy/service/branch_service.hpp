@@ -25,6 +25,8 @@ class BranchService {
   Result<void> remove_branch(const std::string& id);
 
  private:
+  // 引用保护计数需要 CitationRepository（remove）
+  Database* db_ = nullptr;
   // 建档/更新共用的领域校验，返回空 Error 表示通过。
   Error validate(const Branch& b);
 

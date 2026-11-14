@@ -93,7 +93,7 @@ TEST_CASE("TreeService：export_tree 端到端（防悬空回归）", "[service]
   const auto path = temp_db_path();
   auto opened = Database::open(path);
   REQUIRE(opened);
-  ensure_default_lineage(*opened);
+  REQUIRE(ensure_default_lineage(*opened));
 
   PersonService persons(*opened);
   Person draft;

@@ -128,7 +128,8 @@ Result<std::vector<Person>> PersonRepository::list(
           "   AND (?4 IS NULL OR generation_no >= ?4)"
           "   AND (?5 IS NULL OR generation_no <= ?5)"
           "   AND (?6 IS NULL OR id > ?6)"
-          " ORDER BY id LIMIT ?7");
+          "   AND (?7 IS NULL OR father_id = ?7 OR mother_id = ?7)"
+          " ORDER BY id LIMIT ?8");
   if (!st.ok()) return internal("准备查询失败");
   bind_opt_text(st.get(), 1, filter.branch_id);
   bind_opt_text(st.get(), 2, filter.lineage_id);
@@ -136,11 +137,17 @@ Result<std::vector<Person>> PersonRepository::list(
   bind_opt_int(st.get(), 4, filter.generation_from);
   bind_opt_int(st.get(), 5, filter.generation_to);
   bind_opt_text(st.get(), 6, filter.cursor);
-  sqlite3_bind_int(st.get(), 7, filter.limit > 0 ? filter.limit : 50);
+  bind_opt_text(st.get(), 7, filter.parent_any);
+  sqlite3_bind_int(st.get(), 8, filter.limit > 0 ? filter.limit : 50);
 
   std::vector<Person> out;
-  while (sqlite3_step(st.get()) == SQLITE_ROW) {
+  int rc = SQLITE_OK;
+  while ((rc = sqlite3_step(st.get())) == SQLITE_ROW) {
     out.push_back(row_to_person(st.get()));
+  }
+  if (rc != SQLITE_DONE) {
+    return Error{ErrorCode::Internal,
+                 std::string("查询执行失败: ") + sqlite3_errmsg(db_.raw())};
   }
   return out;
 }
@@ -258,6 +265,18 @@ Result<Person> PersonRepository::update(const Person& p) {
   if (sqlite3_step(st.get()) != SQLITE_DONE) {
     return Error{ErrorCode::Internal,
                  std::string("更新失败: ") + sqlite3_errmsg(db_.raw())};
+  }
+  // 上面的 get() 预检与这条 UPDATE 之间，rev 可能已被另一个连接改掉
+  // （WAL 多连接并发写完全可能）。UPDATE 按 id+rev 匹配 0 行时绝不能
+  // 当成功——那是静默丢失更新外加虚报 rev。重读当前 rev 报冲突，
+  // 口径与预检一致（place_repository 的 update 一直有这道检查，
+  // 这里补齐同一纪律）。
+  if (sqlite3_changes(db_.raw()) == 0) {
+    auto now_current = get(p.id);
+    const std::int64_t cur =
+        now_current ? static_cast<std::int64_t>(now_current->rev) : -1;
+    return conflict("版本冲突: 提交 rev=" + std::to_string(p.rev) +
+                    "，库中 rev=" + std::to_string(cur));
   }
   Person updated = p;
   updated.rev = p.rev + 1;

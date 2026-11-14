@@ -17,6 +17,10 @@ struct PersonFilter {
   std::optional<int> generation_no;         // 精确世代
   std::optional<int> generation_from;       // 世代区间（含端）
   std::optional<int> generation_to;
+  // 某人的子女（father_id 或 mother_id 命中即算，OR 语义）。
+  // GUI 人物卡此前为此全量装载 20 万人物内存过滤——索引
+  // idx_person_father/idx_person_mother 让它变成两条点查。
+  std::optional<std::string> parent_any;
   int limit = 50;
   std::optional<std::string> cursor;  // 上页最后一条的 id（ULID 字典序游标）
 };

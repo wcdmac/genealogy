@@ -566,21 +566,91 @@ TEST_CASE("GEDCOM 映射：损失显式化，绝不静默丢弃") {
   CHECK(p->alias->find("曾用名") != std::string::npos);
 }
 
-TEST_CASE("GEDCOM 映射：在世标记与性别") {
+TEST_CASE("GEDCOM 映射：死亡标记与性别") {
   const auto doc = parse_gedcom(kSample);
   REQUIRE(doc.has_value());
   const auto r = import_gedcom(*doc, ImportOptions{"L1", "陈", true});
   REQUIRE(r.has_value());
   for (const auto& p : r->persons) {
     if (p.given_name == "门查氏") {
-      CHECK(p.is_living);   // "1 DEAT Y"
+      // GEDCOM 5.5.1：Y = 死亡事件已发生（日期未知）→ 已故，不是在世
+      CHECK_FALSE(p.is_living);   // "1 DEAT Y"
       CHECK(p.gender == Gender::Female);
     }
     if (p.given_name == "文远") {
+      // "1 DEAT" + DATE：有死亡事实，同样已故
       CHECK_FALSE(p.is_living);
       CHECK(p.gender == Gender::Male);
     }
+    if (p.given_name == "承嗣") {
+      // 无任何 DEAT 行：在世状态未知，模型默认不启用在世保护
+      CHECK_FALSE(p.is_living);
+    }
   }
+}
+
+TEST_CASE("GEDCOM 映射：DEAT N 显式在世") {
+  const char* doc_text = R"GED(0 HEAD
+1 CHAR UTF-8
+1 GEDC
+2 VERS 5.5.1
+0 @I1@ INDI
+1 NAME 现存 /陈/
+1 SEX M
+1 DEAT N
+0 @I2@ INDI
+1 NAME 未知 /陈/
+1 SEX F
+0 TRLR)GED";
+  const auto doc = parse_gedcom(doc_text);
+  REQUIRE(doc.has_value());
+  const auto r = import_gedcom(*doc, ImportOptions{"L1", "陈", true});
+  REQUIRE(r.has_value());
+  for (const auto& p : r->persons) {
+    if (p.given_name == "现存") {
+      CHECK(p.is_living);   // DEAT N = 未死亡，显式在世保护
+    }
+    if (p.given_name == "未知") {
+      CHECK_FALSE(p.is_living);   // 无 DEAT：未知
+    }
+  }
+}
+
+TEST_CASE("GEDCOM 写出：在世写 DEAT N，未知不写") {
+  Person living;
+  living.id = "01J00000000000000000000LA";
+  living.lineage_id = "L1";
+  living.family_name = "陈";
+  living.given_name = "在世";
+  living.gender = Gender::Male;
+  living.is_living = true;
+  Person unknown;
+  unknown.id = "01J00000000000000000000DB";
+  unknown.lineage_id = "L1";
+  unknown.family_name = "陈";
+  unknown.given_name = "未知";
+  unknown.gender = Gender::Male;   // is_living 默认 false，无 death_date
+
+  std::vector<Person> only_living = {living};
+  const std::string out_living = export_gedcom(
+      ExportOptions{&only_living, {}, {}, {}, "谱师", "1.0"});
+  // 在世：显式 DEAT N（标准语义「未死亡」）；绝不写 DEAT Y——
+  // 那会让第三方软件把活人读成死人
+  CHECK(out_living.find("1 DEAT N") != std::string::npos);
+  CHECK(out_living.find("1 DEAT Y") == std::string::npos);
+  // 往返：DEAT N 导入回在世保护
+  const auto doc = parse_gedcom(out_living);
+  REQUIRE(doc.has_value());
+  const auto back = import_gedcom(*doc, ImportOptions{"L1", "陈", true});
+  REQUIRE(back.has_value());
+  REQUIRE(back->persons.size() == 1);
+  CHECK(back->persons[0].is_living);
+
+  std::vector<Person> only_unknown = {unknown};
+  const std::string out_unknown = export_gedcom(
+      ExportOptions{&only_unknown, {}, {}, {}, "谱师", "1.0"});
+  // 未知（未登记在世）：不写 DEAT，避免误标为已故
+  CHECK(out_unknown.find("1 DEAT") == std::string::npos);
 }
 
 TEST_CASE("GEDCOM 写出：结构与 255 字节切行") {
@@ -801,10 +871,127 @@ TEST_CASE("GEDCOM 往返：导出再导入，信息不丢") {
   CHECK(burial_back == 1);
 }
 
+TEST_CASE("GEDCOM 导出：部分导出的损失台账") {
+  // 三人两结合：B 缺集时，涉及 B 的成员/亲子/事件都必须记账
+  std::vector<Person> persons;
+  Person a;
+  a.id = "A1";
+  a.lineage_id = "L1";
+  a.family_name = "陈";
+  a.given_name = "甲";
+  a.gender = Gender::Male;
+  Person b;
+  b.id = "B2";
+  b.lineage_id = "L1";
+  b.family_name = "李";
+  b.given_name = "乙";
+  b.gender = Gender::Female;
+  b.is_living = true;
+  Person c;
+  c.id = "C3";
+  c.lineage_id = "L1";
+  c.family_name = "陈";
+  c.given_name = "丙";
+  c.gender = Gender::Male;
+  c.father_id = "A1";
+  c.mother_id = "B2";
+  persons = {a, c};   // 故意只导出 A 和 C，B 缺集
+
+  Union fam;
+  fam.id = "F1";
+  fam.members = {UnionMember{"A1", MemberRole::Husband},
+                 UnionMember{"B2", MemberRole::Wife}};
+  Union fam2;
+  fam2.id = "F2";
+  fam2.members = {UnionMember{"B2", MemberRole::Husband}};
+  std::vector<Union> unions = {fam, fam2};
+
+  Event ev;
+  ev.id = "E1";
+  ev.subject_type = EventSubjectType::Union;
+  ev.subject_id = "F2";
+  ev.type = EventType::Marriage;
+  std::vector<Event> events = {ev};
+
+  std::vector<io::MappingLoss> losses;
+  const std::string out = io::export_gedcom(
+      io::ExportOptions{&persons, &unions, &events, nullptr, "谱师", "1.0",
+                        &losses});
+
+  // B 缺集 → WIFE 成员链缺失、F2 结合缺 HUSB、C 的母链无法表达
+  int wife_loss = 0, husb_loss = 0, famc_loss = 0, event_loss = 0;
+  for (const auto& l : losses) {
+    if (l.tag == "WIFE") ++wife_loss;
+    if (l.tag == "HUSB") ++husb_loss;
+    if (l.tag == "FAMC") ++famc_loss;
+    if (l.tag == "EVENT") ++event_loss;
+  }
+  CHECK(wife_loss >= 1);   // F1 的 WIFE（B 缺集）
+  CHECK(husb_loss >= 1);   // F2 的 HUSB（B 缺集）
+  CHECK(famc_loss >= 1);   // C 的母链（B 缺集）无法表达
+  // E1 的主体是 F2，而 F2 在导出集内（只要有一名成员在集）——
+  // 事件可挂靠，不触发 EVENT 损失；EVENT 损失只在主体整体缺集时出现
+  CHECK(event_loss == 0);
+  // 台账不许空：至少 3 条 Warning
+  CHECK(losses.size() >= 3);
+}
+
 TEST_CASE("GEDCOM 映射：缺 lineage_id 直接拒绝") {
   const auto doc = parse_gedcom(kSample);
   REQUIRE(doc.has_value());
   const auto r = import_gedcom(*doc, ImportOptions{"", "陈", true});
   REQUIRE(!r.has_value());
   CHECK(r.error().code() == ErrorCode::InvalidArgument);
+}
+
+TEST_CASE("GEDCOM 映射：世系环拒绝并点名，不报误导性的「父亲不存在」") {
+  // 环数据落库后 order_by_dependency 排不出依赖顺序，曾让用例层报
+  // 「父亲不存在」——对谱师是误导（病因是环，不是缺人）。映射层
+  // 提前拦下、点名环上人物（2026-10-23 端到端测试暴露）。
+  const std::string kCycle = R"GED(0 HEAD
+1 CHAR UTF-8
+0 @I1@ INDI
+1 NAME 互环甲 /陈/
+1 SEX M
+0 @I2@ INDI
+1 NAME 互环乙 /陈/
+1 SEX M
+0 @F1@ FAM
+1 HUSB @I1@
+1 CHIL @I2@
+0 @F2@ FAM
+1 HUSB @I2@
+1 CHIL @I1@
+0 TRLR
+)GED";
+  const auto doc = parse_gedcom(kCycle);
+  REQUIRE(doc.has_value());
+  const auto r = import_gedcom(*doc, ImportOptions{"L1", "陈", true});
+  REQUIRE(!r.has_value());
+  CHECK(r.error().code() == ErrorCode::InvalidArgument);
+  const std::string msg = r.error().message();
+  CHECK(msg.find("世系环") != std::string::npos);
+  CHECK(msg.find("互环") != std::string::npos);
+
+  // 自指同罪
+  const std::string kSelf = R"GED(0 HEAD
+1 CHAR UTF-8
+0 @I9@ INDI
+1 NAME 自指 /陈/
+0 @F9@ FAM
+1 HUSB @I9@
+1 CHIL @I9@
+0 TRLR
+)GED";
+  const auto doc2 = parse_gedcom(kSelf);
+  REQUIRE(doc2.has_value());
+  const auto r2 = import_gedcom(*doc2, ImportOptions{"L1", "陈", true});
+  REQUIRE(!r2.has_value());
+  CHECK(r2.error().message().find("世系环") != std::string::npos);
+
+  // 无环的正常谱不受影响（回归守护：别把拦截做宽）
+  const auto ok_doc = parse_gedcom(kSample);
+  REQUIRE(ok_doc.has_value());
+  const auto ok = import_gedcom(*ok_doc, ImportOptions{"L1", "陈", true});
+  CHECK(ok.has_value());
 }

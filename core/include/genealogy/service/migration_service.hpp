@@ -24,6 +24,8 @@ class MigrationService {
   Result<void> remove_migration(const std::string& id);
 
  private:
+  // 引用保护计数需要 CitationRepository（remove）
+  Database* db_ = nullptr;
   MigrationRepository repo_;
 };
 

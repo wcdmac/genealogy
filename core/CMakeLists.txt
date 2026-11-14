@@ -79,6 +79,8 @@ target_sources(genealogy-core
     src/model/lineage.cpp
     src/model/branch.cpp
     src/model/place.cpp
+    src/model/source.cpp
+    src/model/citation.cpp
     src/model/union.cpp
     src/model/event.cpp
     src/model/migration.cpp
@@ -91,6 +93,8 @@ target_sources(genealogy-core
     src/repository/lineage_repository.cpp
     src/repository/branch_repository.cpp
     src/repository/place_repository.cpp
+    src/repository/source_repository.cpp
+    src/repository/citation_repository.cpp
     src/repository/union_repository.cpp
     src/repository/event_repository.cpp
     src/repository/migration_repository.cpp
@@ -101,6 +105,8 @@ target_sources(genealogy-core
     src/service/tree_service.cpp
     src/service/branch_service.cpp
     src/service/place_service.cpp
+    src/service/source_service.cpp
+    src/service/citation_service.cpp
     src/service/union_service.cpp
     src/service/event_service.cpp
     src/service/migration_service.cpp

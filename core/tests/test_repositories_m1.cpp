@@ -44,7 +44,7 @@ TEST_CASE("宗族仓储：CRUD 与游标", "[repo][lineage]") {
   const auto path = temp_db_path();
   auto opened = Database::open(path);
   REQUIRE(opened);
-  ensure_default_lineage(*opened);
+  REQUIRE(ensure_default_lineage(*opened));
   LineageRepository repo(*opened);
 
   Lineage l;
@@ -107,7 +107,7 @@ TEST_CASE("支派仓储：归属与外键约束", "[repo][branch]") {
   const auto path = temp_db_path();
   auto opened = Database::open(path);
   REQUIRE(opened);
-  ensure_default_lineage(*opened);
+  REQUIRE(ensure_default_lineage(*opened));
   LineageRepository lineages(*opened);
   BranchRepository repo(*opened);
 
@@ -206,7 +206,7 @@ TEST_CASE("婚姻结合仓储：成员事务/替换/级联删除", "[repo][union
   const auto path = temp_db_path();
   auto opened = Database::open(path);
   REQUIRE(opened);
-  ensure_default_lineage(*opened);
+  REQUIRE(ensure_default_lineage(*opened));
   PersonService persons(*opened);
   UnionRepository repo(*opened);
 
@@ -292,7 +292,7 @@ TEST_CASE("事件仓储：筛选与删除", "[repo][event]") {
   const auto path = temp_db_path();
   auto opened = Database::open(path);
   REQUIRE(opened);
-  ensure_default_lineage(*opened);
+  REQUIRE(ensure_default_lineage(*opened));
   PersonService persons(*opened);
   EventRepository repo(*opened);
 

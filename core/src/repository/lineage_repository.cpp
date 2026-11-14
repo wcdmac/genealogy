@@ -169,6 +169,15 @@ Result<Lineage> LineageRepository::update(const Lineage& lineage) {
     return Error{ErrorCode::Internal,
                  std::string("更新失败: ") + sqlite3_errmsg(db_.raw())};
   }
+  // get() 预检与 UPDATE 之间可能被别的连接抢先写（rev 变了）：
+  // 匹配 0 行必须报 Conflict，不能当成功虚报 rev（同 person_repository）。
+  if (sqlite3_changes(db_.raw()) == 0) {
+    auto now_current = get(lineage.id);
+    const std::int64_t cur =
+        now_current ? static_cast<std::int64_t>(now_current->rev) : -1;
+    return conflict("版本冲突: 提交 rev=" + std::to_string(lineage.rev) +
+                    "，库中 rev=" + std::to_string(cur));
+  }
   Lineage updated = lineage;
   updated.rev = lineage.rev + 1;
   updated.updated_at = now;

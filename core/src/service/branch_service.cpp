@@ -1,11 +1,13 @@
 #include <genealogy/service/branch_service.hpp>
 
 #include <genealogy/ulid.hpp>
+#include <genealogy/model/citation.hpp>
+#include <genealogy/repository/citation_repository.hpp>
 
 namespace genealogy {
 
 BranchService::BranchService(Database& db)
-    : repo_(db), lineages_(db), persons_(db) {}
+    : db_(&db), repo_(db), lineages_(db), persons_(db) {}
 
 Error BranchService::validate(const Branch& b) {
   if (b.lineage_id.empty()) return invalid_argument("lineage_id 必填");
@@ -59,6 +61,14 @@ Result<Branch> BranchService::update_branch(const Branch& branch) {
 }
 
 Result<void> BranchService::remove_branch(const std::string& id) {
+  // ROADMAP M7.2：删除被引事实时 409——支派被证据引用则拒绝，
+  // 引用解除（删 citation）后即可删除。
+  CitationRepository citations(*db_);
+  const int n = citations.count_for_subject(CitationSubjectType::Branch, id);
+  if (n > 0) {
+    return conflict("支派被 " + std::to_string(n) +
+                   " 条证据引用，先解除引用再删除");
+  }
   return repo_.remove(id);
 }
 

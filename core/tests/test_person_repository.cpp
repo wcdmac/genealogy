@@ -35,8 +35,8 @@ TEST_CASE("仓储：建档/查询/更新/检索/删除 闭环", "[repo]") {
   const auto path = temp_db_path();
   auto opened = Database::open(path);
   REQUIRE(opened);
-  REQUIRE(opened->schema_version() == 1);
-  ensure_default_lineage(*opened);
+  REQUIRE(opened->schema_version() >= 1);  // 迁移数量随补丁增长（0002 起）
+  REQUIRE(ensure_default_lineage(*opened));
 
   PersonService svc(*opened);
   Person draft;
@@ -109,11 +109,67 @@ TEST_CASE("仓储：建档/查询/更新/检索/删除 闭环", "[repo]") {
   cleanup_db(path);
 }
 
+TEST_CASE("仓储：parent_any 按父母任一过滤子女", "[repo]") {
+  const auto path = temp_db_path();
+  auto opened = Database::open(path);
+  REQUIRE(opened);
+  REQUIRE(ensure_default_lineage(*opened));
+
+  PersonRepository repo(*opened);
+  auto make = [&](const std::string& given,
+                  const std::optional<std::string>& father,
+                  const std::optional<std::string>& mother) {
+    Person p;
+    p.lineage_id = kDefaultLineageId;
+    p.family_name = "陈";
+    p.given_name = given;
+    p.gender = Gender::Male;
+    p.father_id = father;
+    p.mother_id = mother;
+    auto made = repo.insert(p);
+    REQUIRE(made);
+    return made->id;
+  };
+
+  const std::string father = make("父", std::nullopt, std::nullopt);
+  const std::string mother = make("母", std::nullopt, std::nullopt);
+  const std::string son = make("子", father, mother);
+  const std::string daughter_by_mother_only = make("女", std::nullopt, mother);
+
+  // 父亲视角：只命中父亲登记的子女
+  PersonFilter by_father;
+  by_father.parent_any = father;
+  by_father.limit = 100;
+  const auto via_father = repo.list(by_father);
+  REQUIRE(via_father);
+  REQUIRE(via_father->size() == 1);
+  CHECK((*via_father)[0].id == son);
+
+  // 母亲视角：父亲未录的儿子 + 只挂母亲的女儿都能命中（OR 语义）
+  PersonFilter by_mother;
+  by_mother.parent_any = mother;
+  by_mother.limit = 100;
+  const auto via_mother = repo.list(by_mother);
+  REQUIRE(via_mother);
+  CHECK(via_mother->size() == 2);
+
+  // 无父母的人物不受影响
+  PersonFilter none;
+  none.parent_any = make("无亲", std::nullopt, std::nullopt);
+  none.limit = 100;
+  const auto empty = repo.list(none);
+  REQUIRE(empty);
+  CHECK(empty->empty());
+
+  cleanup_db(path);
+}
+
+
 TEST_CASE("用例：建档校验", "[service]") {
   const auto path = temp_db_path();
   auto opened = Database::open(path);
   REQUIRE(opened);
-  ensure_default_lineage(*opened);
+  REQUIRE(ensure_default_lineage(*opened));
 
   PersonService svc(*opened);
 

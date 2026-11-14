@@ -20,6 +20,8 @@
 #include <genealogy/repository/bootstrap.hpp>
 #include <genealogy/repository/database.hpp>
 #include <genealogy/repository/generation_poem_repository.hpp>
+#include <genealogy/repository/lineage_repository.hpp>
+#include <genealogy/repository/person_repository.hpp>
 #include <genealogy/service/generation_poem_service.hpp>
 #include <genealogy/ulid.hpp>
 
@@ -260,7 +262,7 @@ TEST_CASE("GenerationPoemService：录入 → 查询 → 校验全链路") {
   auto opened = Database::open(path);
   REQUIRE(opened.has_value());
   Database db = std::move(*opened);
-  ensure_default_lineage(db);
+  REQUIRE(ensure_default_lineage(db));
   GenerationPoemService svc(db);
 
   // 幽灵归属：必须 NotFound，不能把派语挂到空气上
@@ -299,7 +301,7 @@ TEST_CASE("GenerationPoemService：空联句与未录入的校验") {
   auto opened = Database::open(path);
   REQUIRE(opened.has_value());
   Database db = std::move(*opened);
-  ensure_default_lineage(db);
+  REQUIRE(ensure_default_lineage(db));
   GenerationPoemService svc(db);
 
   // 纯标点联句：invalid_argument
@@ -311,6 +313,69 @@ TEST_CASE("GenerationPoemService：空联句与未录入的校验") {
   auto check = svc.check_consistency(PoemOwner::Lineage, kDefaultLineageId);
   CHECK_FALSE(check.has_value());
   CHECK(check.error().code() == ErrorCode::InvalidArgument);
+
+  std::error_code ec;
+  std::filesystem::remove(path, ec);
+  std::filesystem::remove(path.string() + "-wal", ec);
+  std::filesystem::remove(path.string() + "-shm", ec);
+}
+
+TEST_CASE("GenerationPoemService：校验只查本宗族人物，别族数据不混入") {
+  // 派语挂默认宗族，冲突人物在默认宗族与新建宗族各建一个：
+  // check(默认宗族) 只报默认宗族那一处。曾不过滤拉全库人物，
+  // 别宗族灌库数据混入比对、误报淹真实信号（2026-10-23 端到端
+  // 暴露：seed 灌入别族的 200 人全部参与比对，报 53 处假冲突）。
+  const auto path = std::filesystem::temp_directory_path() /
+                    ("genealogy-poem-scope-" + generate_ulid() + ".db");
+  auto opened = Database::open(path);
+  REQUIRE(opened.has_value());
+  Database db = std::move(*opened);
+  REQUIRE(ensure_default_lineage(db));
+  GenerationPoemService svc(db);
+
+  // 派语：「德宗景文正…」，「文」是第 4 字
+  auto set = svc.set_poem(PoemOwner::Lineage, kDefaultLineageId, kPoemText);
+  REQUIRE(set.has_value());
+
+  // 第二个宗族
+  LineageRepository lineages(db);
+  Lineage other;
+  other.name = "别族";
+  other.surname = "陈";
+  auto made_other = lineages.insert(other);
+  REQUIRE(made_other.has_value());
+  const std::string other_id = made_other->id;
+
+  // 默认宗族的冲突人物：名「文」派语第 4 句，自始祖起算第 2 世
+  PersonRepository persons(db);
+  Person mine;
+  mine.lineage_id = kDefaultLineageId;
+  mine.family_name = "陈";
+  mine.given_name = "文远";
+  mine.gender = Gender::Male;
+  auto made_mine = persons.insert(mine);
+  REQUIRE(made_mine.has_value());
+
+  // 别族的冲突人物：派语位置差更远，但不在校验范围
+  Person theirs;
+  theirs.lineage_id = other_id;
+  theirs.family_name = "陈";
+  theirs.given_name = "文达";
+  theirs.gender = Gender::Male;
+  auto made_theirs = persons.insert(theirs);
+  REQUIRE(made_theirs.has_value());
+
+  auto check = svc.check_consistency(PoemOwner::Lineage, kDefaultLineageId);
+  REQUIRE(check.has_value());
+  // 只报默认宗族那一处；别族的「文达」不出现
+  bool mine_hit = false;
+  bool theirs_hit = false;
+  for (const auto& c : *check) {
+    if (c.person_id == made_mine->id) mine_hit = true;
+    if (c.person_id == made_theirs->id) theirs_hit = true;
+  }
+  CHECK(mine_hit);
+  CHECK_FALSE(theirs_hit);
 
   std::error_code ec;
   std::filesystem::remove(path, ec);

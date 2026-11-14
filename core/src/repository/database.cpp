@@ -10,6 +10,8 @@
 #include <genealogy/repository/embedded_schema.hpp>
 #include <genealogy/util/time.hpp>
 
+#include "sqlite_util.hpp"
+
 namespace genealogy {
 namespace {
 
@@ -19,15 +21,8 @@ struct SqliteCloser {
   }
 };
 
-Result<void> exec(sqlite3* db, const char* sql) {
-  char* err = nullptr;
-  if (sqlite3_exec(db, sql, nullptr, nullptr, &err) != SQLITE_OK) {
-    std::string msg = err != nullptr ? err : "unknown error";
-    sqlite3_free(err);
-    return Error{ErrorCode::Internal, msg};
-  }
-  return {};
-}
+// exec 用 sqlite_util 的共享实现——本文件曾自留一份逐行相同的拷贝，
+// 两处漂移只是时间问题。
 
 bool migration_applied(sqlite3* db, const char* name) {
   sqlite3_stmt* st = nullptr;
@@ -88,13 +83,16 @@ Result<Database> Database::open(const std::filesystem::path& path) {
   auto impl = std::make_unique<Impl>();
   impl->db.reset(raw);
 
-  // 设计文档 4.2：WAL + 外键
-  if (auto r = exec(raw, "PRAGMA journal_mode=WAL; PRAGMA foreign_keys=ON;");
+  // 设计文档 4.2：WAL + 外键。busy_timeout 5 秒：同进程无碍（连接
+  // 串行化），但 server 与 GUI/CLI 同时开同一库文件时，写冲突应
+  // 等待重试而不是立刻报 database is locked。
+  sqlite3_busy_timeout(raw, 5000);
+  if (auto r = repo_internal::exec(raw, "PRAGMA journal_mode=WAL; PRAGMA foreign_keys=ON;");
       !r) {
     return r.error();
   }
 
-  if (auto r = exec(raw,
+  if (auto r = repo_internal::exec(raw,
                     "CREATE TABLE IF NOT EXISTS _schema_migrations ("
                     "  name       TEXT PRIMARY KEY,"
                     "  applied_at TEXT NOT NULL,"
@@ -112,10 +110,10 @@ Result<Database> Database::open(const std::filesystem::path& path) {
       impl->applied = i + 1;
       continue;
     }
-    if (auto r = exec(raw, "BEGIN IMMEDIATE;"); !r) return r.error();
-    auto apply = exec(raw, m.sql);
+    if (auto r = repo_internal::exec(raw, "BEGIN IMMEDIATE;"); !r) return r.error();
+    auto apply = repo_internal::exec(raw, m.sql);
     if (apply) apply = record_migration(raw, m.name, m.sql);
-    if (auto r = exec(raw, apply ? "COMMIT;" : "ROLLBACK;"); !r) {
+    if (auto r = repo_internal::exec(raw, apply ? "COMMIT;" : "ROLLBACK;"); !r) {
       return r.error();
     }
     if (!apply) {

@@ -1,8 +1,10 @@
 #include <genealogy/service/migration_service.hpp>
+#include <genealogy/model/citation.hpp>
+#include <genealogy/repository/citation_repository.hpp>
 
 namespace genealogy {
 
-MigrationService::MigrationService(Database& db) : repo_(db) {}
+MigrationService::MigrationService(Database& db) : db_(&db), repo_(db) {}
 
 Result<Migration> MigrationService::create_migration(const Migration& draft) {
   if (draft.subject_id.empty()) return invalid_argument("迁徙主体必填");
@@ -31,6 +33,14 @@ Result<Migration> MigrationService::update_migration(
 }
 
 Result<void> MigrationService::remove_migration(const std::string& id) {
+  // ROADMAP M7.2：删除被引事实时 409——迁徙被证据引用则拒绝，
+  // 引用解除（删 citation）后即可删除。
+  CitationRepository citations(*db_);
+  const int n = citations.count_for_subject(CitationSubjectType::Migration, id);
+  if (n > 0) {
+    return conflict("迁徙被 " + std::to_string(n) +
+                   " 条证据引用，先解除引用再删除");
+  }
   return repo_.remove(id);
 }
 

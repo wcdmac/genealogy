@@ -51,7 +51,7 @@ struct Fixture {
     auto opened = Database::open(path);
     REQUIRE(opened);
     db_ = std::move(opened);
-    ensure_default_lineage(*db_);
+    REQUIRE(ensure_default_lineage(*db_));
   }
   ~Fixture() { cleanup_db(path); }
 

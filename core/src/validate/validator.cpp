@@ -46,27 +46,42 @@ IssueSeverity severity_from(const std::string& s) {
   return IssueSeverity::Info;
 }
 
-std::vector<RuleDef> load_rules() {
-  std::vector<RuleDef> out;
-  const nlohmann::json j = nlohmann::json::parse(validation::rules_data::kValidationJson);
-  for (const auto& r : j.at("rules")) {
-    RuleDef d;
-    d.id = r.value("id", std::string{});
-    d.name = r.value("name", std::string{});
-    d.severity = severity_from(r.value("severity", std::string("info")));
-    d.entity = r.value("entity", std::string("person"));
-    d.check = r.value("check", std::string{});
-    d.message = r.value("message", std::string{});
-    d.suggestion = r.value("suggestion", std::string{});
-    d.enabled = r.value("enabled", true);
-    if (const auto it = r.find("params"); it != r.end() && it->is_object()) {
-      for (auto p = it->begin(); p != it->end(); ++p) {
-        if (p->is_number_integer()) d.params[p.key()] = p->get<long long>();
+// 规则表来自构建期嵌入的常量字符串，内容不可变——解析一次缓存复用。
+// 此前每次 validate 调用都重新 parse 两遍（入口与规则分发处各一次），
+// 纯浪费；function-local static 的初始化线程安全（C++11 起）。
+const std::vector<RuleDef>& load_rules() {
+  static const std::vector<RuleDef> kRules = [] {
+    std::vector<RuleDef> out;
+    const nlohmann::json j =
+        nlohmann::json::parse(validation::rules_data::kValidationJson);
+    for (const auto& r : j.at("rules")) {
+      RuleDef d;
+      d.id = r.value("id", std::string{});
+      d.name = r.value("name", std::string{});
+      d.severity = severity_from(r.value("severity", std::string("info")));
+      d.entity = r.value("entity", std::string("person"));
+      d.check = r.value("check", std::string{});
+      d.message = r.value("message", std::string{});
+      d.suggestion = r.value("suggestion", std::string{});
+      d.enabled = r.value("enabled", true);
+      if (const auto it = r.find("params"); it != r.end() && it->is_object()) {
+        for (auto p = it->begin(); p != it->end(); ++p) {
+          if (p->is_number_integer()) d.params[p.key()] = p->get<long long>();
+        }
       }
+      if (!d.id.empty() && !d.check.empty()) out.push_back(std::move(d));
     }
-    if (!d.id.empty() && !d.check.empty()) out.push_back(std::move(d));
-  }
-  return out;
+    return out;
+  }();
+  return kRules;
+}
+
+// 规则集元信息（ruleset 名称 / 版本号），与规则同源、同样只解析一次。
+const nlohmann::json& rules_meta() {
+  static const nlohmann::json kMeta = [] {
+    return nlohmann::json::parse(validation::rules_data::kValidationJson);
+  }();
+  return kMeta;
 }
 
 long long param_of(const RuleDef& r, const std::string& key,
@@ -198,30 +213,38 @@ void check_duplicate_person(const RuleDef& r, const PersonGraph& g,
                             const std::vector<Event>*,
                             std::vector<ValidationIssue>* out) {
   const long long tol = param_of(r, "year_tolerance", 0);
-  // 同名的人生年两两比对；图规模在 M1 是万级，O(n²) 可接受，
-  // 真要上量再按 (姓,名) 分桶。
+  // 同名的人生年比对：按 (姓,名) 分桶，桶内两两比对——此前是全库
+  // 两两比对，O(n²) 在 20 万级 ≈ 2×10¹⁰ 次，校验直接不可用；分桶后退
+  // 化为同名簇内的小规模比对（同名本就罕见）。输出经入口处的
+  // (rule_id, entity_id) 终排序，遍历顺序不影响确定性。
   std::unordered_set<std::string> reported;
-  std::vector<const Person*> all;
-  all.reserve(g.nodes().size());
-  for (const auto& [id, p] : g.nodes()) all.push_back(p);
-  for (std::size_t i = 0; i < all.size(); ++i) {
-    for (std::size_t k = i + 1; k < all.size(); ++k) {
-      const Person* a = all[i];
-      const Person* b = all[k];
-      if (a->family_name != b->family_name || a->given_name != b->given_name) {
-        continue;
+  std::unordered_map<std::string, std::vector<const Person*>> buckets;
+  buckets.reserve(g.nodes().size());
+  for (const auto& [id, p] : g.nodes()) {
+    (void)id;
+    buckets[p->family_name + '\x1F' + p->given_name].push_back(p);
+  }
+  for (auto& [key, group] : buckets) {
+    (void)key;
+    if (group.size() < 2) continue;
+    for (std::size_t i = 0; i < group.size(); ++i) {
+      for (std::size_t k = i + 1; k < group.size(); ++k) {
+        const Person* a = group[i];
+        const Person* b = group[k];
+        const auto ay = year_of(&a->birth_date);
+        const auto by = year_of(&b->birth_date);
+        if (!ay || !by) continue;
+        if (std::llabs(static_cast<long long>(*ay) -
+                       static_cast<long long>(*by)) > tol) {
+          continue;
+        }
+        // 报 id 较小的一方，另一方由谱师按同名+生年自行比对；
+        // 同一人只报一次，避免三个同名互相炸出三条
+        const std::string& reported_id = (a->id < b->id) ? a->id : b->id;
+        if (reported.insert(reported_id).second) {
+          add(out, r, "person", reported_id);
+        }
       }
-      const auto ay = year_of(&a->birth_date);
-      const auto by = year_of(&b->birth_date);
-      if (!ay || !by) continue;
-      if (std::llabs(static_cast<long long>(*ay) - static_cast<long long>(*by)) >
-          tol) {
-        continue;
-      }
-      // 报 id 较小的一方，另一方由谱师按同名+生年自行比对；
-      // 同一人只报一次，避免三个同名互相炸出三条
-      const std::string& reported_id = (a->id < b->id) ? a->id : b->id;
-      if (reported.insert(reported_id).second) add(out, r, "person", reported_id);
     }
   }
 }
@@ -263,6 +286,11 @@ void check_parent_link_inconsistent(const RuleDef& r, const PersonGraph& g,
     // 父母都在图里时，必须存在同时包含二人的结合
     const std::string f = p->father_id.value_or(std::string{});
     const std::string m = p->mother_id.value_or(std::string{});
+    // 仅登记一方（单亲、妾室未录母亲、续弦未录）是谱书常见形态，
+    // 无从谈「同时包含二人」——R7 只约束双方都已登记的结合一致性。
+    // （曾经有一方就查互链：母亲未录的人物全部误报 error，
+    // 2026-10-23 端到端测试经 _CONC 妾室谱暴露。）
+    if (f.empty() || m.empty()) continue;
     const auto spouses_f = g.spouses_of(f);
     const auto spouses_m = g.spouses_of(m);
     bool linked = false;
@@ -306,38 +334,57 @@ void check_missing_birth(const RuleDef& r, const PersonGraph& g,
 void check_ancestry_cycle(const RuleDef& r, const PersonGraph& g,
                           const std::vector<Event>*,
                           std::vector<ValidationIssue>* out) {
-  // 三色 DFS：0 未访问 / 1 在栈上 / 2 已完成
-  std::unordered_map<std::string, int> color;
-  std::vector<std::string> stack;
-  std::unordered_set<std::string> reported;
-
-  std::function<bool(const std::string&)> dfs = [&](const std::string& id) {
-    color[id] = 1;
-    stack.push_back(id);
-    const Person* p = g.find(id);
-    if (p != nullptr) {
-      std::vector<std::string> parents;
-      if (p->father_id && g.contains(*p->father_id)) parents.push_back(*p->father_id);
-      if (p->mother_id && g.contains(*p->mother_id)) parents.push_back(*p->mother_id);
-      for (const auto& q : parents) {
-        const auto it = color.find(q);
-        if (it == color.end()) {
-          if (dfs(q)) return true;
-        } else if (it->second == 1) {
-          // 回到栈上：环。报环上所有人，避免同一条环被反复报
-          for (const auto& s : stack) reported.insert(s);
-          return false;
-        }
-      }
-    }
-    stack.pop_back();
-    color[id] = 2;
-    return false;
+  // 三色 DFS（显式栈迭代）：0 未访问 / 1 在栈上 / 2 已完成。
+  // 此前用 std::function 递归——数十万级的病态长父母链会递归爆栈
+  // （tree/relationship 都是迭代或深度受控的，唯独这里裸奔）。
+  // 报告语义与递归版一致：命中在栈节点时，当前栈路径全员入报。
+  struct Frame {
+    std::string id;
+    std::size_t next = 0;
   };
+  std::unordered_map<std::string, int> color;
+  std::vector<Frame> stack;
+  std::unordered_set<std::string> reported;
+  // 父母链只取图内节点，先整体展开：迭代体内不再做 find/contains 判空
+  std::unordered_map<std::string, std::vector<std::string>> parents_of;
+  parents_of.reserve(g.nodes().size() * 2);
+  for (const auto& [id, p] : g.nodes()) {
+    (void)id;
+    std::vector<std::string> parents;
+    if (p->father_id && g.contains(*p->father_id)) parents.push_back(*p->father_id);
+    if (p->mother_id && g.contains(*p->mother_id)) parents.push_back(*p->mother_id);
+    parents_of.emplace(id, std::move(parents));
+  }
 
   for (const auto& [id, p] : g.nodes()) {
     (void)p;
-    if (color.find(id) == color.end()) dfs(id);
+    if (color.find(id) != color.end()) continue;
+    color[id] = 1;
+    stack.push_back(Frame{id, 0});
+    while (!stack.empty()) {
+      const std::string top_id = stack.back().id;
+      const auto& parents = parents_of[top_id];
+      bool descended = false;
+      while (stack.back().next < parents.size()) {
+        // top 引用在 push 后会失效：next 计数经 stack.back() 存取，
+        //父母表按 id 从预展开表取（引用稳定）
+        const std::string q = parents[stack.back().next++];
+        const auto it = color.find(q);
+        if (it == color.end()) {
+          color[q] = 1;
+          stack.push_back(Frame{q, 0});
+          descended = true;
+          break;
+        }
+        if (it->second == 1) {
+          // 回到栈上：环。报当前栈路径全员，避免同一条环被反复报
+          for (const auto& s : stack) reported.insert(s.id);
+        }
+      }
+      if (descended) continue;
+      color[stack.back().id] = 2;
+      stack.pop_back();
+    }
   }
   for (const auto& id : reported) add(out, r, "person", id);
 }
@@ -453,7 +500,7 @@ Result<ValidationReport> validate(const PersonGraph& graph,
   ValidationReport report;
   report.rules_total = static_cast<int>(rules.size());
 
-  const nlohmann::json j = nlohmann::json::parse(validation::rules_data::kValidationJson);
+  const nlohmann::json& j = rules_meta();
   report.ruleset = j.value("ruleset", std::string{});
   report.ruleset_version = std::to_string(j.value("version", 0));
 

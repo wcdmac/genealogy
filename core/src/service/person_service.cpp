@@ -2,11 +2,17 @@
 
 #include <string>
 
+#include <genealogy/model/citation.hpp>
+#include <genealogy/repository/citation_repository.hpp>
+#include <genealogy/repository/event_repository.hpp>
+#include <genealogy/repository/migration_repository.hpp>
+#include <genealogy/repository/transaction.hpp>
 #include <genealogy/ulid.hpp>
 
 namespace genealogy {
 
-PersonService::PersonService(Database& db) : repo_(db), lineages_(db) {}
+PersonService::PersonService(Database& db)
+    : db_(&db), repo_(db), lineages_(db) {}
 
 namespace {
 
@@ -70,7 +76,75 @@ Result<Person> PersonService::update_person(const Person& p) {
 Result<void> PersonService::remove_person(const std::string& id) {
   // 有人以此人为父母时，外键会拦住删除（SQLite foreign_keys=ON）。
   // 这里是有意的：静默级联删掉一整枝子孙，比明确报错危险得多。
-  return repo_.remove(id);
+  // 但人物级事实（事件/迁徙）只关于此人本身——留在库里是悬挂的
+  // 幽灵记录（event.subject_id 无外键，删除不会报错），随主体一并
+  // 删除并已在 spec 的 DELETE /persons/{id} 描述中注明。
+  //
+  // ROADMAP M7.2：删除被引事实时 409。人物本身被 citation 引用（字段级
+  // 证据），或其即将级联删除的事件被引用——都不许删，先解除引用。
+  // 引用计数需要在级联范围确定之后统计，故先取事件列表再判。
+  EventRepository citations_scope_events(*db_);
+  EventFilter scope_ef;
+  scope_ef.subject_type = EventSubjectType::Person;
+  scope_ef.subject_id = id;
+  scope_ef.limit = 1000;
+  auto scope_events = citations_scope_events.list(scope_ef);
+  if (!scope_events) return scope_events.error();
+
+  CitationRepository citations(*db_);
+  long cited = citations.count_for_subject(CitationSubjectType::Person, id);
+  for (const auto& e : *scope_events) {
+    cited += citations.count_for_subject(CitationSubjectType::Event, e.id);
+  }
+  if (cited > 0) {
+    return conflict("人物（含其事件）被 " + std::to_string(cited) +
+                    " 条证据引用，先解除引用再删除");
+  }
+
+  // 三个删除必须同一事务：union_member.person_id 对 person 有外键，
+  // 人物在结合中时最后一步 repo_.remove 会 FK 失败——没有事务的话
+  // 事件/迁徙已经删掉，留下「人还在、事实没了」的部分删除。
+  // Transaction 嵌套感知：外层已有事务时本层为空操作。
+  Transaction tx(*db_);
+  if (tx.error()) return *tx.error();
+  // 翻页删到尽：单页上限不是总量上限，一次取一大页会让超过它的
+  // 记录留下半截幽灵。游标 = 本页最后一条的 id（删完再取下一页）。
+  EventRepository events(*db_);
+  std::optional<std::string> ev_cursor;
+  for (;;) {
+    EventFilter ef;
+    ef.subject_type = EventSubjectType::Person;
+    ef.subject_id = id;
+    ef.limit = 1000;
+    ef.cursor = ev_cursor;
+    auto evs = events.list(ef);
+    if (!evs) return evs.error();
+    if (evs->empty()) break;
+    for (const auto& e : *evs) {
+      if (auto r = events.remove(e.id); !r) return r;
+    }
+    ev_cursor = evs->back().id;
+  }
+  MigrationRepository migrations(*db_);
+  std::optional<std::string> mg_cursor;
+  for (;;) {
+    MigrationFilter mf;
+    mf.subject_type = MigrationSubjectType::Person;
+    mf.subject_id = id;
+    mf.limit = 1000;
+    mf.cursor = mg_cursor;
+    auto mgrs = migrations.list(mf);
+    if (!mgrs) return mgrs.error();
+    if (mgrs->empty()) break;
+    for (const auto& m : *mgrs) {
+      if (auto r = migrations.remove(m.id); !r) return r;
+    }
+    mg_cursor = mgrs->back().id;
+  }
+  auto removed = repo_.remove(id);
+  if (!removed) return removed.error();
+  if (auto c = tx.commit(); !c) return c;
+  return {};
 }
 
 Result<std::vector<Person>> PersonService::search_persons(

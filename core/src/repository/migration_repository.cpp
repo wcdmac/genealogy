@@ -59,15 +59,19 @@ MigrationRepository::MigrationRepository(Database& db) : db_(db) {}
 
 Result<std::vector<Migration>> MigrationRepository::list(
     const MigrationFilter& filter) const {
-  // subject_id 与 branch_id 是或的关系：branch_id 命中支派自身的迁徙，
-  // 也命中其成员的迁徙——后者由 REST 层展开成员 ID 后多次查询合并
-  // （仓储不 JOIN person，迁徙查询按 subject 精确匹配即可）。
+  // subject_id 与 branch_id 是或的关系。branch_id 由子查询原生解析
+  // （支派自身 + branch_id 命中该支派的所有成员）——此前由 REST 层
+  // 展开成员 ID 后逐成员查询合并：既 N+1，合并后的游标口径也是错的
+  // （每成员只取一页，超过一页的成员其余记录静默丢失），两条一并修。
+  // 游标仍按 migration.id 单调推进，与单主体路径同一口径。
   const std::string sql = std::string("SELECT ").append(kCols) +
                           " FROM migration"
                           " WHERE (?1 IS NULL OR subject_type = ?1)"
                           "   AND (?2 IS NULL OR subject_id = ?2)"
+                          "   AND (?4 IS NULL OR subject_id = ?4 OR subject_id IN"
+                          "         (SELECT id FROM person WHERE branch_id = ?4))"
                           "   AND (?3 IS NULL OR id > ?3)"
-                          " ORDER BY id LIMIT ?4";
+                          " ORDER BY id LIMIT ?5";
   Stmt st(db_.raw(), sql.c_str());
   if (!st.ok()) {
     return Error{ErrorCode::Internal,
@@ -81,7 +85,8 @@ Result<std::vector<Migration>> MigrationRepository::list(
   }
   bind_opt_text(st.get(), 2, filter.subject_id);
   bind_opt_text(st.get(), 3, filter.cursor);
-  sqlite3_bind_int(st.get(), 4, filter.limit > 0 ? filter.limit : 50);
+  bind_opt_text(st.get(), 4, filter.branch_id);
+  sqlite3_bind_int(st.get(), 5, filter.limit > 0 ? filter.limit : 50);
 
   std::vector<Migration> out;
   int rc = SQLITE_OK;

@@ -105,6 +105,11 @@ struct ExportOptions {
   const std::vector<Place>* places = nullptr;  // place_id → 名称 解析用
   std::string submitter_name = "genealogy";
   std::string source_version = "1.0";
+  // 导出侧损失台账（镜像导入侧的 add_loss）：凡「库里有、GEDCOM
+  // 表达不了/不在本次导出集内」的信息逐条记账——导出与导入同样
+  // 不许静默丢（高阳李氏试修实证：成员缺集、亲子链断裂都曾无声）。
+  // 传 nullptr = 不收集（CLI/REST 应始终传入）。
+  std::vector<MappingLoss>* losses = nullptr;
 };
 
 std::string export_gedcom(const ExportOptions& opt);

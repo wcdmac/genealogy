@@ -45,7 +45,7 @@ struct Fixture {
   MigrationRepository migrations{db};
   MigrationService service{db};
 
-  Fixture() { ensure_default_lineage(db); }
+  Fixture() { REQUIRE(ensure_default_lineage(db)); }
   ~Fixture() {
     std::error_code ec;
     std::filesystem::remove(path, ec);

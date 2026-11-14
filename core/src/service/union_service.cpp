@@ -1,11 +1,13 @@
 #include <genealogy/service/union_service.hpp>
 
 #include <genealogy/ulid.hpp>
+#include <genealogy/model/citation.hpp>
+#include <genealogy/repository/citation_repository.hpp>
 
 namespace genealogy {
 
 UnionService::UnionService(Database& db)
-    : repo_(db), persons_(db), places_(db) {}
+    : db_(&db), repo_(db), persons_(db), places_(db) {}
 
 Error UnionService::validate(const Union& u) {
   if (u.members.empty()) return invalid_argument("结合至少需要一名成员");
@@ -54,6 +56,14 @@ Result<Union> UnionService::update_union(const Union& u) {
 }
 
 Result<void> UnionService::remove_union(const std::string& id) {
+  // ROADMAP M7.2：删除被引事实时 409——结合被证据引用则拒绝，
+  // 引用解除（删 citation）后即可删除。
+  CitationRepository citations(*db_);
+  const int n = citations.count_for_subject(CitationSubjectType::Union, id);
+  if (n > 0) {
+    return conflict("结合被 " + std::to_string(n) +
+                   " 条证据引用，先解除引用再删除");
+  }
   return repo_.remove(id);
 }
 

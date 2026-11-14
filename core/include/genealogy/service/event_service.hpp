@@ -27,6 +27,8 @@ class EventService {
   Result<void> remove_event(const std::string& id);
 
  private:
+  // 引用保护计数需要 CitationRepository（remove）
+  Database* db_ = nullptr;
   Error validate(const Event& e);
 
   EventRepository repo_;

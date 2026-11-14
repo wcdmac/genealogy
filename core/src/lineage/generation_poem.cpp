@@ -61,11 +61,13 @@ std::optional<int> expected_seq(const std::vector<std::string>& poem,
 std::vector<PoemConflict> check_poem_consistency(
     const PersonGraph& g,
     const std::unordered_map<std::string, int>& generations,
-    const std::vector<std::string>& poem, int poem_start) {
+    const std::vector<std::string>& poem, int poem_start,
+    const std::unordered_set<std::string>* member_filter) {
   std::vector<PoemConflict> out;
   if (poem.empty()) return out;
 
   for (const auto& [id, p] : g.nodes()) {
+    if (member_filter != nullptr && member_filter->count(id) == 0) continue;
     const auto gen_it = generations.find(id);
     if (gen_it == generations.end()) continue;   // 世代断链：不判
     const int generation_no = gen_it->second;

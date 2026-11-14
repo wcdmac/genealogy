@@ -19,6 +19,7 @@
 
 #include <optional>
 #include <string>
+#include <unordered_set>
 #include <string_view>
 #include <unordered_map>
 #include <vector>
@@ -64,9 +65,12 @@ struct PoemConflict {
 //                不少支派从第 N 世才开始定派语，那时传 N）
 // 只报「两边都有值且不一致」的冲突；单边缺失（名字没辈字 / 世代断链）
 // 不是冲突——那可能是录入未全，也可能是外亲来归，不能算错。
+// member_filter：支级校验用——图覆盖全宗族（世代序号自真始祖起算），
+// 但检查只限支内成员；lineage 级传 nullptr 查全部。
 std::vector<PoemConflict> check_poem_consistency(
     const PersonGraph& g,
     const std::unordered_map<std::string, int>& generations,
-    const std::vector<std::string>& poem, int poem_start = 1);
+    const std::vector<std::string>& poem, int poem_start = 1,
+    const std::unordered_set<std::string>* member_filter = nullptr);
 
 }  // namespace genealogy::lineage

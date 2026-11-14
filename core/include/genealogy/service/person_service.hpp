@@ -28,6 +28,7 @@ class PersonService {
 
   // 删除。注意：当前为硬删除——schema 无 deleted_at/audit_log 表，
   // 规范 5.2.2 的「软删除入 audit_log」待 M3 补表后实现。
+  // 此人的事件与迁徙随主体一并删除（subject_id 无外键，不删即悬挂）。
   Result<void> remove_person(const std::string& id);
 
   Result<std::vector<Person>> list_persons(const PersonFilter& filter);
@@ -35,6 +36,8 @@ class PersonService {
                                              int limit);
 
  private:
+  // 事件/迁徙的级联清理需要各自的仓储（remove_person）
+  Database* db_ = nullptr;
   PersonRepository repo_;
   LineageRepository lineages_;
 };

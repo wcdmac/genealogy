@@ -43,27 +43,17 @@ enum Col {
   kRev,
 };
 
-UnionType union_type_from_string(const std::string& s) {
-  if (s == "concubinage") return UnionType::Concubinage;
-  if (s == "remarriage") return UnionType::Remarriage;
-  return UnionType::Marriage;
-}
-
-UnionStatus union_status_from_string(const std::string& s) {
-  return s == "dissolved" ? UnionStatus::Dissolved : UnionStatus::Active;
-}
-
-MemberRole member_role_from_string(const std::string& s) {
-  if (s == "husband") return MemberRole::Husband;
-  if (s == "concubine") return MemberRole::Concubine;
-  return MemberRole::Wife;
-}
-
+// 行 → 实体的枚举解析走 model 的严格版（返回 optional），此处显式
+// value_or 兜底。此前本文件自带一套同名静默默认版函数——与 model
+// 版构成跨命名空间重载集，能否编译取决于工具链宽容度，且库中脏值
+// 被静默「洗白」成合法枚举、无处可查；单一事实源在 model。
 Union row_to_union(sqlite3_stmt* st) {
   Union u;
   u.id = col_text(st, kId);
-  u.type = union_type_from_string(col_text(st, kType));
-  u.status = union_status_from_string(col_text(st, kStatus));
+  u.type = union_type_from_string(col_text(st, kType))
+               .value_or(UnionType::Marriage);
+  u.status = union_status_from_string(col_text(st, kStatus))
+                 .value_or(UnionStatus::Active);
   u.sequence = col_opt_int(st, kSequence);
   u.start_date = col_opt_date(st, kStartDate);
   u.end_date = col_opt_date(st, kEndDate);
@@ -73,17 +63,26 @@ Union row_to_union(sqlite3_stmt* st) {
   return u;
 }
 
-std::vector<UnionMember> load_members(sqlite3* db, const std::string& union_id) {
+// 成员装载有独立错误通道（调用方都返回 Result，可传播）——
+// step 出错静默截断会让结合悄悄缺人，比查不到更糟。
+Result<std::vector<UnionMember>> load_members(sqlite3* db,
+                                              const std::string& union_id) {
   std::vector<UnionMember> out;
   Stmt st(db, "SELECT person_id, role FROM union_member WHERE union_id = ?1"
               " ORDER BY rowid");
-  if (!st.ok()) return out;
+  if (!st.ok()) return internal("准备查询 union_member 失败");
   sqlite3_bind_text(st.get(), 1, union_id.c_str(), -1, SQLITE_TRANSIENT);
-  while (sqlite3_step(st.get()) == SQLITE_ROW) {
+  int rc = SQLITE_OK;
+  while ((rc = sqlite3_step(st.get())) == SQLITE_ROW) {
     UnionMember m;
     m.person_id = col_text(st.get(), 0);
-    m.role = member_role_from_string(col_text(st.get(), 1));
+    m.role = member_role_from_string(col_text(st.get(), 1))
+                 .value_or(MemberRole::Wife);
     out.push_back(std::move(m));
+  }
+  if (rc != SQLITE_DONE) {
+    return Error{ErrorCode::Internal,
+                 std::string("查询 union_member 失败: ") + sqlite3_errmsg(db)};
   }
   return out;
 }
@@ -148,7 +147,9 @@ Result<std::vector<Union>> UnionRepository::list(
     Union u = row_to_union(st.get());
     // 成员须随行装载：调用方（CLI / 世系图构建）依赖 members，
     // 漏装载会静默丢配偶边（M1.3 person relation 冒烟暴露）。
-    u.members = load_members(db_.raw(), u.id);
+    auto members = load_members(db_.raw(), u.id);
+    if (!members) return members.error();
+    u.members = std::move(*members);
     out.push_back(std::move(u));
   }
   if (rc != SQLITE_DONE) {
@@ -169,7 +170,9 @@ Result<Union> UnionRepository::get(const std::string& id) const {
   sqlite3_bind_text(st.get(), 1, id.c_str(), -1, SQLITE_TRANSIENT);
   if (sqlite3_step(st.get()) != SQLITE_ROW) return not_found("婚姻结合不存在: " + id);
   Union u = row_to_union(st.get());
-  u.members = load_members(db_.raw(), id);
+  auto members = load_members(db_.raw(), id);
+  if (!members) return members.error();
+  u.members = std::move(*members);
   return u;
 }
 
@@ -239,6 +242,16 @@ Result<Union> UnionRepository::update(const Union& u) {
       return rollback_on_fail(Error{ErrorCode::Internal,
                                     std::string("更新结合失败: ") +
                                         sqlite3_errmsg(db_.raw())});
+    }
+    // 事务里的 get() 预检与 UPDATE 之间可能被别的连接抢先写
+    // （rev 变了）：匹配 0 行必须回 Conflict 回滚，不能虚报成功。
+    if (sqlite3_changes(db_.raw()) == 0) {
+      auto now_current = get(u.id);
+      const std::int64_t cur =
+          now_current ? static_cast<std::int64_t>(now_current->rev) : -1;
+      return rollback_on_fail(
+          conflict("版本冲突: 提交 rev=" + std::to_string(u.rev) +
+                   "，库中 rev=" + std::to_string(cur)));
     }
   }
   if (auto r = replace_members(db_.raw(), u.id, u.members); !r) {

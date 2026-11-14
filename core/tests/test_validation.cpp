@@ -198,6 +198,27 @@ TEST_CASE("校验：R7 父母冗余字段与婚姻结合不一致") {
   CHECK(has_issue(run(ps, us), "R7", "C"));
 }
 
+TEST_CASE("校验：R7 仅登记一方父母不误报") {
+  // 单亲、妾室未录母亲、续弦未录：只登记一方时无从谈「同时包含
+  // 二人」。曾因有一方就查互链，凡母亲未录者全员误报 error
+  // （2026-10-23 端到端经 _CONC 妾室谱暴露）。
+  std::vector<Person> ps;
+  ps.push_back(mk("F", "陈", "父", Gender::Male, 1860));
+  ps.push_back(mk("C", "陈", "子", Gender::Male, 1888));
+  ps.back().father_id = "F";   // 只有父亲，无结合
+  CHECK_FALSE(has_issue(run(ps), "R7", "C"));
+
+  // 只有母亲同理
+  ps[1].father_id = std::nullopt;
+  ps.push_back(mk("M", "王", "母", Gender::Female, 1862));
+  ps[1].mother_id = "M";
+  CHECK_FALSE(has_issue(run(ps), "R7", "C"));
+
+  // 双方登记且无结合：照旧报（真不一致不能因修误报而放过）
+  ps[1].father_id = "F";
+  CHECK(has_issue(run(ps), "R7", "C"));
+}
+
 TEST_CASE("校验：R8/R9/R10 信息类规则") {
   std::vector<Person> ps;
   ps.push_back(mk("P1", "陈", "甲", Gender::Male, 1860));
