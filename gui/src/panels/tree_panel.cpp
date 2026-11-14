@@ -72,13 +72,16 @@ void TreePanel::draw(DbSession& session) {
     loaded_root_ = root;
     has_tree_ = false;
     error_.clear();
+    // 旧树先摘掉再动图：tree_ 里的 person 指针指向 graph_ 内部，
+    // 二者必须成对换血，否则重建窗口期内还有悬挂引用。
+    tree_.reset();
+    graph_.reset();
 
     PersonFilter pf;
     pf.limit = 200000;
     auto persons = session.persons().list_persons(pf);
     if (!persons) {
       error_ = "载入人物失败: " + persons.error().message();
-      tree_.reset();
       return;
     }
     UnionFilter uf;
@@ -86,16 +89,18 @@ void TreePanel::draw(DbSession& session) {
     auto unions = session.unions().list_unions(uf);
     if (!unions) {
       error_ = "载入结合失败: " + unions.error().message();
-      tree_.reset();
       return;
     }
-    const lineage::PersonGraph graph =
-        lineage::PersonGraph::build(std::move(*persons), std::move(*unions));
+    // 图必须活过本帧——TreeNode.person 指向快照内部（tree.hpp 契约），
+    // 所以 graph 进成员而不是局部变量。局部变量的版本每次 draw 都在
+    // 解引用已析构的图，症状是世系树面板偶尔画出乱码人名或直接崩。
+    graph_ = std::make_unique<lineage::PersonGraph>(
+        lineage::PersonGraph::build(std::move(*persons), std::move(*unions)));
 
-    auto t = lineage::descendants_tree(graph, root, depth_);
+    auto t = lineage::descendants_tree(*graph_, root, depth_);
     if (!t) {
       error_ = t.error().message();
-      tree_.reset();
+      graph_.reset();
       return;
     }
     tree_ = std::make_unique<lineage::TreeNode>(std::move(*t));

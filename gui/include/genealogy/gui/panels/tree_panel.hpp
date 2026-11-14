@@ -13,6 +13,7 @@
 #include <memory>
 #include <string>
 
+#include <genealogy/lineage/graph.hpp>
 #include <genealogy/lineage/tree.hpp>
 
 namespace genealogy::gui {
@@ -33,7 +34,12 @@ class TreePanel : public Panel {
   std::string loaded_root_;
   std::string error_;
   bool has_tree_ = false;
-  // 展开的树（成员持有：每帧重建太贵；选中根变了才重建）
+  // 图快照与树必须成对存活（成员持有：每帧重建太贵；选中根变了才重建）。
+  // TreeNode.person 指向 graph 快照内部（tree.hpp 的存活期契约）——
+  // 图若放在 draw() 的局部作用域里，函数一返回树里全是悬挂指针，
+  // 之后每帧渲染都在解引用已释放内存。core 的 graph.hpp 注释里
+  // 记录过服务端踩的同一个坑，GUI 不能原样再踩一次。
+  std::unique_ptr<lineage::PersonGraph> graph_;
   std::unique_ptr<lineage::TreeNode> tree_;
 };
 

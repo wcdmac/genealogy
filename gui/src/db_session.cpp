@@ -28,7 +28,12 @@ bool DbSession::open(const std::string& path, std::string* why) {
   path_ = path;
   // 首次打开的库可能是刚建的空文件：补上默认宗族，
   // 否则后面建人物会因外键失败——桌面端不该让用户看到这种错。
-  ensure_default_lineage(*db_);
+  if (auto r = ensure_default_lineage(*db_); !r) {
+    if (why != nullptr) *why = r.error().message();
+    db_.reset();
+    path_.clear();
+    return false;
+  }
   rebuild_services();
   return true;
 }

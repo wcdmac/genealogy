@@ -23,7 +23,7 @@
   `ETag`/`If-Match` 乐观锁、JWT(HS256) 鉴权、CORS（Web 外接）、`/openapi.yaml` 原样托管；
   spec 与实现严格对齐（`tools/validate_openapi.py` 是 CI 卡点）
 - [x] **M2 TS 客户端**：`clients/web` 类型由 openapi-typescript 从 spec 生成（勿手改）+
-  薄封装 + 读写冒烟（26 项）+ 浏览器 UI 冒烟（16 项，playwright 驱动真实 Chromium）
+  薄封装 + 读写冒烟（28 项）+ 浏览器 UI 冒烟（15 项，playwright 驱动真实 Chromium）
 - [x] **M3 桌面 GUI（Dear ImGui docking + GLFW，MIT/zlib）**：`genealogy-gui` 起 docking 主窗口，
   人物卡（行内编辑 + rev 乐观锁）/ 世系表（可排序大表格）/ 检索（FTS）/ 关系（路径+辈分+五服+称谓）/
   世系树（十代展开）/ 校验面板；OpenGL 3.2+/GLSL 130，中文字体按平台探测，
@@ -47,7 +47,7 @@
 | 基准 | 中国科学院紫金山天文台《1900-2025年日历》PDF（380 页），逐日对照表 + 页脚节气表 |
 | 核验 | 逐日 46021 天 **0 处不符**；节气 3024 条时刻一致（官方取分、四舍五入导致的 47 条 1 分钟差已按官方值覆盖） |
 | 口径 | 月首取定朔（北京时间）；十一月含冬至、无中气之月置闰（GB/T 33661-2017） |
-| 覆盖 | **1583-3000**。下界取 1583 的原因：1582 年格里历改革删 10 天，且更早年份存在月长 28 天 / 月序错乱等推算异常，宁缺勿滥 |
+| 覆盖 | **1583-3000**。下界取 1583 的原因：1582 年格里历改革删 10 天，且更早年份存在月长 28 天 / 月序错乱等推算异常，宁缺勿滥。注意 1583 年正月初一之前的日期属上一年记录（1582 不在表内），会显式返回越界错误——实际可用起点是 1583 年正月初一（约公历 1 月末） |
 | 旁证 | 闰月占比 36.9%（理论 36.8%）；全区间逐年自洽（正月初一落在 1/21–2/21、节气严格递增、冬至必在十一月） |
 | 年号 | cn-era（MIT，朝代编号取自 CBDB）+ opencc 繁转简；按《中国历史纪年表》口径订正：宣统止于 1911、民国纪年止于 1949；明清民国元年均有独立锚点回归 |
 
@@ -211,6 +211,9 @@ cmake -S . -B build -DBUILD_SERVER=ON -DBUILD_GUI=ON ...
 # 合计: error 0 · warning 1 · info 2
 #   [warning] R5 person 01J... — 与另一人同名且生年相同（确认是同一人误录两条，还是同名的两个人）
 ./build/bin/genea io export gedcom --db family.db --out 导出.ged --submitter 谱师
+# 导出侧损失台账：凡「库里有、GEDCOM 表达不了/不在导出集内」的信息
+# 逐条打到 stderr（[W]/[I]），摘要行带损失计数，json 模式含 losses 字段。
+# 全量导出应为损失 0；--lineage/--limit 部分导出时缺集引用会逐条记账。
 
 # 性能验收：灌库 + 跑基准（M1.6）
 ./build/bin/genea db seed --db family.db --persons 100000     # 合成谱灌库
@@ -241,8 +244,16 @@ curl -s -X POST localhost:8080/api/v1/persons \
 #    "title":"参数校验失败","status":400,"code":1001,
 #    "detail":"...","instance":"/api/v1/persons","errors":[{"field":"given_name","message":"必填"}]}
 # 写操作必须带 If-Match（当前 rev），否则 428；版本不符 409 并告知当前 rev。
-# 本地免鉴权模式（默认绑 127.0.0.1）任意口令可换 JWT；--require-auth 后必须
-# 带 Bearer 头。CORS 默认放开（跨端口开发）；GENEALOGY_CORS_ORIGINS 收紧白名单。
+# 本地免鉴权模式（默认绑 127.0.0.1）任意 body 可换本地 JWT（username/role
+# 自选），开箱即用；--require-auth 后所有数据端点（含 SSE 流）必须带有效
+# Bearer 头，且 /auth/token 只认 GENEALOGY_AUTH_PASSWORD（口令即全权
+# steward；单机/局域网工具，无速率限制与防爆破，用户模型属 M3 路线图）。
+# 口令与 JWT 密钥缺一即拒绝启动（内置默认密钥是公开的，用它等于
+# 允许任何人伪造令牌）。匿名可达的只剩 /health、/openapi.yaml 与
+# /auth/token 本身。
+# CORS 默认只放行本机来源（localhost/127.0.0.1/[::1]，跨端口开发不受影响；
+# 绑回环挡不住受害者浏览器里的第三方网页，故不放行外部 Origin）；
+# GENEALOGY_CORS_ORIGINS 显式白名单，值 "*" 表示放开（自担风险）。
 # SSE 协同：GET /events/stream，任一写操作实时推送 event: change 帧。
 
 # Web UI（M5）
@@ -250,7 +261,7 @@ cd clients/web && npm install && npm run build && npm run preview   # 生产预�
 # 或开发模式：npm run dev（/api 自动代理到 127.0.0.1:8080）
 # 页面里填服务器地址（默认 /api/v1 同源；跨端口填 http://127.0.0.1:8080/api/v1）→ 连接
 # 闭环：宗族建档 → 人物建档/编辑 → 婚姻登记 → 世系图 → GEDCOM/DOT 导出 → 校验
-# 冒烟：npm run smoke（API 层 26 项）/ npm run ui-smoke（浏览器层 16 项）
+# 冒烟：npm run smoke（API 层 28 项）/ npm run ui-smoke（浏览器层 15 项）
 
 # 迁徙（M5）
 ./build/bin/genea migration add --db family.db --subject-type person \
@@ -260,6 +271,9 @@ cd clients/web && npm install && npm run build && npm run preview   # 生产预�
 # 字辈（M4）
 ./build/bin/genea poem set --db family.db --lineage 01J... --text "德茂光先祖，文章振万邦"
 ./build/bin/genea poem check --db family.db --lineage 01J...   # 辈字/世代一致性，退出码 1 = 有不一致
+# 派语不从一世起用时必须传 --start N（N=派语首句对应的世代）——真实谱
+# 常见「某世起才有派语」，缺省 start=1 会把整支误报成冲突（试修实证）。
+# 支派各有派语时用 --branch <支派ID> 按支校验。
 
 # 备份恢复（M6）
 ./build/bin/genea db backup --db family.db --out backup/     # 一致性快照（VACUUM INTO）
@@ -271,8 +285,10 @@ tools\build-gui-msvc.bat                        # 构建 core+server+gui 全家
 ./build/bin/genealogy-gui --db family.db        # 带库启动
 ./build/bin/genealogy-gui --headless-check      # CI/SSH 自检：0=有显示 2=无显示
 # 面板：人物卡 / 世系表 / 检索 / 关系 / 世系树 / 校验（菜单「面板」开关）。
-# 数据层与渲染层分层：面板数据装配（DbSession + 用例层调用）无 ImGui 依赖，
-# 由 genealogy-gui-tests 无头单测；渲染层要显示环境，CI 只验 --headless-check。
+# 数据层与渲染层分层：DbSession 调用链（GUI 走 core 用例的同一入口）
+# 无 ImGui 依赖，由 genealogy-gui-tests 无头单测；面板装配函数与渲染
+# 同 TU，尚未纳入无头测试（ROADMAP 暂缓项）。渲染层要显示环境，
+# CI 只验 --headless-check。
 
 # 世系算法：两人关系路径 / 辈分差 / 五服 / 称谓
 ./build/bin/genea person relation --db family.db 01J... 01K...

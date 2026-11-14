@@ -86,7 +86,10 @@ target_link_libraries(genealogy-gui
 install(TARGETS genealogy-gui RUNTIME DESTINATION bin)
 
 # ---------------------------------------------------------------- 测试
-# GUI 的数据层（DbSession + 面板状态刷新）不依赖 ImGui，可无头单测；
+# 无头测试的覆盖面：DbSession（GUI 调 core 用例的同一条入口链）。
+# 面板装配函数虽不调 ImGui，但与 ImGui 绘制同文件同类、且私有于面板——
+# 要进无头测试需先把装配抽到无 UI 头的 TU（登记为 ROADMAP 暂缓项），
+# 此前「面板状态刷新可无头单测」的说法超前于事实。
 # 渲染层（GLFW/OpenGL）需要显示环境，只保证编译通过与运行时报错路径。
 if(BUILD_TESTS)
   find_package(Catch2 CONFIG REQUIRED)

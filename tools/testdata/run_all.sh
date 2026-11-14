@@ -1,0 +1,23 @@
+#!/usr/bin/env bash
+# run_all.sh —— 三层测试一键执行：单测 → CLI 端到端 → HTTP 端到端
+# 任一失败即停（set -e -o pipefail），全部通过退出码 0，可直接当 CI 卡点。
+# pipefail 必须带：单测输出经管道进 tail，没有它管道退出码取自 tail
+# （恒 0），单测挂了也照样打 ALL_LAYERS_PASS——假卡点比没有更危险。
+# 用法：bash tools/testdata/run_all.sh   （在仓库根执行）
+set -e -o pipefail
+cd "$(dirname "$0")/../.."
+
+echo "########## 1/3 单元测试（core + server） ##########"
+./build/bin/genealogy-core-tests.exe 2>&1 | tail -1
+./build/bin/genealogy-server-tests.exe 2>&1 | tail -1
+
+echo
+echo "########## 2/3 CLI 端到端 ##########"
+bash tools/testdata/run_e2e.sh
+
+echo
+echo "########## 3/3 HTTP 端到端 ##########"
+bash tools/testdata/http_e2e.sh
+
+echo
+echo "ALL_LAYERS_PASS"

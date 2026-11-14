@@ -4,6 +4,8 @@
 
 #include <genealogy/gui/widgets.hpp>
 
+#include <algorithm>
+
 #include <genealogy/model/person.hpp>
 #include <genealogy/repository/person_repository.hpp>
 #include <genealogy/repository/union_repository.hpp>
@@ -101,26 +103,26 @@ bool PersonCardPanel::load(DbSession& session) {
     }
   }
   if (!father_id_.empty() || !mother_id_.empty()) {
-    // 仓储的 filter 没有「父母任一」语义，退而求其次：载入后内存过滤。
-    // M1 规模（20 万上限）可接受；再大就要给仓储加 parent_any 条件。
-    PersonFilter all;
-    all.limit = 200000;
-    if (auto everyone = session.persons().list_persons(all)) {
-      std::vector<std::string> seen;
-      for (const auto& c : *everyone) {
-        const bool hit =
-            (!father_id_.empty() && c.father_id == father_id_) ||
-            (!mother_id_.empty() && c.mother_id == mother_id_);
-        if (!hit) continue;
-        bool dup = false;
-        for (const auto& s : seen) {
-          if (s == c.id) dup = true;
+    // 仓储的 parent_any（father_id 或 mother_id 命中，走索引点查）。
+    // 父母都登记时查两次取并集；对父查询带出的「mother_id=父」这类
+    // 无意义分支在真实数据里为空，并集语义不受影响。此前是全量装载
+    // 20 万人物内存过滤——大库上每次选中都是一次全表遍历。
+    std::vector<std::string> seen;
+    auto collect = [&](const std::string& parent) {
+      if (parent.empty()) return;
+      PersonFilter cf;
+      cf.parent_any = parent;
+      cf.limit = 1000;
+      if (auto children = session.persons().list_persons(cf)) {
+        for (const auto& c : *children) {
+          if (std::find(seen.begin(), seen.end(), c.id) != seen.end()) continue;
+          seen.push_back(c.id);
+          child_ids_.push_back(c.id);
         }
-        if (dup) continue;
-        seen.push_back(c.id);
-        child_ids_.push_back(c.id);
       }
-    }
+    };
+    collect(father_id_);
+    collect(mother_id_);
   }
   return true;
 }

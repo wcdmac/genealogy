@@ -17,12 +17,15 @@ jobs:
           - os: windows-latest
             triplet: x64-windows
             cpack_gen: ZIP
+            genea_bin: build/bin/genea.exe
           - os: macos-latest
             triplet: arm64-osx
             cpack_gen: DRAGNDROP
+            genea_bin: build/bin/genea
           - os: ubuntu-latest
             triplet: x64-linux
             cpack_gen: TGZ
+            genea_bin: build/bin/genea
     steps:
       - uses: actions/checkout@v4
 
@@ -77,10 +80,12 @@ jobs:
           if-no-files-found: error
 
       # GUI 的渲染层要显示环境，CI 的 Linux/macOS runner 无显示服务器。
-      # 分层验收：数据层（DbSession + 面板数据装配）由 genealogy-gui-tests
-      # 覆盖，已在上一步随 ctest 跑过；渲染层用 --headless-check 验证
-      # 「环境判定与报错路径」本身——退出码 2 = 无显示（环境事实，非缺陷），
-      # 0 = 显示可用。真要看到窗口，靠开发者本机与内部试用。
+      # 分层验收：数据层入口 DbSession（GUI 调 core 用例的同一条链）由
+      # genealogy-gui-tests 覆盖，已在上一步随 ctest 跑过；面板装配函数
+      # 目前与 ImGui 同 TU 且私有于面板类，尚未纳入无头测试（见 ROADMAP
+      # 暂缓项）；渲染层用 --headless-check 验证「环境判定与报错路径」
+      # 本身——退出码 2 = 无显示（环境事实，非缺陷），0 = 显示可用。
+      # 真要看到窗口，靠开发者本机与内部试用。
       - name: GUI 无头自检
         shell: bash
         run: |
@@ -95,7 +100,8 @@ jobs:
       # 删库（模拟事故）→ 恢复 → 核对人物数一致，另验 --force 保护。
       - name: 备份恢复演练
         shell: bash
-        run: python tools/drill_backup_restore.py --genea build/bin/genea.exe
+        # CLI 产物名平台各异（Windows 有 .exe 后缀），从 matrix 取
+        run: python tools/drill_backup_restore.py --genea "${{ matrix.genea_bin }}"
 
       # spec 是客户端代码生成的唯一事实源：spec 写坏（断引用、类型错误）
       # 不会让任何 C++ 编译失败，只会在几个月后对接第三方时炸。
@@ -125,12 +131,15 @@ jobs:
           npm run smoke
 
       # M5 验收硬指标：「浏览器端完成建档→关系→世系图→导出闭环」。
-      # playwright 驱动真实 Chromium 实际操作 UI（12 项断言），
-      # 失败即闭环有洞——比任何单元测试都接近真实用户路径。
+      # playwright 驱动真实 Chromium 实际操作 UI，失败即闭环有洞——
+      # 比任何单元测试都接近真实用户路径。
+      # dist/ 已移出仓库（.gitignore），必须先构建——否则 ui-smoke 的
+      # 前置检查（dist/index.html 缺失 → 退出码 2）必红。
       - name: UI 浏览器闭环（playwright）
         if: runner.os == 'Windows'
         shell: bash
         run: |
           cd clients/web
+          npm run build
           npx playwright install chromium
           npm run ui-smoke
