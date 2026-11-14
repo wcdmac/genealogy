@@ -2,140 +2,929 @@
   "version": "1.0",
   "description": "称谓规则表（设计文档 4.5）。与九族称谓图一一对应；path 格式同 mourning_ming_qing.json 头部说明。standard=标准称谓，colloquial=口语，formal=书面（从父/从母等谱式）。",
   "terms": [
-    {"path": "F",        "standard": "父亲",   "colloquial": "爸爸",   "formal": "父",     "basis": "直系尊属"},
-    {"path": "M",        "standard": "母亲",   "colloquial": "妈妈",   "formal": "母",     "basis": "直系尊属"},
-    {"path": "F.F",      "standard": "祖父",   "colloquial": "爷爷",   "formal": "祖父",   "basis": "直系尊属"},
-    {"path": "F.M",      "standard": "祖母",   "colloquial": "奶奶",   "formal": "祖母",   "basis": "直系尊属"},
-    {"path": "M.F",      "standard": "外祖父", "colloquial": "外公",   "formal": "外祖父", "basis": "母系尊属"},
-    {"path": "M.M",      "standard": "外祖母", "colloquial": "外婆",   "formal": "外祖母", "basis": "母系尊属"},
-    {"path": "F.F.F",    "standard": "曾祖父", "colloquial": "太爷",   "formal": "曾祖",   "basis": "直系尊属"},
-    {"path": "F.F.M",    "standard": "曾祖母", "colloquial": "太奶",   "formal": "曾祖母", "basis": "直系尊属"},
-    {"path": "F.F.F.F",  "standard": "高祖父", "colloquial": "太太爷", "formal": "高祖",   "basis": "直系尊属"},
-    {"path": "F.F.F.M",  "standard": "高祖母", "colloquial": "太太奶", "formal": "高祖母", "basis": "直系尊属"},
-
-    {"path": "S",        "standard": "儿子",   "colloquial": "儿子",   "formal": "子",     "basis": "直系卑属"},
-    {"path": "D",        "standard": "女儿",   "colloquial": "女儿",   "formal": "女",     "basis": "直系卑属"},
-    {"path": "S.S",      "standard": "孙子",   "colloquial": "孙子",   "formal": "孙",     "basis": "直系卑属"},
-    {"path": "S.D",      "standard": "孙女",   "colloquial": "孙女",   "formal": "孙女",   "basis": "直系卑属"},
-    {"path": "S.S.S",    "standard": "曾孙",   "colloquial": "曾孙",   "formal": "曾孙",   "basis": "直系卑属"},
-    {"path": "S.S.D",    "standard": "曾孙女", "colloquial": "曾孙女", "formal": "曾孙女", "basis": "直系卑属"},
-    {"path": "S.S.S.S",  "standard": "玄孙",   "colloquial": "玄孙",   "formal": "玄孙",   "basis": "直系卑属"},
-    {"path": "D.S",      "standard": "外孙",   "colloquial": "外孙",   "formal": "外孙",   "basis": "母系卑属"},
-    {"path": "D.D",      "standard": "外孙女", "colloquial": "外孙女", "formal": "外孙女", "basis": "母系卑属"},
-
-    {"path": "H",        "standard": "丈夫",   "colloquial": "老公",   "formal": "夫",     "basis": "姻亲（嫡配）"},
-    {"path": "W",        "standard": "妻子",   "colloquial": "老婆",   "formal": "妻",     "basis": "姻亲（嫡配）"},
-
-    {"path": "B+",       "standard": "哥哥",   "colloquial": "哥哥",   "formal": "兄",     "basis": "同辈长幼"},
-    {"path": "B-",       "standard": "弟弟",   "colloquial": "弟弟",   "formal": "弟",     "basis": "同辈长幼"},
-    {"path": "Z+",       "standard": "姐姐",   "colloquial": "姐姐",   "formal": "姊",     "basis": "同辈长幼"},
-    {"path": "Z-",       "standard": "妹妹",   "colloquial": "妹妹",   "formal": "妹",     "basis": "同辈长幼"},
-    {"path": "B+.W",     "standard": "嫂子",   "colloquial": "大嫂",   "formal": "嫂",     "basis": "姻亲（兄弟之妻）"},
-    {"path": "B-.W",     "standard": "弟媳",   "colloquial": "弟妹",   "formal": "弟媳",   "basis": "姻亲（兄弟之妻）"},
-    {"path": "Z+.H",     "standard": "姐夫",   "colloquial": "姐夫",   "formal": "姊夫",   "basis": "姻亲（姊妹之夫）"},
-    {"path": "Z-.H",     "standard": "妹夫",   "colloquial": "妹夫",   "formal": "妹夫",   "basis": "姻亲（姊妹之夫）"},
-
-    {"path": "F.B+",     "standard": "伯父",   "colloquial": "大伯",   "formal": "伯父",   "basis": "父系尊属（长幼）"},
-    {"path": "F.B-",     "standard": "叔父",   "colloquial": "叔叔",   "formal": "叔父",   "basis": "父系尊属（长幼）"},
-    {"path": "F.B+.W",   "standard": "伯母",   "colloquial": "大娘",   "formal": "伯母",   "basis": "父系尊属之配"},
-    {"path": "F.B-.W",   "standard": "叔母",   "colloquial": "婶婶",   "formal": "叔母",   "basis": "父系尊属之配"},
-    {"path": "F.Z+",     "standard": "姑母",   "colloquial": "姑姑",   "formal": "姑母",   "basis": "父系尊属"},
-    {"path": "F.Z-",     "standard": "姑母",   "colloquial": "姑姑",   "formal": "姑母",   "basis": "父系尊属"},
-    {"path": "F.Z.H",    "standard": "姑父",   "colloquial": "姑父",   "formal": "姑父",   "basis": "父系尊属之配"},
-    {"path": "M.B+",     "standard": "舅父",   "colloquial": "大舅",   "formal": "舅父",   "basis": "母系尊属"},
-    {"path": "M.B-",     "standard": "舅父",   "colloquial": "舅舅",   "formal": "舅父",   "basis": "母系尊属"},
-    {"path": "M.B+.W",   "standard": "舅母",   "colloquial": "舅妈",   "formal": "舅母",   "basis": "母系尊属之配"},
-    {"path": "M.B-.W",   "standard": "舅母",   "colloquial": "舅妈",   "formal": "舅母",   "basis": "母系尊属之配"},
-    {"path": "M.Z+",     "standard": "姨母",   "colloquial": "大姨",   "formal": "姨母",   "basis": "母系尊属"},
-    {"path": "M.Z-",     "standard": "姨母",   "colloquial": "小姨",   "formal": "姨母",   "basis": "母系尊属"},
-    {"path": "M.Z.H",    "standard": "姨父",   "colloquial": "姨父",   "formal": "姨父",   "basis": "母系尊属之配"},
-
-    {"path": "F.B+.S+",  "standard": "堂兄",   "colloquial": "堂哥",   "formal": "从父兄", "basis": "父系同辈（堂）"},
-    {"path": "F.B+.S-",  "standard": "堂弟",   "colloquial": "堂弟",   "formal": "从父弟", "basis": "父系同辈（堂）"},
-    {"path": "F.B+.D+",  "standard": "堂姐",   "colloquial": "堂姐",   "formal": "从父姊", "basis": "父系同辈（堂）"},
-    {"path": "F.B+.D-",  "standard": "堂妹",   "colloquial": "堂妹",   "formal": "从父妹", "basis": "父系同辈（堂）"},
-    {"path": "F.B-.S+",  "standard": "堂兄",   "colloquial": "堂哥",   "formal": "从父兄", "basis": "父系同辈（堂）"},
-    {"path": "F.B-.S-",  "standard": "堂弟",   "colloquial": "堂弟",   "formal": "从父弟", "basis": "父系同辈（堂）"},
-    {"path": "F.B-.D+",  "standard": "堂姐",   "colloquial": "堂姐",   "formal": "从父姊", "basis": "父系同辈（堂）"},
-    {"path": "F.B-.D-",  "standard": "堂妹",   "colloquial": "堂妹",   "formal": "从父妹", "basis": "父系同辈（堂）"},
-    {"path": "F.B+.S+.W", "standard": "堂嫂",  "colloquial": "堂嫂",   "formal": "从父兄之妻", "basis": "父系同辈之配"},
-    {"path": "F.B+.S-.W", "standard": "堂弟媳", "colloquial": "堂弟媳", "formal": "从父弟之妻", "basis": "父系同辈之配"},
-
-    {"path": "F.Z+.S+",  "standard": "表兄",   "colloquial": "表哥",   "formal": "姑表兄", "basis": "表亲（姑表）"},
-    {"path": "F.Z+.S-",  "standard": "表弟",   "colloquial": "表弟",   "formal": "姑表弟", "basis": "表亲（姑表）"},
-    {"path": "F.Z+.D+",  "standard": "表姐",   "colloquial": "表姐",   "formal": "姑表姊", "basis": "表亲（姑表）"},
-    {"path": "F.Z+.D-",  "standard": "表妹",   "colloquial": "表妹",   "formal": "姑表妹", "basis": "表亲（姑表）"},
-    {"path": "F.Z-.S+",  "standard": "表兄",   "colloquial": "表哥",   "formal": "姑表兄", "basis": "表亲（姑表）"},
-    {"path": "F.Z-.S-",  "standard": "表弟",   "colloquial": "表弟",   "formal": "姑表弟", "basis": "表亲（姑表）"},
-    {"path": "F.Z-.D+",  "standard": "表姐",   "colloquial": "表姐",   "formal": "姑表姊", "basis": "表亲（姑表）"},
-    {"path": "F.Z-.D-",  "standard": "表妹",   "colloquial": "表妹",   "formal": "姑表妹", "basis": "表亲（姑表）"},
-    {"path": "M.B+.S+",  "standard": "表兄",   "colloquial": "表哥",   "formal": "舅表兄", "basis": "表亲（舅表）"},
-    {"path": "M.B+.S-",  "standard": "表弟",   "colloquial": "表弟",   "formal": "舅表弟", "basis": "表亲（舅表）"},
-    {"path": "M.B+.D+",  "standard": "表姐",   "colloquial": "表姐",   "formal": "舅表姊", "basis": "表亲（舅表）"},
-    {"path": "M.B+.D-",  "standard": "表妹",   "colloquial": "表妹",   "formal": "舅表妹", "basis": "表亲（舅表）"},
-    {"path": "M.B-.S+",  "standard": "表兄",   "colloquial": "表哥",   "formal": "舅表兄", "basis": "表亲（舅表）"},
-    {"path": "M.B-.S-",  "standard": "表弟",   "colloquial": "表弟",   "formal": "舅表弟", "basis": "表亲（舅表）"},
-    {"path": "M.B-.D+",  "standard": "表姐",   "colloquial": "表姐",   "formal": "舅表姊", "basis": "表亲（舅表）"},
-    {"path": "M.B-.D-",  "standard": "表妹",   "colloquial": "表妹",   "formal": "舅表妹", "basis": "表亲（舅表）"},
-    {"path": "M.Z+.S+",  "standard": "表兄",   "colloquial": "表哥",   "formal": "从母兄", "basis": "表亲（姨表/从母）"},
-    {"path": "M.Z+.S-",  "standard": "表弟",   "colloquial": "表弟",   "formal": "从母弟", "basis": "表亲（姨表/从母）"},
-    {"path": "M.Z+.D+",  "standard": "表姐",   "colloquial": "表姐",   "formal": "从母姊", "basis": "表亲（姨表/从母）"},
-    {"path": "M.Z+.D-",  "standard": "表妹",   "colloquial": "表妹",   "formal": "从母妹", "basis": "表亲（姨表/从母）"},
-    {"path": "M.Z-.S+",  "standard": "表兄",   "colloquial": "表哥",   "formal": "从母兄", "basis": "表亲（姨表/从母）"},
-    {"path": "M.Z-.S-",  "standard": "表弟",   "colloquial": "表弟",   "formal": "从母弟", "basis": "表亲（姨表/从母）"},
-    {"path": "M.Z-.D+",  "standard": "表姐",   "colloquial": "表姐",   "formal": "从母姊", "basis": "表亲（姨表/从母）"},
-    {"path": "M.Z-.D-",  "standard": "表妹",   "colloquial": "表妹",   "formal": "从母妹", "basis": "表亲（姨表/从母）"},
-
-    {"path": "B+.S",     "standard": "侄子",   "colloquial": "侄儿",   "formal": "侄",     "basis": "旁系卑属"},
-    {"path": "B-.S",     "standard": "侄子",   "colloquial": "侄儿",   "formal": "侄",     "basis": "旁系卑属"},
-    {"path": "B+.D",     "standard": "侄女",   "colloquial": "侄女",   "formal": "侄女",   "basis": "旁系卑属"},
-    {"path": "B-.D",     "standard": "侄女",   "colloquial": "侄女",   "formal": "侄女",   "basis": "旁系卑属"},
-    {"path": "B+.S.W",   "standard": "侄媳",   "colloquial": "侄媳",   "formal": "侄妇",   "basis": "旁系卑属之配"},
-    {"path": "B-.S.W",   "standard": "侄媳",   "colloquial": "侄媳",   "formal": "侄妇",   "basis": "旁系卑属之配"},
-    {"path": "Z+.S",     "standard": "外甥",   "colloquial": "外甥",   "formal": "外甥",   "basis": "母系卑属"},
-    {"path": "Z-.S",     "standard": "外甥",   "colloquial": "外甥",   "formal": "外甥",   "basis": "母系卑属"},
-    {"path": "Z+.D",     "standard": "外甥女", "colloquial": "外甥女", "formal": "外甥女", "basis": "母系卑属"},
-    {"path": "Z-.D",     "standard": "外甥女", "colloquial": "外甥女", "formal": "外甥女", "basis": "母系卑属"},
-
-    {"path": "W.F",      "standard": "岳父",   "colloquial": "岳父",   "formal": "妻父",   "basis": "妻党尊属"},
-    {"path": "W.M",      "standard": "岳母",   "colloquial": "岳母",   "formal": "妻母",   "basis": "妻党尊属"},
-    {"path": "H.F",      "standard": "公公",   "colloquial": "公公",   "formal": "夫父",   "basis": "夫党尊属"},
-    {"path": "H.M",      "standard": "婆婆",   "colloquial": "婆婆",   "formal": "夫母",   "basis": "夫党尊属"},
-    {"path": "S.W",      "standard": "儿媳",   "colloquial": "媳妇",   "formal": "媳",     "basis": "子妇"},
-    {"path": "D.H",      "standard": "女婿",   "colloquial": "女婿",   "formal": "婿",     "basis": "女婿"},
-    {"path": "S.W.F",    "standard": "亲家",   "colloquial": "亲家",   "formal": "姻家",   "basis": "姻亲（子妇之父）"},
-    {"path": "D.H.F",    "standard": "亲家",   "colloquial": "亲家",   "formal": "姻家",   "basis": "姻亲（婿之父）"},
-    {"path": "S.W.M",    "standard": "亲家",   "colloquial": "亲家",   "formal": "姻家",   "basis": "姻亲（子妇之母）"},
-    {"path": "D.H.M",    "standard": "亲家",   "colloquial": "亲家",   "formal": "姻家",   "basis": "姻亲（婿之母）"},
-    {"path": "W.B+",     "standard": "内兄",   "colloquial": "大舅子", "formal": "妻兄",   "basis": "妻党同辈"},
-    {"path": "W.B-",     "standard": "内弟",   "colloquial": "小舅子", "formal": "妻弟",   "basis": "妻党同辈"},
-    {"path": "W.Z+",     "standard": "妻姐",   "colloquial": "大姨子", "formal": "妻姊",   "basis": "妻党同辈"},
-    {"path": "W.Z-",     "standard": "妻妹",   "colloquial": "小姨子", "formal": "妻妹",   "basis": "妻党同辈"},
-    {"path": "H.B+",     "standard": "夫兄",   "colloquial": "大伯子", "formal": "夫之兄", "basis": "夫党同辈"},
-    {"path": "H.B-",     "standard": "夫弟",   "colloquial": "小叔子", "formal": "夫之弟", "basis": "夫党同辈"},
-    {"path": "H.Z+",     "standard": "夫姐",   "colloquial": "大姑子", "formal": "夫之姊", "basis": "夫党同辈"},
-    {"path": "H.Z-",     "standard": "夫妹",   "colloquial": "小姑子", "formal": "夫之妹", "basis": "夫党同辈"},
-    {"path": "W.Z+.H",   "standard": "连襟",   "colloquial": "连襟",   "formal": "襟兄弟", "basis": "姻亲（妻姊妹之夫）"},
-    {"path": "W.Z-.H",   "standard": "连襟",   "colloquial": "连襟",   "formal": "襟兄弟", "basis": "姻亲（妻姊妹之夫）"},
-
-    {"path": "F.F.B+",   "standard": "伯祖父", "colloquial": "大爷爷", "formal": "伯祖父", "basis": "父系尊属（再从）"},
-    {"path": "F.F.B-",   "standard": "叔祖父", "colloquial": "叔爷爷", "formal": "叔祖父", "basis": "父系尊属（再从）"},
-    {"path": "F.F.B+.W", "standard": "伯祖母", "colloquial": "大奶奶", "formal": "伯祖母", "basis": "父系尊属（再从）之配"},
-    {"path": "F.F.B-.W", "standard": "叔祖母", "colloquial": "叔奶奶", "formal": "叔祖母", "basis": "父系尊属（再从）之配"},
-    {"path": "F.F.Z+",   "standard": "姑祖母", "colloquial": "姑奶奶", "formal": "祖姑",   "basis": "父系尊属（再从）"},
-    {"path": "F.F.Z-",   "standard": "姑祖母", "colloquial": "姑奶奶", "formal": "祖姑",   "basis": "父系尊属（再从）"},
-    {"path": "F.F.Z.H",  "standard": "姑祖父", "colloquial": "姑爷爷", "formal": "祖姑父", "basis": "父系尊属（再从）之配"},
-    {"path": "F.F.B+.S+", "standard": "堂伯父", "colloquial": "堂伯",   "formal": "从父伯", "basis": "父系尊属（三从）"},
-    {"path": "F.F.B+.S-", "standard": "堂叔父", "colloquial": "堂叔",   "formal": "从父叔", "basis": "父系尊属（三从）"},
-    {"path": "F.F.B-.S+", "standard": "堂伯父", "colloquial": "堂伯",   "formal": "从父伯", "basis": "父系尊属（三从）"},
-    {"path": "F.F.B-.S-", "standard": "堂叔父", "colloquial": "堂叔",   "formal": "从父叔", "basis": "父系尊属（三从）"},
-    {"path": "F.F.B+.S.W", "standard": "堂伯母", "colloquial": "堂大娘", "formal": "从父伯之妻", "basis": "父系尊属（三从）之配"},
-    {"path": "F.F.B-.S.W", "standard": "堂叔母", "colloquial": "堂婶",   "formal": "从父叔之妻", "basis": "父系尊属（三从）之配"},
-    {"path": "F.F.B+.S.S+", "standard": "堂兄",  "colloquial": "堂哥",   "formal": "从堂兄", "basis": "同辈（再从）"},
-    {"path": "F.F.B+.S.S-", "standard": "堂弟",  "colloquial": "堂弟",   "formal": "从堂弟", "basis": "同辈（再从）"},
-    {"path": "F.F.B-.S.S+", "standard": "堂兄",  "colloquial": "堂哥",   "formal": "从堂兄", "basis": "同辈（再从）"},
-    {"path": "F.F.B-.S.S-", "standard": "堂弟",  "colloquial": "堂弟",   "formal": "从堂弟", "basis": "同辈（再从）"},
-    {"path": "F.F.F.B+", "standard": "曾伯祖父", "colloquial": "太伯爷", "formal": "曾伯祖", "basis": "父系尊属（四从）"},
-    {"path": "F.F.F.B-", "standard": "曾叔祖父", "colloquial": "太叔爷", "formal": "曾叔祖", "basis": "父系尊属（四从）"}
+    {
+      "path": "F",
+      "standard": "父亲",
+      "colloquial": "爸爸",
+      "formal": "父",
+      "basis": "直系尊属"
+    },
+    {
+      "path": "M",
+      "standard": "母亲",
+      "colloquial": "妈妈",
+      "formal": "母",
+      "basis": "直系尊属"
+    },
+    {
+      "path": "F.F",
+      "standard": "祖父",
+      "colloquial": "爷爷",
+      "formal": "祖父",
+      "basis": "直系尊属"
+    },
+    {
+      "path": "F.M",
+      "standard": "祖母",
+      "colloquial": "奶奶",
+      "formal": "祖母",
+      "basis": "直系尊属"
+    },
+    {
+      "path": "M.F",
+      "standard": "外祖父",
+      "colloquial": "外公",
+      "formal": "外祖父",
+      "basis": "母系尊属"
+    },
+    {
+      "path": "M.M",
+      "standard": "外祖母",
+      "colloquial": "外婆",
+      "formal": "外祖母",
+      "basis": "母系尊属"
+    },
+    {
+      "path": "F.F.F",
+      "standard": "曾祖父",
+      "colloquial": "太爷",
+      "formal": "曾祖",
+      "basis": "直系尊属"
+    },
+    {
+      "path": "F.F.M",
+      "standard": "曾祖母",
+      "colloquial": "太奶",
+      "formal": "曾祖母",
+      "basis": "直系尊属"
+    },
+    {
+      "path": "F.F.F.F",
+      "standard": "高祖父",
+      "colloquial": "太太爷",
+      "formal": "高祖",
+      "basis": "直系尊属"
+    },
+    {
+      "path": "F.F.F.M",
+      "standard": "高祖母",
+      "colloquial": "太太奶",
+      "formal": "高祖母",
+      "basis": "直系尊属"
+    },
+    {
+      "path": "S",
+      "standard": "儿子",
+      "colloquial": "儿子",
+      "formal": "子",
+      "basis": "直系卑属"
+    },
+    {
+      "path": "D",
+      "standard": "女儿",
+      "colloquial": "女儿",
+      "formal": "女",
+      "basis": "直系卑属"
+    },
+    {
+      "path": "S.S",
+      "standard": "孙子",
+      "colloquial": "孙子",
+      "formal": "孙",
+      "basis": "直系卑属"
+    },
+    {
+      "path": "S.D",
+      "standard": "孙女",
+      "colloquial": "孙女",
+      "formal": "孙女",
+      "basis": "直系卑属"
+    },
+    {
+      "path": "S.S.S",
+      "standard": "曾孙",
+      "colloquial": "曾孙",
+      "formal": "曾孙",
+      "basis": "直系卑属"
+    },
+    {
+      "path": "S.S.D",
+      "standard": "曾孙女",
+      "colloquial": "曾孙女",
+      "formal": "曾孙女",
+      "basis": "直系卑属"
+    },
+    {
+      "path": "S.S.S.S",
+      "standard": "玄孙",
+      "colloquial": "玄孙",
+      "formal": "玄孙",
+      "basis": "直系卑属"
+    },
+    {
+      "path": "D.S",
+      "standard": "外孙",
+      "colloquial": "外孙",
+      "formal": "外孙",
+      "basis": "母系卑属"
+    },
+    {
+      "path": "D.D",
+      "standard": "外孙女",
+      "colloquial": "外孙女",
+      "formal": "外孙女",
+      "basis": "母系卑属"
+    },
+    {
+      "path": "H",
+      "standard": "丈夫",
+      "colloquial": "老公",
+      "formal": "夫",
+      "basis": "姻亲（嫡配）"
+    },
+    {
+      "path": "W",
+      "standard": "妻子",
+      "colloquial": "老婆",
+      "formal": "妻",
+      "basis": "姻亲（嫡配）"
+    },
+    {
+      "path": "B+",
+      "standard": "哥哥",
+      "colloquial": "哥哥",
+      "formal": "兄",
+      "basis": "同辈长幼"
+    },
+    {
+      "path": "B-",
+      "standard": "弟弟",
+      "colloquial": "弟弟",
+      "formal": "弟",
+      "basis": "同辈长幼"
+    },
+    {
+      "path": "Z+",
+      "standard": "姐姐",
+      "colloquial": "姐姐",
+      "formal": "姊",
+      "basis": "同辈长幼"
+    },
+    {
+      "path": "Z-",
+      "standard": "妹妹",
+      "colloquial": "妹妹",
+      "formal": "妹",
+      "basis": "同辈长幼"
+    },
+    {
+      "path": "B+.W",
+      "standard": "嫂子",
+      "colloquial": "大嫂",
+      "formal": "嫂",
+      "basis": "姻亲（兄弟之妻）"
+    },
+    {
+      "path": "B-.W",
+      "standard": "弟媳",
+      "colloquial": "弟妹",
+      "formal": "弟媳",
+      "basis": "姻亲（兄弟之妻）"
+    },
+    {
+      "path": "Z+.H",
+      "standard": "姐夫",
+      "colloquial": "姐夫",
+      "formal": "姊夫",
+      "basis": "姻亲（姊妹之夫）"
+    },
+    {
+      "path": "Z-.H",
+      "standard": "妹夫",
+      "colloquial": "妹夫",
+      "formal": "妹夫",
+      "basis": "姻亲（姊妹之夫）"
+    },
+    {
+      "path": "F.B+",
+      "standard": "伯父",
+      "colloquial": "大伯",
+      "formal": "伯父",
+      "basis": "父系尊属（长幼）"
+    },
+    {
+      "path": "F.B-",
+      "standard": "叔父",
+      "colloquial": "叔叔",
+      "formal": "叔父",
+      "basis": "父系尊属（长幼）"
+    },
+    {
+      "path": "F.B+.W",
+      "standard": "伯母",
+      "colloquial": "大娘",
+      "formal": "伯母",
+      "basis": "父系尊属之配"
+    },
+    {
+      "path": "F.B-.W",
+      "standard": "叔母",
+      "colloquial": "婶婶",
+      "formal": "叔母",
+      "basis": "父系尊属之配"
+    },
+    {
+      "path": "F.Z+",
+      "standard": "姑母",
+      "colloquial": "姑姑",
+      "formal": "姑母",
+      "basis": "父系尊属"
+    },
+    {
+      "path": "F.Z-",
+      "standard": "姑母",
+      "colloquial": "姑姑",
+      "formal": "姑母",
+      "basis": "父系尊属"
+    },
+    {
+      "path": "F.Z.H",
+      "standard": "姑父",
+      "colloquial": "姑父",
+      "formal": "姑父",
+      "basis": "父系尊属之配"
+    },
+    {
+      "path": "M.B+",
+      "standard": "舅父",
+      "colloquial": "大舅",
+      "formal": "舅父",
+      "basis": "母系尊属"
+    },
+    {
+      "path": "M.B-",
+      "standard": "舅父",
+      "colloquial": "舅舅",
+      "formal": "舅父",
+      "basis": "母系尊属"
+    },
+    {
+      "path": "M.B+.W",
+      "standard": "舅母",
+      "colloquial": "舅妈",
+      "formal": "舅母",
+      "basis": "母系尊属之配"
+    },
+    {
+      "path": "M.B-.W",
+      "standard": "舅母",
+      "colloquial": "舅妈",
+      "formal": "舅母",
+      "basis": "母系尊属之配"
+    },
+    {
+      "path": "M.Z+",
+      "standard": "姨母",
+      "colloquial": "大姨",
+      "formal": "姨母",
+      "basis": "母系尊属"
+    },
+    {
+      "path": "M.Z-",
+      "standard": "姨母",
+      "colloquial": "小姨",
+      "formal": "姨母",
+      "basis": "母系尊属"
+    },
+    {
+      "path": "M.Z.H",
+      "standard": "姨父",
+      "colloquial": "姨父",
+      "formal": "姨父",
+      "basis": "母系尊属之配"
+    },
+    {
+      "path": "F.B+.S+",
+      "standard": "堂兄",
+      "colloquial": "堂哥",
+      "formal": "从父兄",
+      "basis": "父系同辈（堂）"
+    },
+    {
+      "path": "F.B+.S-",
+      "standard": "堂弟",
+      "colloquial": "堂弟",
+      "formal": "从父弟",
+      "basis": "父系同辈（堂）"
+    },
+    {
+      "path": "F.B+.D+",
+      "standard": "堂姐",
+      "colloquial": "堂姐",
+      "formal": "从父姊",
+      "basis": "父系同辈（堂）"
+    },
+    {
+      "path": "F.B+.D-",
+      "standard": "堂妹",
+      "colloquial": "堂妹",
+      "formal": "从父妹",
+      "basis": "父系同辈（堂）"
+    },
+    {
+      "path": "F.B-.S+",
+      "standard": "堂兄",
+      "colloquial": "堂哥",
+      "formal": "从父兄",
+      "basis": "父系同辈（堂）"
+    },
+    {
+      "path": "F.B-.S-",
+      "standard": "堂弟",
+      "colloquial": "堂弟",
+      "formal": "从父弟",
+      "basis": "父系同辈（堂）"
+    },
+    {
+      "path": "F.B-.D+",
+      "standard": "堂姐",
+      "colloquial": "堂姐",
+      "formal": "从父姊",
+      "basis": "父系同辈（堂）"
+    },
+    {
+      "path": "F.B-.D-",
+      "standard": "堂妹",
+      "colloquial": "堂妹",
+      "formal": "从父妹",
+      "basis": "父系同辈（堂）"
+    },
+    {
+      "path": "F.B+.S+.W",
+      "standard": "堂嫂",
+      "colloquial": "堂嫂",
+      "formal": "从父兄之妻",
+      "basis": "父系同辈之配"
+    },
+    {
+      "path": "F.B+.S-.W",
+      "standard": "堂弟媳",
+      "colloquial": "堂弟媳",
+      "formal": "从父弟之妻",
+      "basis": "父系同辈之配"
+    },
+    {
+      "path": "F.Z+.S+",
+      "standard": "表兄",
+      "colloquial": "表哥",
+      "formal": "姑表兄",
+      "basis": "表亲（姑表）"
+    },
+    {
+      "path": "F.Z+.S-",
+      "standard": "表弟",
+      "colloquial": "表弟",
+      "formal": "姑表弟",
+      "basis": "表亲（姑表）"
+    },
+    {
+      "path": "F.Z+.D+",
+      "standard": "表姐",
+      "colloquial": "表姐",
+      "formal": "姑表姊",
+      "basis": "表亲（姑表）"
+    },
+    {
+      "path": "F.Z+.D-",
+      "standard": "表妹",
+      "colloquial": "表妹",
+      "formal": "姑表妹",
+      "basis": "表亲（姑表）"
+    },
+    {
+      "path": "F.Z-.S+",
+      "standard": "表兄",
+      "colloquial": "表哥",
+      "formal": "姑表兄",
+      "basis": "表亲（姑表）"
+    },
+    {
+      "path": "F.Z-.S-",
+      "standard": "表弟",
+      "colloquial": "表弟",
+      "formal": "姑表弟",
+      "basis": "表亲（姑表）"
+    },
+    {
+      "path": "F.Z-.D+",
+      "standard": "表姐",
+      "colloquial": "表姐",
+      "formal": "姑表姊",
+      "basis": "表亲（姑表）"
+    },
+    {
+      "path": "F.Z-.D-",
+      "standard": "表妹",
+      "colloquial": "表妹",
+      "formal": "姑表妹",
+      "basis": "表亲（姑表）"
+    },
+    {
+      "path": "M.B+.S+",
+      "standard": "表兄",
+      "colloquial": "表哥",
+      "formal": "舅表兄",
+      "basis": "表亲（舅表）"
+    },
+    {
+      "path": "M.B+.S-",
+      "standard": "表弟",
+      "colloquial": "表弟",
+      "formal": "舅表弟",
+      "basis": "表亲（舅表）"
+    },
+    {
+      "path": "M.B+.D+",
+      "standard": "表姐",
+      "colloquial": "表姐",
+      "formal": "舅表姊",
+      "basis": "表亲（舅表）"
+    },
+    {
+      "path": "M.B+.D-",
+      "standard": "表妹",
+      "colloquial": "表妹",
+      "formal": "舅表妹",
+      "basis": "表亲（舅表）"
+    },
+    {
+      "path": "M.B-.S+",
+      "standard": "表兄",
+      "colloquial": "表哥",
+      "formal": "舅表兄",
+      "basis": "表亲（舅表）"
+    },
+    {
+      "path": "M.B-.S-",
+      "standard": "表弟",
+      "colloquial": "表弟",
+      "formal": "舅表弟",
+      "basis": "表亲（舅表）"
+    },
+    {
+      "path": "M.B-.D+",
+      "standard": "表姐",
+      "colloquial": "表姐",
+      "formal": "舅表姊",
+      "basis": "表亲（舅表）"
+    },
+    {
+      "path": "M.B-.D-",
+      "standard": "表妹",
+      "colloquial": "表妹",
+      "formal": "舅表妹",
+      "basis": "表亲（舅表）"
+    },
+    {
+      "path": "M.Z+.S+",
+      "standard": "表兄",
+      "colloquial": "表哥",
+      "formal": "从母兄",
+      "basis": "表亲（姨表/从母）"
+    },
+    {
+      "path": "M.Z+.S-",
+      "standard": "表弟",
+      "colloquial": "表弟",
+      "formal": "从母弟",
+      "basis": "表亲（姨表/从母）"
+    },
+    {
+      "path": "M.Z+.D+",
+      "standard": "表姐",
+      "colloquial": "表姐",
+      "formal": "从母姊",
+      "basis": "表亲（姨表/从母）"
+    },
+    {
+      "path": "M.Z+.D-",
+      "standard": "表妹",
+      "colloquial": "表妹",
+      "formal": "从母妹",
+      "basis": "表亲（姨表/从母）"
+    },
+    {
+      "path": "M.Z-.S+",
+      "standard": "表兄",
+      "colloquial": "表哥",
+      "formal": "从母兄",
+      "basis": "表亲（姨表/从母）"
+    },
+    {
+      "path": "M.Z-.S-",
+      "standard": "表弟",
+      "colloquial": "表弟",
+      "formal": "从母弟",
+      "basis": "表亲（姨表/从母）"
+    },
+    {
+      "path": "M.Z-.D+",
+      "standard": "表姐",
+      "colloquial": "表姐",
+      "formal": "从母姊",
+      "basis": "表亲（姨表/从母）"
+    },
+    {
+      "path": "M.Z-.D-",
+      "standard": "表妹",
+      "colloquial": "表妹",
+      "formal": "从母妹",
+      "basis": "表亲（姨表/从母）"
+    },
+    {
+      "path": "B+.S",
+      "standard": "侄子",
+      "colloquial": "侄儿",
+      "formal": "侄",
+      "basis": "旁系卑属"
+    },
+    {
+      "path": "B-.S",
+      "standard": "侄子",
+      "colloquial": "侄儿",
+      "formal": "侄",
+      "basis": "旁系卑属"
+    },
+    {
+      "path": "B+.D",
+      "standard": "侄女",
+      "colloquial": "侄女",
+      "formal": "侄女",
+      "basis": "旁系卑属"
+    },
+    {
+      "path": "B-.D",
+      "standard": "侄女",
+      "colloquial": "侄女",
+      "formal": "侄女",
+      "basis": "旁系卑属"
+    },
+    {
+      "path": "B+.S.W",
+      "standard": "侄媳",
+      "colloquial": "侄媳",
+      "formal": "侄妇",
+      "basis": "旁系卑属之配"
+    },
+    {
+      "path": "B-.S.W",
+      "standard": "侄媳",
+      "colloquial": "侄媳",
+      "formal": "侄妇",
+      "basis": "旁系卑属之配"
+    },
+    {
+      "path": "Z+.S",
+      "standard": "外甥",
+      "colloquial": "外甥",
+      "formal": "外甥",
+      "basis": "母系卑属"
+    },
+    {
+      "path": "Z-.S",
+      "standard": "外甥",
+      "colloquial": "外甥",
+      "formal": "外甥",
+      "basis": "母系卑属"
+    },
+    {
+      "path": "Z+.D",
+      "standard": "外甥女",
+      "colloquial": "外甥女",
+      "formal": "外甥女",
+      "basis": "母系卑属"
+    },
+    {
+      "path": "Z-.D",
+      "standard": "外甥女",
+      "colloquial": "外甥女",
+      "formal": "外甥女",
+      "basis": "母系卑属"
+    },
+    {
+      "path": "W.F",
+      "standard": "岳父",
+      "colloquial": "岳父",
+      "formal": "妻父",
+      "basis": "妻党尊属"
+    },
+    {
+      "path": "W.M",
+      "standard": "岳母",
+      "colloquial": "岳母",
+      "formal": "妻母",
+      "basis": "妻党尊属"
+    },
+    {
+      "path": "H.F",
+      "standard": "公公",
+      "colloquial": "公公",
+      "formal": "夫父",
+      "basis": "夫党尊属"
+    },
+    {
+      "path": "H.M",
+      "standard": "婆婆",
+      "colloquial": "婆婆",
+      "formal": "夫母",
+      "basis": "夫党尊属"
+    },
+    {
+      "path": "S.W",
+      "standard": "儿媳",
+      "colloquial": "媳妇",
+      "formal": "媳",
+      "basis": "子妇"
+    },
+    {
+      "path": "D.H",
+      "standard": "女婿",
+      "colloquial": "女婿",
+      "formal": "婿",
+      "basis": "女婿"
+    },
+    {
+      "path": "S.W.F",
+      "standard": "亲家",
+      "colloquial": "亲家",
+      "formal": "姻家",
+      "basis": "姻亲（子妇之父）"
+    },
+    {
+      "path": "D.H.F",
+      "standard": "亲家",
+      "colloquial": "亲家",
+      "formal": "姻家",
+      "basis": "姻亲（婿之父）"
+    },
+    {
+      "path": "S.W.M",
+      "standard": "亲家",
+      "colloquial": "亲家",
+      "formal": "姻家",
+      "basis": "姻亲（子妇之母）"
+    },
+    {
+      "path": "D.H.M",
+      "standard": "亲家",
+      "colloquial": "亲家",
+      "formal": "姻家",
+      "basis": "姻亲（婿之母）"
+    },
+    {
+      "path": "W.B+",
+      "standard": "内兄",
+      "colloquial": "大舅子",
+      "formal": "妻兄",
+      "basis": "妻党同辈"
+    },
+    {
+      "path": "W.B-",
+      "standard": "内弟",
+      "colloquial": "小舅子",
+      "formal": "妻弟",
+      "basis": "妻党同辈"
+    },
+    {
+      "path": "W.Z+",
+      "standard": "妻姐",
+      "colloquial": "大姨子",
+      "formal": "妻姊",
+      "basis": "妻党同辈"
+    },
+    {
+      "path": "W.Z-",
+      "standard": "妻妹",
+      "colloquial": "小姨子",
+      "formal": "妻妹",
+      "basis": "妻党同辈"
+    },
+    {
+      "path": "H.B+",
+      "standard": "夫兄",
+      "colloquial": "大伯子",
+      "formal": "夫之兄",
+      "basis": "夫党同辈"
+    },
+    {
+      "path": "H.B-",
+      "standard": "夫弟",
+      "colloquial": "小叔子",
+      "formal": "夫之弟",
+      "basis": "夫党同辈"
+    },
+    {
+      "path": "H.Z+",
+      "standard": "夫姐",
+      "colloquial": "大姑子",
+      "formal": "夫之姊",
+      "basis": "夫党同辈"
+    },
+    {
+      "path": "H.Z-",
+      "standard": "夫妹",
+      "colloquial": "小姑子",
+      "formal": "夫之妹",
+      "basis": "夫党同辈"
+    },
+    {
+      "path": "W.Z+.H",
+      "standard": "连襟",
+      "colloquial": "连襟",
+      "formal": "襟兄弟",
+      "basis": "姻亲（妻姊妹之夫）"
+    },
+    {
+      "path": "W.Z-.H",
+      "standard": "连襟",
+      "colloquial": "连襟",
+      "formal": "襟兄弟",
+      "basis": "姻亲（妻姊妹之夫）"
+    },
+    {
+      "path": "F.F.B+",
+      "standard": "伯祖父",
+      "colloquial": "大爷爷",
+      "formal": "伯祖父",
+      "basis": "父系尊属（再从）"
+    },
+    {
+      "path": "F.F.B-",
+      "standard": "叔祖父",
+      "colloquial": "叔爷爷",
+      "formal": "叔祖父",
+      "basis": "父系尊属（再从）"
+    },
+    {
+      "path": "F.F.B+.W",
+      "standard": "伯祖母",
+      "colloquial": "大奶奶",
+      "formal": "伯祖母",
+      "basis": "父系尊属（再从）之配"
+    },
+    {
+      "path": "F.F.B-.W",
+      "standard": "叔祖母",
+      "colloquial": "叔奶奶",
+      "formal": "叔祖母",
+      "basis": "父系尊属（再从）之配"
+    },
+    {
+      "path": "F.F.Z+",
+      "standard": "姑祖母",
+      "colloquial": "姑奶奶",
+      "formal": "祖姑",
+      "basis": "父系尊属（再从）"
+    },
+    {
+      "path": "F.F.Z-",
+      "standard": "姑祖母",
+      "colloquial": "姑奶奶",
+      "formal": "祖姑",
+      "basis": "父系尊属（再从）"
+    },
+    {
+      "path": "F.F.Z.H",
+      "standard": "姑祖父",
+      "colloquial": "姑爷爷",
+      "formal": "祖姑父",
+      "basis": "父系尊属（再从）之配"
+    },
+    {
+      "path": "F.F.B+.S+",
+      "standard": "堂伯父",
+      "colloquial": "堂伯",
+      "formal": "从父伯",
+      "basis": "父系尊属（三从）"
+    },
+    {
+      "path": "F.F.B+.S-",
+      "standard": "堂叔父",
+      "colloquial": "堂叔",
+      "formal": "从父叔",
+      "basis": "父系尊属（三从）"
+    },
+    {
+      "path": "F.F.B-.S+",
+      "standard": "堂伯父",
+      "colloquial": "堂伯",
+      "formal": "从父伯",
+      "basis": "父系尊属（三从）"
+    },
+    {
+      "path": "F.F.B-.S-",
+      "standard": "堂叔父",
+      "colloquial": "堂叔",
+      "formal": "从父叔",
+      "basis": "父系尊属（三从）"
+    },
+    {
+      "path": "F.F.B+.S.W",
+      "standard": "堂伯母",
+      "colloquial": "堂大娘",
+      "formal": "从父伯之妻",
+      "basis": "父系尊属（三从）之配"
+    },
+    {
+      "path": "F.F.B-.S.W",
+      "standard": "堂叔母",
+      "colloquial": "堂婶",
+      "formal": "从父叔之妻",
+      "basis": "父系尊属（三从）之配"
+    },
+    {
+      "path": "F.F.B+.S.S+",
+      "standard": "堂兄",
+      "colloquial": "堂哥",
+      "formal": "从堂兄",
+      "basis": "同辈（再从）"
+    },
+    {
+      "path": "F.F.B+.S.S-",
+      "standard": "堂弟",
+      "colloquial": "堂弟",
+      "formal": "从堂弟",
+      "basis": "同辈（再从）"
+    },
+    {
+      "path": "F.F.B-.S.S+",
+      "standard": "堂兄",
+      "colloquial": "堂哥",
+      "formal": "从堂兄",
+      "basis": "同辈（再从）"
+    },
+    {
+      "path": "F.F.B-.S.S-",
+      "standard": "堂弟",
+      "colloquial": "堂弟",
+      "formal": "从堂弟",
+      "basis": "同辈（再从）"
+    },
+    {
+      "path": "F.F.F.B+",
+      "standard": "曾伯祖父",
+      "colloquial": "太伯爷",
+      "formal": "曾伯祖",
+      "basis": "父系尊属（四从）"
+    },
+    {
+      "path": "F.F.F.B-",
+      "standard": "曾叔祖父",
+      "colloquial": "太叔爷",
+      "formal": "曾叔祖",
+      "basis": "父系尊属（四从）"
+    },
+    {
+      "path": "F.F.F.F.F",
+      "standard": "天祖父",
+      "colloquial": "天祖",
+      "formal": "天祖",
+      "basis": "直系尊属"
+    },
+    {
+      "path": "S.S.S.S.S",
+      "standard": "来孙",
+      "colloquial": "来孙",
+      "formal": "来孙",
+      "basis": "直系卑属"
+    },
+    {
+      "path": "S.S.S.S.S.S",
+      "standard": "晜孙",
+      "colloquial": "晜孙",
+      "formal": "晜孙",
+      "basis": "直系卑属"
+    },
+    {
+      "path": "S.S.S.S.S.S.S",
+      "standard": "仍孙",
+      "colloquial": "仍孙",
+      "formal": "仍孙",
+      "basis": "直系卑属"
+    },
+    {
+      "path": "S.S.S.S.S.S.S.S",
+      "standard": "云孙",
+      "colloquial": "云孙",
+      "formal": "云孙",
+      "basis": "直系卑属"
+    },
+    {
+      "path": "S.S.S.S.S.S.S.S.S",
+      "standard": "耳孙",
+      "colloquial": "耳孙",
+      "formal": "耳孙",
+      "basis": "直系卑属"
+    }
   ]
 }

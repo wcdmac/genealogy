@@ -11,7 +11,10 @@ info:
     - 日期统一使用 GenealogyDate 复合对象（公历/农历/年号/干支/精度），
       禁止使用裸日期字符串。
     - 列表端点使用游标分页（limit + cursor）。
-    - 写操作支持 Idempotency-Key 头与 If-Match 乐观并发。
+    - PATCH 写操作必须带 If-Match 乐观并发：缺失返回 428，版本不符返回
+      409（地点表无 rev，PATCH /places/{id} 豁免；POST/DELETE 不带
+      If-Match）。（Idempotency-Key 属路线图项（M8.1），当前未实现——
+      头在 CORS 允许列表中保留，但服务端不消费。声明不得超前于实现。）
     - 错误使用 application/problem+json（RFC 9457）。
   license:
     name: MIT
@@ -57,16 +60,32 @@ paths:
       tags: [auth]
       summary: 登录获取 JWT
       operationId: issueToken
+      # 令牌签发入口本身匿名可达（口令在 body 里）；全局 bearerAuth
+      # 不适用于本端点，否则生成的客户端会给登录请求强加 Bearer 头。
+      security: []
+      description: >-
+        两种模式：本地免鉴权（默认）任意 body（可空）即发本地 steward
+        令牌，username/role 自选——这是单机便捷通道；--require-auth 模式
+        要求 username 与 password，口令对上 GENEALOGY_AUTH_PASSWORD 才
+        发令牌（口令即全权 steward；单机/局域网工具，无速率限制与
+        防爆破，用户模型与 ACL 属 M3/M8 路线图）。
       requestBody:
-        required: true
+        # 本地模式允许空 body（便捷通道，见 description）；--require-auth
+        # 模式下 username/password 缺失返回 400。
+        required: false
         content:
           application/json:
             schema:
               type: object
-              required: [username, password]
               properties:
                 username: { type: string }
                 password: { type: string, format: password }
+                role:
+                  description: >-
+                    请求的角色（steward/editor/viewer）。本地模式生效；
+                    当前实现没有按角色收敛权限的 ACL（M8.4），角色信息
+                    只进令牌与 /me。
+                  $ref: "#/components/schemas/Role"
       responses:
         "200":
           description: 成功
@@ -181,6 +200,7 @@ paths:
             application/json:
               schema: { $ref: "#/components/schemas/Lineage" }
         "409": { $ref: "#/components/responses/Conflict" }
+        "428": { $ref: "#/components/responses/PreconditionRequired" }
     delete:
       tags: [lineages]
       summary: 删除宗族
@@ -259,6 +279,7 @@ paths:
             application/json:
               schema: { $ref: "#/components/schemas/Branch" }
         "409": { $ref: "#/components/responses/Conflict" }
+        "428": { $ref: "#/components/responses/PreconditionRequired" }
     delete:
       tags: [branches]
       summary: 删除支派
@@ -354,11 +375,15 @@ paths:
       parameters:
         - name: expand
           in: query
-          description: 展开子资源
+          description: >-
+            展开子资源（逗号分隔）：events 事件、unions 参与的结合、
+            migrations 迁徙记录，随响应以同名字段返回。
+            citations/names 等证据链子资源属 M7（schema 已建、域模型未建），
+            实现后加入本枚举。
           schema:
             type: array
             items:
-              enum: [events, unions, citations, names, migrations]
+              enum: [events, unions, migrations]
           style: form
           explode: false
       responses:
@@ -390,9 +415,10 @@ paths:
             application/json:
               schema: { $ref: "#/components/schemas/Person" }
         "409": { $ref: "#/components/responses/Conflict" }
+        "428": { $ref: "#/components/responses/PreconditionRequired" }
     delete:
       tags: [persons]
-      summary: 删除人物（软删除，入 audit_log）
+      summary: 删除人物（硬删除；其事件与迁徙随主体一并删除）
       operationId: deletePerson
       responses:
         "204": { description: 已删除 }
@@ -577,12 +603,191 @@ paths:
             application/json:
               schema: { $ref: "#/components/schemas/Union" }
         "409": { $ref: "#/components/responses/Conflict" }
+        "428": { $ref: "#/components/responses/PreconditionRequired" }
     delete:
       tags: [unions]
-      summary: 解除结合（软删除）
+      summary: 解除结合（删除结合及成员关联）
       operationId: deleteUnion
       responses:
         "204": { description: 已删除 }
+
+  /sources:
+    get:
+      tags: [sources]
+      summary: 来源列表（按类型/标题过滤）
+      operationId: listSources
+      parameters:
+        - name: type
+          in: query
+          schema:
+            enum: [genealogy_book, local_gazetteer, stele, oral, archive,
+                   photo, dna, document, other]
+        - name: q
+          in: query
+          description: 标题模糊匹配
+          schema: { type: string }
+        - $ref: "#/components/parameters/Limit"
+        - $ref: "#/components/parameters/Cursor"
+      responses:
+        "200":
+          description: 成功
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  data:
+                    type: array
+                    items: { $ref: "#/components/schemas/Source" }
+                  page:
+                    type: object
+                    properties:
+                      next_cursor: { type: [string, "null"] }
+                      has_more: { type: boolean }
+    post:
+      tags: [sources]
+      summary: 登记来源（谱册/碑刻/口述/档案等）
+      operationId: createSource
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/SourceCreate" }
+      responses:
+        "201":
+          description: 成功
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Source" }
+        "400": { $ref: "#/components/responses/BadRequest" }
+
+  /sources/{id}:
+    parameters:
+      - $ref: "#/components/parameters/Id"
+    get:
+      tags: [sources]
+      summary: 来源详情
+      operationId: getSource
+      responses:
+        "200":
+          description: 成功
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Source" }
+        "404": { $ref: "#/components/responses/NotFound" }
+    patch:
+      tags: [sources]
+      summary: 更新来源
+      operationId: updateSource
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/SourceCreate" }
+      responses:
+        "200":
+          description: 成功
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Source" }
+        "404": { $ref: "#/components/responses/NotFound" }
+    delete:
+      tags: [sources]
+      summary: 删除来源（被引用时 409）
+      operationId: deleteSource
+      responses:
+        "204": { description: 已删除 }
+        "404": { $ref: "#/components/responses/NotFound" }
+        "409": { $ref: "#/components/responses/Conflict" }
+
+  /citations:
+    get:
+      tags: [citations]
+      summary: 证据引用列表（按主体/来源过滤）
+      operationId: listCitations
+      parameters:
+        - name: subject_type
+          in: query
+          schema: { enum: [person, event, union, migration, branch, lineage] }
+        - name: subject_id
+          in: query
+          schema: { type: string }
+        - name: source_id
+          in: query
+          schema: { type: string }
+        - $ref: "#/components/parameters/Limit"
+        - $ref: "#/components/parameters/Cursor"
+      responses:
+        "200":
+          description: 成功
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  data:
+                    type: array
+                    items: { $ref: "#/components/schemas/Citation" }
+                  page:
+                    type: object
+                    properties:
+                      next_cursor: { type: [string, "null"] }
+                      has_more: { type: boolean }
+    post:
+      tags: [citations]
+      summary: 登记证据引用（主体与来源都必须已存在）
+      operationId: createCitation
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/CitationCreate" }
+      responses:
+        "201":
+          description: 成功
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Citation" }
+        "400": { $ref: "#/components/responses/BadRequest" }
+        "404": { $ref: "#/components/responses/NotFound" }
+
+  /citations/{id}:
+    parameters:
+      - $ref: "#/components/parameters/Id"
+    get:
+      tags: [citations]
+      summary: 证据引用详情
+      operationId: getCitation
+      responses:
+        "200":
+          description: 成功
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Citation" }
+        "404": { $ref: "#/components/responses/NotFound" }
+    patch:
+      tags: [citations]
+      summary: 更新证据引用
+      operationId: updateCitation
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/CitationCreate" }
+      responses:
+        "200":
+          description: 成功
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Citation" }
+        "404": { $ref: "#/components/responses/NotFound" }
+    delete:
+      tags: [citations]
+      summary: 解除证据引用
+      operationId: deleteCitation
+      responses:
+        "204": { description: 已删除 }
+        "404": { $ref: "#/components/responses/NotFound" }
 
   /events:
     get:
@@ -924,7 +1129,7 @@ components:
       name: If-Match
       in: header
       required: true
-      description: 期望的实体版本（当前 rev），不匹配返回 409
+      description: 期望的实体版本（当前 rev）；缺失返回 428，不匹配返回 409
       schema: { type: string }
 
   headers:
@@ -968,6 +1173,11 @@ components:
       content:
         application/problem+json:
           schema: { $ref: "#/components/schemas/Problem" }
+    PreconditionRequired:
+      description: 缺少 If-Match 头——写操作必须携带当前 rev（code 2009，detail 含当前 rev）
+      content:
+        application/problem+json:
+          schema: { $ref: "#/components/schemas/Problem" }
     Unprocessable:
       description: 领域规则不满足（如历法超出 1900-2100，code 5001）
       content:
@@ -1000,6 +1210,54 @@ components:
           era: { name: "同治", year: 3 }
           precision: day
 
+    Source:
+      type: object
+      properties:
+        id: { type: string }
+        type: { enum: [genealogy_book, local_gazetteer, stele, oral, archive, photo, dna, document, other] }
+        title: { type: string }
+        author: { type: string }
+        year_text: { type: string, description: 年份照录原文（嘉庆四年 等） }
+        repository: { type: string, description: 收藏机构 }
+        uri: { type: string }
+        citation: { type: string, description: 规范引文原文 }
+        note: { type: string }
+
+    SourceCreate:
+      type: object
+      required: [type, title]
+      properties:
+        type: { enum: [genealogy_book, local_gazetteer, stele, oral, archive, photo, dna, document, other] }
+        title: { type: string }
+        author: { type: string }
+        year_text: { type: string }
+        repository: { type: string }
+        uri: { type: string }
+        citation: { type: string }
+        note: { type: string }
+
+    Citation:
+      type: object
+      properties:
+        id: { type: string }
+        subject_type: { enum: [person, event, union, migration, branch, lineage] }
+        subject_id: { type: string }
+        source_id: { type: string }
+        locator: { type: string, description: 定位串（卷/页/字段路径，如 卷三 p136 或 birth_date） }
+        confidence: { enum: [high, medium, low, disputed] }
+        note: { type: string }
+
+    CitationCreate:
+      type: object
+      required: [subject_type, subject_id, source_id]
+      properties:
+        subject_type: { enum: [person, event, union, migration, branch, lineage] }
+        subject_id: { type: string }
+        source_id: { type: string }
+        locator: { type: string }
+        confidence: { enum: [high, medium, low, disputed], default: medium }
+        note: { type: string }
+
     Person:
       type: object
       properties:
@@ -1021,12 +1279,28 @@ components:
         death_date: { $ref: "#/components/schemas/GenealogyDate" }
         burial_place_id: { type: string }
         biography: { type: string }
-        father_id: { type: string }
-        mother_id: { type: string }
+        # 亲子改指/解除：字符串改指，null 解除（解除后置回未登记）
+        father_id: { type: [string, "null"] }
+        mother_id: { type: [string, "null"] }
         portrait_attachment_id: { type: string }
         rev: { type: integer }
         created_at: { type: string, format: date-time }
         updated_at: { type: string, format: date-time }
+        # expand 展开的子资源（GET /persons/{id}?expand=…，见该端点的
+        # expand 参数）：不展开时字段不出现，故均为可选；按 keyset
+        # 分页拉全（安全上限 1 万条）。
+        events:
+          type: array
+          description: expand 含 events 时返回；此人的事件列表
+          items: { $ref: "#/components/schemas/Event" }
+        unions:
+          type: array
+          description: expand 含 unions 时返回；此人参与的结合（含成员角色）
+          items: { $ref: "#/components/schemas/Union" }
+        migrations:
+          type: array
+          description: expand 含 migrations 时返回；此人的迁徙记录
+          items: { $ref: "#/components/schemas/Migration" }
         _links:
           type: object
           additionalProperties: { type: string }
@@ -1040,6 +1314,7 @@ components:
         family_name: { type: string }
         given_name: { type: string }
         courtesy_name: { type: string }
+        art_name: { type: string }
         gender: { enum: [male, female, unknown] }
         generation_no: { type: integer }
         birth_order: { type: integer }
@@ -1048,8 +1323,9 @@ components:
         birth_date: { $ref: "#/components/schemas/GenealogyDate" }
         death_date: { $ref: "#/components/schemas/GenealogyDate" }
         biography: { type: string }
+        note: { type: string, description: 出处页码/备注（转录纪律：必带 谱pNN） }
         father_id: { type: string }
-        mother_id: { type: string }
+        mother_id: { type: [string, "null"] }
 
     PersonUpdate:
       type: object
