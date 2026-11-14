@@ -29,6 +29,35 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
+      # vcpkg 不用 runner 预装版：预装版本随 runner 镜像漂移，git 历史不
+      # 含 manifest 的 builtin-baseline 时要现场 fetch，且「哪天镜像换了
+      # 版本」这种变量不该出现在构建结果里。按 vcpkg.json 的
+      # builtin-baseline 精确检出同一份 vcpkg，三平台同源。
+      # 改 vcpkg.json 的 builtin-baseline 时同步改这里。
+      - name: 检出 vcpkg（pin 到 vcpkg.json 的 builtin-baseline）
+        uses: actions/checkout@v4
+        with:
+          repository: microsoft/vcpkg
+          ref: e456309491fd875487bf02b8a0dca76c1b1b00cc
+          path: vcpkg
+
+      - name: Bootstrap vcpkg
+        shell: bash
+        run: |
+          if [ "$RUNNER_OS" = "Windows" ]; then
+            ./vcpkg/bootstrap-vcpkg.bat
+          else
+            ./vcpkg/bootstrap-vcpkg.sh
+          fi
+
+      # 端口产物按依赖指纹缓存：vcpkg.json / overlay 没变就不重编端口
+      # （首跑 Windows 全量编 40+ 分钟；命中后 Configure 阶段降到几分钟）。
+      - name: 缓存 vcpkg 端口产物
+        uses: actions/cache@v4
+        with:
+          path: vcpkg-bincache
+          key: vcpkg-${{ matrix.os }}-${{ hashFiles('vcpkg.json', 'tools/vcpkg-ports/**', 'tools/vcpkg-triplets/**') }}
+
       - name: 安装 Linux 构建依赖
         if: runner.os == 'Linux'
         run: |
@@ -38,6 +67,10 @@ jobs:
       - name: Configure（vcpkg manifest 模式自动装依赖）
         shell: bash
         env:
+          # 覆盖 runner 预装路径：统一用上面 pin 检出的 vcpkg
+          VCPKG_INSTALLATION_ROOT: ${{ github.workspace }}/vcpkg
+          # 二进制缓存目录（上面 cache 步骤的 path）
+          VCPKG_DEFAULT_BINARY_CACHE: ${{ github.workspace }}/vcpkg-bincache
           # 与本地 tools/vcpkg-install.ps1 同一套 overlay，保证 CI 与开发机
           # 装出同一份依赖集：
           #   vcpkg-triplets —— 只编 Release（x64-windows；其余平台用自带 triplet）
@@ -46,6 +79,7 @@ jobs:
           VCPKG_OVERLAY_TRIPLETS: ${{ github.workspace }}/tools/vcpkg-triplets
           VCPKG_OVERLAY_PORTS: ${{ github.workspace }}/tools/vcpkg-ports
         run: |
+          mkdir -p "$VCPKG_DEFAULT_BINARY_CACHE"
           cmake -S . -B build -G Ninja -DCMAKE_BUILD_TYPE=Release \
             -DCMAKE_TOOLCHAIN_FILE="$VCPKG_INSTALLATION_ROOT/scripts/buildsystems/vcpkg.cmake" \
             -DVCPKG_TARGET_TRIPLET=${{ matrix.triplet }} \
@@ -125,9 +159,10 @@ jobs:
           npm ci
           npm run generate
           npm run typecheck
-          # runner 预置 $VCPKG_INSTALLATION_ROOT；DLL 上 PATH，
-          # smoke 自拉的 server 才找得到 drogon/trantor/jsoncpp
-          export PATH="$VCPKG_INSTALLATION_ROOT/installed/x64-windows/bin:$PATH"
+          # manifest 模式的依赖装在 build/vcpkg_installed/（不是 vcpkg 根的
+          # installed/，那里从没人填过）；DLL 上 PATH，smoke 自拉的 server
+          # 才找得到 drogon/trantor/jsoncpp
+          export PATH="$GITHUB_WORKSPACE/build/vcpkg_installed/x64-windows/bin:$PATH"
           npm run smoke
 
       # M5 验收硬指标：「浏览器端完成建档→关系→世系图→导出闭环」。
@@ -142,4 +177,6 @@ jobs:
           cd clients/web
           npm run build
           npx playwright install chromium
+          # ui-smoke 自拉 server 二进制，同样需要 manifest 依赖的 DLL 在 PATH
+          export PATH="$GITHUB_WORKSPACE/build/vcpkg_installed/x64-windows/bin:$PATH"
           npm run ui-smoke
