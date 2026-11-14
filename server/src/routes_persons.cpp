@@ -5,6 +5,7 @@
 #include <functional>
 #include <optional>
 #include <string>
+#include <type_traits>
 #include <vector>
 
 #include <drogon/HttpTypes.h>
@@ -16,8 +17,11 @@
 #include <genealogy/lineage/mourning.hpp>
 #include <genealogy/lineage/relationship.hpp>
 #include <genealogy/lineage/tree.hpp>
+#include <genealogy/model/migration.hpp>
 #include <genealogy/model/person.hpp>
 #include <genealogy/repository/database.hpp>
+#include <genealogy/repository/event_repository.hpp>
+#include <genealogy/repository/migration_repository.hpp>
 #include <genealogy/repository/person_repository.hpp>
 #include <genealogy/repository/union_repository.hpp>
 #include <genealogy/server/dto.hpp>
@@ -42,6 +46,24 @@ namespace {
 std::string path_id(const drogon::HttpRequestPtr& req) {
   const auto& params = req->getRoutingParameters();
   return params.empty() ? std::string{} : params.front();
+}
+
+// expand 查询参数是 OpenAPI 的 form/explode:false 数组：
+// 客户端发 ?expand=events,migrations 单值逗号分隔。切分 + 去空白。
+std::vector<std::string> split_csv_expand(const std::string& value) {
+  std::vector<std::string> out;
+  std::size_t start = 0;
+  while (start <= value.size()) {
+    const std::size_t comma = value.find(',', start);
+    const std::size_t end = comma == std::string::npos ? value.size() : comma;
+    std::string item = value.substr(start, end - start);
+    while (!item.empty() && item.back() == ' ') item.pop_back();
+    while (!item.empty() && item.front() == ' ') item.erase(item.begin());
+    if (!item.empty()) out.push_back(std::move(item));
+    if (comma == std::string::npos) break;
+    start = comma + 1;
+  }
+  return out;
 }
 
 // 深度参数：规范默认 10，范围 1..50
@@ -224,7 +246,87 @@ void person_get(const drogon::HttpRequestPtr& req, Callback&& cb) {
     cb(error_to_response(got.error(), instance));
     return;
   }
-  cb(json_ok(to_json(*got), got->rev));
+
+  // expand=events,unions,migrations（form/explode:false → 单值逗号分隔）。
+  // 人物卡/详情页靠它拿子资源——此前 spec 声明了五种展开而实现为零，
+  // 客户端请求被静默忽略（声明跑在实现前面的审计项）。未展开的子资源
+  // 不出现，响应结构与此前完全兼容。子资源按 keyset 分页拉全
+  // （此前单页 200 硬截断、超限静默缺失）；仓储出错向上传播为 500，
+  // 不伪装成「没有子资源」。
+  nlohmann::json body = to_json(*got);
+  bool want_events = false;
+  bool want_unions = false;
+  bool want_migrations = false;
+  for (const auto& item : split_csv_expand(req->getParameter("expand"))) {
+    if (item == "events") want_events = true;
+    else if (item == "unions") want_unions = true;
+    else if (item == "migrations") want_migrations = true;
+  }
+  // 单主体子资源的安全上限：正常人不会有一万条事件/迁徙；真到了
+  // 上限宁可截断也不无限翻页（与 200000 全量装载的口径取舍一致）。
+  constexpr std::size_t kExpandCap = 10000;
+  auto fetch_all = [&](auto& repo, auto filter, auto* out) -> Result<bool> {
+    // 返回 bool 表示是否触达安全上限
+    std::vector<std::remove_reference_t<decltype(*out->begin())>> all;
+    for (int guard = 0; guard < 100; ++guard) {
+      auto page = repo.list(filter);
+      if (!page) return page.error();
+      const bool last = page->size() < static_cast<std::size_t>(filter.limit);
+      for (auto& item : *page) all.push_back(std::move(item));
+      if (last || all.size() >= kExpandCap) break;
+      filter.cursor = all.back().id;
+    }
+    *out = std::move(all);
+    return all.size() >= kExpandCap;
+  };
+  if (want_events) {
+    EventRepository events(*db);
+    EventFilter ef;
+    ef.subject_type = EventSubjectType::Person;
+    ef.subject_id = got->id;
+    ef.limit = 200;
+    std::vector<Event> evs;
+    auto fetched = fetch_all(events, ef, &evs);
+    if (!fetched) {
+      cb(error_to_response(fetched.error(), instance));
+      return;
+    }
+    nlohmann::json arr = nlohmann::json::array();
+    for (const auto& e : evs) arr.push_back(to_json(e));
+    body["events"] = arr;
+  }
+  if (want_unions) {
+    UnionRepository unions(*db);
+    UnionFilter uf;
+    uf.person_id = got->id;
+    uf.limit = 200;
+    std::vector<Union> us;
+    auto fetched = fetch_all(unions, uf, &us);
+    if (!fetched) {
+      cb(error_to_response(fetched.error(), instance));
+      return;
+    }
+    nlohmann::json arr = nlohmann::json::array();
+    for (const auto& u : us) arr.push_back(to_json(u));
+    body["unions"] = arr;
+  }
+  if (want_migrations) {
+    MigrationRepository migrations(*db);
+    MigrationFilter mf;
+    mf.subject_type = MigrationSubjectType::Person;
+    mf.subject_id = got->id;
+    mf.limit = 200;
+    std::vector<Migration> ms;
+    auto fetched = fetch_all(migrations, mf, &ms);
+    if (!fetched) {
+      cb(error_to_response(fetched.error(), instance));
+      return;
+    }
+    nlohmann::json arr = nlohmann::json::array();
+    for (const auto& m : ms) arr.push_back(to_json(m));
+    body["migrations"] = arr;
+  }
+  cb(json_ok(std::move(body), got->rev));
 }
 
 // ---------------------------------------------------------------- 更新
@@ -291,6 +393,10 @@ void person_patch(const drogon::HttpRequestPtr& req, Callback&& cb) {
   if (body.contains("birth_date")) updated.birth_date = d.birth_date;
   if (body.contains("death_date")) updated.death_date = d.death_date;
   if (body.contains("privacy_level")) updated.privacy = d.privacy;
+  // 亲子关系：字符串改指、null 解除（dto 层解析，见 parse_person_update）
+  if (body.contains("father_id")) updated.father_id = d.father_id;
+  if (body.contains("mother_id")) updated.mother_id = d.mother_id;
+  if (body.contains("note")) updated.note = d.note;
 
   updated.id = current->id;
   updated.rev = *want;   // 仓储层据此做乐观锁比对

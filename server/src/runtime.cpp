@@ -11,12 +11,15 @@ namespace {
 // 读路径多付一次原子操作。
 Database* g_db = nullptr;
 bool g_require_auth = false;
+std::string g_auth_password;
 
 }  // namespace
 
-void bind_runtime(Database& db, const bool require_auth) {
+void bind_runtime(Database& db, const bool require_auth,
+                  const std::string& auth_password) {
   g_db = &db;
   g_require_auth = require_auth;
+  g_auth_password = auth_password;
 }
 
 Database* db_from(const drogon::HttpRequestPtr& req, std::string* why) {
@@ -44,5 +47,7 @@ bool require_auth_of(const drogon::HttpRequestPtr& req) {
   }
   return g_require_auth;
 }
+
+const std::string& auth_password_config() { return g_auth_password; }
 
 }  // namespace genealogy::server

@@ -31,8 +31,11 @@
 #include <genealogy/repository/database.hpp>
 #include <genealogy/ulid.hpp>
 #include <genealogy/server/auth.hpp>
+#include <genealogy/server/body_guard.hpp>
+#include <genealogy/server/cors.hpp>
 #include <genealogy/server/routes_entities.hpp>
 #include <genealogy/server/routes_misc.hpp>
+#include <genealogy/server/routes_sources.hpp>
 #include <genealogy/server/routes_persons.hpp>
 #include <genealogy/server/routes_auth.hpp>
 #include <genealogy/server/runtime.hpp>
@@ -61,9 +64,14 @@ void start_server_once(std::uint16_t* port_out) {
     auto& app = drogon::HttpAppFramework::instance();
     app.setThreadNum(1);
     app.setClientMaxBodySize(64ULL * 1024 * 1024);
-    // 不注册 pre-routing advice：库句柄与鉴权开关由 bind_runtime 单例
-    // 提供（db_from/require_auth_of 都会退到进程级），与 main.cpp 同一条
-    // 路径——测试与生产走同一条取用链，才不会出现「测试过、线上挂」。
+    // CORS 与鉴权守卫与 main.cpp 同一套安装函数：鉴权是横切行为，
+    // 测试二进制不装守卫的话，「--require-auth 全端点生效」就只在
+    // 生产装了、测试永远是免鉴权路径，401 行为完全没被覆盖。
+    install_cors(app, "");            // 默认策略：只放行本机来源
+    install_body_guard(app);          // JSON 体 UTF-8 预校验
+    install_auth_guard(app);
+    // 库句柄与鉴权开关由 bind_runtime 单例提供（db_from/
+    // require_auth_of 都会退到进程级），与 main.cpp 同一条路径。
     const std::string base = "/api/v1";
     app.registerHandler(base + "/health", &server::health, {drogon::Get});
     app.registerHandler(base + "/auth/token", &server::auth_token,
@@ -97,6 +105,13 @@ void start_server_once(std::uint16_t* port_out) {
                         {drogon::Patch});
     app.registerHandler(base + "/lineages/{id}", &server::lineage_delete,
                         {drogon::Delete});
+    // 支派（按支派查迁徙的用例需要）
+    app.registerHandler(base + "/branches", &server::branches_list,
+                        {drogon::Get});
+    app.registerHandler(base + "/branches", &server::branches_create,
+                        {drogon::Post});
+    app.registerHandler(base + "/branches/{id}", &server::branch_get,
+                        {drogon::Get});
     app.registerHandler(base + "/places", &server::places_list,
                         {drogon::Get});
     app.registerHandler(base + "/places", &server::places_create,
@@ -107,6 +122,32 @@ void start_server_once(std::uint16_t* port_out) {
                         {drogon::Patch});
     app.registerHandler(base + "/places/{id}", &server::place_delete,
                         {drogon::Delete});
+    // 证据链（M7.2）：来源与证据引用
+    app.registerHandler(base + "/sources", &server::sources_list,
+                        {drogon::Get});
+    app.registerHandler(base + "/sources", &server::sources_create,
+                        {drogon::Post});
+    app.registerHandler(base + "/sources/{id}", &server::source_get,
+                        {drogon::Get});
+    app.registerHandler(base + "/sources/{id}", &server::source_patch,
+                        {drogon::Patch});
+    app.registerHandler(base + "/sources/{id}", &server::source_delete,
+                        {drogon::Delete});
+    app.registerHandler(base + "/citations", &server::citations_list,
+                        {drogon::Get});
+    app.registerHandler(base + "/citations", &server::citations_create,
+                        {drogon::Post});
+    app.registerHandler(base + "/citations/{id}", &server::citation_get,
+                        {drogon::Get});
+    app.registerHandler(base + "/citations/{id}", &server::citation_patch,
+                        {drogon::Patch});
+    app.registerHandler(base + "/citations/{id}", &server::citation_delete,
+                        {drogon::Delete});
+    // 迁徙（M5-4）：expand 测试要挂迁徙子资源，注册与 main.cpp 对齐
+    app.registerHandler(base + "/migrations", &server::migrations_list,
+                        {drogon::Get});
+    app.registerHandler(base + "/migrations", &server::migrations_create,
+                        {drogon::Post});
     app.registerHandler(base + "/unions", &server::unions_list,
                         {drogon::Get});
     app.registerHandler(base + "/unions", &server::unions_create,
@@ -187,7 +228,7 @@ struct ServerFixture {
     auto opened = Database::open(db_path);
     REQUIRE(opened.has_value());
     db = std::make_unique<Database>(std::move(*opened));
-    ensure_default_lineage(*db);
+    REQUIRE(ensure_default_lineage(*db));
     bind_runtime(*db, false);   // 本地免鉴权模式
   }
 
@@ -207,6 +248,7 @@ struct Reply {
   std::string body;
   std::string etag;
   std::string content_type;
+  std::string acao;   // Access-Control-Allow-Origin（CORS 断言用）
 };
 
 Reply request(std::uint16_t port, drogon::HttpMethod method,
@@ -237,6 +279,7 @@ Reply request(std::uint16_t port, drogon::HttpMethod method,
   out.body = std::string(resp->body());
   out.etag = resp->getHeader("etag");
   out.content_type = resp->getHeader("content-type");
+  out.acao = resp->getHeader("access-control-allow-origin");
   return out;
 }
 
@@ -402,6 +445,194 @@ TEST_CASE_METHOD(ServerFixture, "HTTP：宗族与地点的 CRUD") {
   CHECK(badtype.status == 400);
 }
 
+TEST_CASE_METHOD(ServerFixture, "HTTP：证据链（来源登记→字段级引用→删除保护 409）") {
+  const std::string lid = kDefaultLineageId;
+
+  // 建来源（嘉庆钞本——真实试修来源）
+  const auto src = post(port, "/api/v1/sources",
+                        R"({"type":"genealogy_book","title":"高阳李氏家谱",)"
+                        R"("year_text":"嘉庆四年","repository":"上海图书馆"})");
+  REQUIRE(src.status == 201);
+  const std::string source_id =
+      nlohmann::json::parse(src.body)["id"].get<std::string>();
+
+  // 建人物并挂字段级引用（birth_date + locator 卷三 p136）
+  const auto person = post(port, "/api/v1/persons",
+                           R"({"lineage_id":")" + lid +
+                               R"(","family_name":"陈","given_name":"证引",)"
+                               R"("gender":"male"})");
+  REQUIRE(person.status == 201);
+  const std::string pid =
+      nlohmann::json::parse(person.body)["id"].get<std::string>();
+
+  const auto cit = post(port, "/api/v1/citations",
+                        R"({"subject_type":"person","subject_id":")" + pid +
+                            R"(","source_id":")" + source_id +
+                            R"(","locator":"birth_date 卷三 p136",)"
+                            R"("confidence":"high"})");
+  REQUIRE(cit.status == 201);
+  const std::string cit_id =
+      nlohmann::json::parse(cit.body)["id"].get<std::string>();
+
+  // 按主体过滤列表
+  const auto listed =
+      get(port, "/api/v1/citations?subject_type=person&subject_id=" + pid);
+  REQUIRE(listed.status == 200);
+  CHECK(nlohmann::json::parse(listed.body)["data"].size() == 1);
+
+  // 来源被引用：删除来源 → 409
+  CHECK(request(port, drogon::Delete, "/api/v1/sources/" + source_id)
+            .status == 409);
+
+  // 人物被引用：删除人物 → 409（ROADMAP M7.2 验收项）
+  CHECK(request(port, drogon::Delete, "/api/v1/persons/" + pid).status == 409);
+
+  // 解除引用 → 人物可删、来源可删（引用解除后 409 消失）
+  CHECK(request(port, drogon::Delete, "/api/v1/citations/" + cit_id)
+            .status == 204);
+  CHECK(request(port, drogon::Delete, "/api/v1/persons/" + pid).status == 204);
+  CHECK(request(port, drogon::Delete, "/api/v1/sources/" + source_id)
+            .status == 204);
+  CHECK(request(port, drogon::Delete, "/api/v1/sources/" + source_id)
+            .status == 404);
+}
+
+TEST_CASE_METHOD(ServerFixture, "HTTP：JSON 请求体含非法 UTF-8 得 400（不毒化进程）") {
+  // 第三方客户端/老控制台发出 GBK 编码 body 曾直接把进程带到
+  // 终止（parse 阶段，drogon 的 handler catch 都没机会跑）——
+  // body_guard 在门口拦截，RFC 8259 本就要求 JSON 交换文本为 UTF-8。
+  const std::string gbk = std::string("{\"lineage_id\":\"") + kDefaultLineageId +
+                          std::string("\",\"family_name\":\"\xb3\xc2\",") +
+                          std::string("\"gender\":\"male\"}");
+  const auto bad = request(port, drogon::Post, "/api/v1/persons", gbk);
+  CHECK(bad.status == 400);
+  CHECK(bad.content_type.find("application/problem+json") !=
+        std::string::npos);
+  const auto j = nlohmann::json::parse(bad.body);
+  CHECK(j["code"] == 1001);
+  // 进程仍健康：后续请求照常
+  CHECK(get(port, "/api/v1/health").status == 200);
+}
+
+TEST_CASE_METHOD(ServerFixture, "HTTP：expand 展开子资源（events/unions/migrations）") {
+  const std::string lid = kDefaultLineageId;
+  const auto made = post(port, "/api/v1/persons",
+                         R"({"lineage_id":")" + lid +
+                             R"(","family_name":"陈","given_name":"展开",)"
+                             R"("gender":"male"})");
+  REQUIRE(made.status == 201);
+  const std::string id =
+      nlohmann::json::parse(made.body)["id"].get<std::string>();
+
+  const auto spouse = post(port, "/api/v1/persons",
+                           R"({"lineage_id":")" + lid +
+                               R"(","family_name":"王","given_name":"氏",)"
+                               R"("gender":"female"})");
+  REQUIRE(spouse.status == 201);
+  const std::string spouse_id =
+      nlohmann::json::parse(spouse.body)["id"].get<std::string>();
+
+  // 事件 + 婚姻 + 迁徙各挂一条
+  REQUIRE(post(port, "/api/v1/events",
+               R"({"subject_type":"person","subject_id":")" + id +
+                   R"(","type":"burial","description":"葬祖茔"})")
+              .status == 201);
+  REQUIRE(post(port, "/api/v1/unions",
+               R"({"type":"marriage","members":[{"person_id":")" + id +
+                   R"(","role":"husband"},{"person_id":")" + spouse_id +
+                   R"(","role":"wife"}]})")
+              .status == 201);
+  const auto place = post(port, "/api/v1/places",
+                          R"({"name":"渝州","type":"county"})");
+  REQUIRE(place.status == 201);
+  const std::string place_id =
+      nlohmann::json::parse(place.body)["id"].get<std::string>();
+  REQUIRE(post(port, "/api/v1/migrations",
+               R"({"subject_type":"person","subject_id":")" + id +
+                   R"(","to_place_id":")" + place_id +
+                   R"(","reason":"营商"})")
+              .status == 201);
+
+  // 不展开：响应里不应出现子资源字段
+  const auto plain = get(port, "/api/v1/persons/" + id);
+  REQUIRE(plain.status == 200);
+  const auto plain_j = nlohmann::json::parse(plain.body);
+  CHECK_FALSE(plain_j.contains("events"));
+  CHECK_FALSE(plain_j.contains("unions"));
+  CHECK_FALSE(plain_j.contains("migrations"));
+
+  // 展开：三个子资源各一条
+  const auto expanded =
+      get(port, "/api/v1/persons/" + id + "?expand=events,unions,migrations");
+  REQUIRE(expanded.status == 200);
+  const auto j = nlohmann::json::parse(expanded.body);
+  REQUIRE(j.contains("events"));
+  CHECK(j["events"].size() == 1);
+  CHECK(j["events"][0]["type"] == "burial");
+  REQUIRE(j.contains("unions"));
+  CHECK(j["unions"].size() == 1);
+  REQUIRE(j.contains("migrations"));
+  CHECK(j["migrations"].size() == 1);
+  CHECK(j["migrations"][0]["reason"] == "营商");
+}
+
+TEST_CASE_METHOD(ServerFixture, "HTTP：按支派查迁徙分页不丢数据") {
+  const std::string lid = kDefaultLineageId;
+  const auto branch = post(port, "/api/v1/branches",
+                           R"({"lineage_id":")" + lid +
+                               R"(","name":"东八房"})");
+  REQUIRE(branch.status == 201);
+  const std::string bid =
+      nlohmann::json::parse(branch.body)["id"].get<std::string>();
+
+  const auto place = post(port, "/api/v1/places",
+                          R"({"name":"渝州","type":"county"})");
+  REQUIRE(place.status == 201);
+  const std::string pid = nlohmann::json::parse(place.body)["id"].get<std::string>();
+
+  auto make_person = [&](const std::string& given) {
+    const auto r = post(port, "/api/v1/persons",
+                        R"({"lineage_id":")" + lid + R"(","branch_id":")" +
+                            bid + R"(","family_name":"陈","given_name":")" +
+                            given + R"(","gender":"male"})");
+    REQUIRE(r.status == 201);
+    return nlohmann::json::parse(r.body)["id"].get<std::string>();
+  };
+  const std::string p1 = make_person("迁一");
+  const std::string p2 = make_person("迁二");
+
+  // 两个成员各挂 2 条迁徙（同一成员超过一页量，验证合并游标）
+  for (const std::string& who : {p1, p2}) {
+    for (int i = 0; i < 2; ++i) {
+      const auto r = post(port, "/api/v1/migrations",
+                          R"({"subject_type":"person","subject_id":")" + who +
+                              R"(","to_place_id":")" + pid +
+                              R"(","reason":"营商)" + std::to_string(i) +
+                              R"("})");
+      REQUIRE(r.status == 201);
+    }
+  }
+
+  // limit=1 逐页走完全部 4 条（此前合并路径的游标口径会把后续页丢掉）
+  int seen = 0;
+  std::string cursor;
+  for (int guard = 0; guard < 10; ++guard) {
+    std::string path = "/api/v1/migrations?branch_id=" + bid + "&limit=1";
+    if (!cursor.empty()) path += "&cursor=" + cursor;
+    const auto page = get(port, path);
+    REQUIRE(page.status == 200);
+    const auto j = nlohmann::json::parse(page.body);
+    seen += static_cast<int>(j["data"].size());
+    if (j["page"]["has_more"].get<bool>()) {
+      cursor = j["page"]["next_cursor"].get<std::string>();
+      REQUIRE(!cursor.empty());
+    } else {
+      break;
+    }
+  }
+  CHECK(seen == 4);
+}
+
 TEST_CASE_METHOD(ServerFixture, "HTTP：世系算法（称谓/五服/祖先）") {
   const std::string lid = kDefaultLineageId;
   auto make = [&](const std::string& given, const std::string& gender,
@@ -506,4 +737,78 @@ TEST_CASE_METHOD(ServerFixture, "HTTP：JWT 签发可自校验") {
   tampered.back() = (tampered.back() == 'A') ? 'B' : 'A';
   server::auth::Claims c2;
   CHECK_FALSE(server::auth::verify_token(tampered, &c2, &err));
+}
+
+TEST_CASE_METHOD(ServerFixture, "HTTP：require-auth 下数据端点必须持有效令牌") {
+  bind_runtime(*db, true, "s3cret");
+
+  // 匿名访问数据端点：401 problem+json（带 WWW-Authenticate 语义）
+  const auto anon = get(port, "/api/v1/stats");
+  CHECK(anon.status == 401);
+  CHECK(anon.content_type.find("application/problem+json") !=
+        std::string::npos);
+  // 401 是 pre-routing 短路响应，不走 postHandling advice——CORS 头
+  // 必须由守卫自己补，否则跨端口本机来源下是浏览器 opaque response。
+  const auto anon_cors = request(port, drogon::Get, "/api/v1/stats", "",
+                                 {{"Origin", "http://127.0.0.1:5173"}});
+  CHECK(anon_cors.status == 401);
+  CHECK(anon_cors.acao == "http://127.0.0.1:5173");
+  // 伪造令牌：401
+  const auto forged = request(port, drogon::Get, "/api/v1/stats", "",
+                              {{"Authorization", "Bearer not.a.jwt"}});
+  CHECK(forged.status == 401);
+  // SSE 变更流同样在守卫范围内（pre-routing 在路由查找之前，未注册
+  // 路径也是 401 而非 404）
+  CHECK(get(port, "/api/v1/events/stream").status == 401);
+  // 匿名白名单：健康探针照常可达
+  CHECK(get(port, "/api/v1/health").status == 200);
+
+  // 令牌签发：缺 password → 400（点名缺哪个字段）；错口令 → 401
+  const auto no_pw = post(port, "/api/v1/auth/token", R"({"username":"u"})");
+  CHECK(no_pw.status == 400);
+  const auto j = nlohmann::json::parse(no_pw.body);
+  bool pw_named = false;
+  for (const auto& e : j["errors"]) {
+    if (e["field"] == "password") pw_named = true;
+  }
+  CHECK(pw_named);
+  const auto bad_pw = post(port, "/api/v1/auth/token",
+                           R"({"username":"u","password":"nope"})");
+  CHECK(bad_pw.status == 401);
+
+  // 对口令 → 200，令牌可访问数据端点
+  const auto good_pw = post(port, "/api/v1/auth/token",
+                            R"({"username":"u","password":"s3cret"})");
+  REQUIRE(good_pw.status == 200);
+  const std::string jwt =
+      nlohmann::json::parse(good_pw.body)["access_token"].get<std::string>();
+  const auto ok = request(port, drogon::Get, "/api/v1/stats", "",
+                          {{"Authorization", "Bearer " + jwt}});
+  CHECK(ok.status == 200);
+
+  bind_runtime(*db, false, "");   // 还原本地免鉴权，防串扰后续用例
+}
+
+TEST_CASE_METHOD(ServerFixture, "HTTP：CORS 默认只放行本机来源") {
+  // 第三方来源：响应不带 Access-Control-Allow-Origin（浏览器据此拦截
+  // 对 127.0.0.1 的跨站读写——「绑回环」挡不住来自受害者浏览器的请求）
+  const auto evil = request(port, drogon::Get, "/api/v1/health", "",
+                            {{"Origin", "http://evil.example"}});
+  REQUIRE(evil.status == 200);
+  CHECK(evil.acao.empty());
+  // 预检同样不放行（204 但无允许头，浏览器不会发出实际请求）
+  const auto pre_evil =
+      request(port, drogon::Options, "/api/v1/persons", "",
+              {{"Origin", "http://evil.example"},
+               {"Access-Control-Request-Method", "POST"}});
+  CHECK(pre_evil.status == 204);
+  CHECK(pre_evil.acao.empty());
+  // 本机来源（跨端口开发，如 Vite 5173 → 8080）：默认放行
+  const auto local = request(port, drogon::Get, "/api/v1/health", "",
+                             {{"Origin", "http://127.0.0.1:5173"}});
+  REQUIRE(local.status == 200);
+  CHECK(local.acao == "http://127.0.0.1:5173");
+  const auto local_name = request(port, drogon::Get, "/api/v1/health", "",
+                                  {{"Origin", "http://localhost:3000"}});
+  CHECK(local_name.acao == "http://localhost:3000");
 }

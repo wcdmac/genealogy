@@ -104,6 +104,8 @@ PersonDraft parse_person_create(const nlohmann::json& j) {
     out.person.posthumous_title = *v;
   }
   if (auto v = opt_string(j, "biography", &errs)) out.person.biography = *v;
+  // 出处页码等录入纪律走 note——create 不解析 note 会把转录来源静默丢弃
+  if (auto v = opt_string(j, "note", &errs)) out.person.note = *v;
   if (auto v = opt_string(j, "father_id", &errs)) out.person.father_id = *v;
   if (auto v = opt_string(j, "mother_id", &errs)) out.person.mother_id = *v;
   if (auto v = opt_int(j, "generation_no", &errs)) {
@@ -154,6 +156,20 @@ PersonDraft parse_person_update(const nlohmann::json& j) {
   if (auto v = opt_bool(j, "is_living", &errs)) out.person.is_living = *v;
   if (auto v = opt_date(j, "birth_date", &errs)) out.person.birth_date = *v;
   if (auto v = opt_date(j, "death_date", &errs)) out.person.death_date = *v;
+  // father_id/mother_id：字符串 = 改指；null = 解除（置回未登记）——
+  // 修谱中「考订修正父子关系」是正当操作，此前 PATCH 静默忽略这两个
+  // 字段（spec 已声明而实现忽略的漂移，高阳李氏试修实测暴露）。
+  for (const char* k : {"father_id", "mother_id"}) {
+    const auto it = j.find(k);
+    if (it == j.end() || it->is_null()) continue;
+    if (it->is_string()) {
+      if (std::string(k) == "father_id") out.person.father_id = it->get<std::string>();
+      else out.person.mother_id = it->get<std::string>();
+    } else {
+      errs.push_back({k, "应为字符串或 null（null = 解除亲子关系）"});
+    }
+  }
+  if (auto v = opt_string(j, "note", &errs)) out.person.note = *v;
   if (const auto it = j.find("privacy_level"); it != j.end() &&
       it->is_string()) {
     auto p = privacy_from_string(it->get<std::string>());
@@ -421,7 +437,7 @@ drogon::HttpResponsePtr json_response(int status,
   // 而全项目（core 的 to_json）统一用 nlohmann。在两者之间转一圈
   // 只会多一层依赖与一份语义差异，故这里序列化成字符串直接设 body。
   auto resp = drogon::HttpResponse::newHttpResponse();
-  resp->setBody(body.dump());
+  resp->setBody(body.dump(-1, ' ', false, nlohmann::json::error_handler_t::replace));
   resp->setContentTypeString("application/json; charset=utf-8");
   resp->setStatusCode(static_cast<drogon::HttpStatusCode>(status));
   return resp;

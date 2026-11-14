@@ -255,6 +255,9 @@ void import_gedcom(const drogon::HttpRequestPtr& req, Callback&& cb) {
         content.assign(f.fileContent());   // string_view → string
       }
     }
+    // 注：上传件不会落盘（drogon 的 MultiPartParser 全程内存持有，
+    // 只有显式调 save() 才写盘），uploads/tmp/ 下的 00-FF 子目录只是
+    // app.run() 预建的空桶——无需也不会积累任何待清理文件。
     const auto& params = parser.getParameters();
     if (const auto it = params.find("lineage_id"); it != params.end()) {
       lineage_id = it->second;

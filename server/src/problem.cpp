@@ -83,7 +83,7 @@ drogon::HttpResponsePtr problem_response(const Error& err,
   j["code"] = code;       // 业务码：status 说 HTTP 层，code 说领域层
   j["instance"] = instance;
   auto resp = drogon::HttpResponse::newHttpResponse();
-  resp->setBody(j.dump());
+  resp->setBody(j.dump(-1, ' ', false, nlohmann::json::error_handler_t::replace));
   finalize(resp, status);
   return resp;
 }
@@ -102,7 +102,7 @@ drogon::HttpResponsePtr problem_response(int status, int code,
   j["code"] = code;
   j["instance"] = instance;
   auto resp = drogon::HttpResponse::newHttpResponse();
-  resp->setBody(j.dump());
+  resp->setBody(j.dump(-1, ' ', false, nlohmann::json::error_handler_t::replace));
   finalize(resp, status);
   return resp;
 }
@@ -123,7 +123,7 @@ drogon::HttpResponsePtr validation_problem(
   }
   j["errors"] = std::move(arr);
   auto resp = drogon::HttpResponse::newHttpResponse();
-  resp->setBody(j.dump());
+  resp->setBody(j.dump(-1, ' ', false, nlohmann::json::error_handler_t::replace));
   finalize(resp, 400);
   return resp;
 }

@@ -18,7 +18,10 @@
 namespace genealogy::server {
 
 // 启动时调用一次。重复调用以最后一次为准（测试用）。
-void bind_runtime(Database& db, bool require_auth);
+// auth_password：--require-auth 模式下 /auth/token 的口令
+// （来自 GENEALOGY_AUTH_PASSWORD，main 在启动时空值即拒绝启动）。
+void bind_runtime(Database& db, bool require_auth,
+                  const std::string& auth_password = "");
 
 // 从请求上下文取数据库。取不到说明没调 bind_runtime，
 // 属于服务端缺陷，返回 nullptr 并由调用方回 500。
@@ -26,5 +29,8 @@ Database* db_from(const drogon::HttpRequestPtr& req, std::string* why);
 
 // 本次请求是否要求鉴权。
 bool require_auth_of(const drogon::HttpRequestPtr& req);
+
+// --require-auth 模式下的口令（未配置为空串，auth_token 据此拒发）。
+const std::string& auth_password_config();
 
 }  // namespace genealogy::server

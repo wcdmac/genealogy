@@ -880,81 +880,38 @@ void migrations_list(const drogon::HttpRequestPtr& req, Callback&& cb) {
   if (bad_page(req, instance, cb, &page)) return;
 
   MigrationService svc(*db);
-  std::vector<Migration> rows;
 
   const std::string branch_id = req->getParameter("branch_id");
   const std::string subject_id = req->getParameter("subject_id");
 
+  // 按支派查 = 支派自身的迁徙 + 其成员个人的迁徙：仓储内子查询原生
+  // 解析（MigrationFilter.branch_id），游标与单主体路径同一口径。
+  // 此前在本层展开成员 ID 逐成员查询合并——既 N+1，每成员只取一页
+  // 的合并口径还会静默丢弃超过一页成员的其余记录。
+  MigrationFilter f;
   if (!branch_id.empty()) {
-    // 按支派查 = 支派自身的迁徙 + 其成员个人的迁徙。
-    // 为什么不在仓储层 JOIN person：迁徙表按 subject 精确索引，
-    // 本地规模（一支几十到几百人）逐主体查足够快；JOIN 反而把
-    // 游标分页搞复杂（同一条迁徙可能经多人命中）。
-    MigrationFilter bf;
-    bf.subject_type = MigrationSubjectType::Branch;
-    bf.subject_id = branch_id;
-    bf.limit = page.limit + 1;
-    auto own = svc.list_migrations(bf);
-    if (!own) {
-      cb(error_to_response(own.error(), instance));
-      return;
-    }
-    rows = std::move(*own);
-
-    PersonRepository persons(*db);
-    PersonFilter pf;
-    pf.branch_id = branch_id;
-    pf.limit = 200000;
-    auto members = persons.list(pf);
-    if (!members) {
-      cb(error_to_response(members.error(), instance));
-      return;
-    }
-    for (const auto& person : *members) {
-      MigrationFilter mf;
-      mf.subject_type = MigrationSubjectType::Person;
-      mf.subject_id = person.id;
-      mf.limit = page.limit + 1;
-      auto got = svc.list_migrations(mf);
-      if (!got) {
-        cb(error_to_response(got.error(), instance));
-        return;
-      }
-      for (auto& m : *got) rows.push_back(std::move(m));
-    }
-    // 多主体合并后重新按 id 排序，游标口径与单主体查询一致
-    std::sort(rows.begin(), rows.end(),
-              [](const Migration& a, const Migration& b) { return a.id < b.id; });
-  } else {
-    MigrationFilter f;
-    if (!subject_id.empty()) f.subject_id = subject_id;
-    if (const auto s = req->getParameter("subject_type"); !s.empty()) {
-      auto t = migration_subject_from_string(s);
-      if (!t) {
-        cb(problem_response(400, 1001, "参数校验失败",
-                            "subject_type 应为 person/branch", instance));
-        return;
-      }
-      f.subject_type = *t;
-    }
-    f.limit = page.limit + 1;
-    if (!page.cursor.empty()) f.cursor = page.cursor;
-    auto got = svc.list_migrations(f);
-    if (!got) {
-      cb(error_to_response(got.error(), instance));
-      return;
-    }
-    rows = std::move(*got);
+    f.branch_id = branch_id;
+  } else if (!subject_id.empty()) {
+    f.subject_id = subject_id;
   }
-
-  // 游标：合并路径下仓储层没替我们过滤，这里统一做
-  if (!page.cursor.empty()) {
-    rows.erase(std::remove_if(rows.begin(), rows.end(),
-                              [&](const Migration& m) {
-                                return m.id <= page.cursor;
-                              }),
-               rows.end());
+  if (const auto s = req->getParameter("subject_type"); !s.empty()) {
+    auto t = migration_subject_from_string(s);
+    if (!t) {
+      cb(problem_response(400, 1001, "参数校验失败",
+                          "subject_type 应为 person/branch", instance));
+      return;
+    }
+    f.subject_type = *t;
   }
+  f.limit = page.limit + 1;
+  if (!page.cursor.empty()) f.cursor = page.cursor;
+  auto got = svc.list_migrations(f);
+  if (!got) {
+    cb(error_to_response(got.error(), instance));
+    return;
+  }
+  auto rows = std::move(*got);
+
   const bool more = rows.size() > static_cast<std::size_t>(page.limit);
   if (more) rows.pop_back();
   std::vector<nlohmann::json> items;

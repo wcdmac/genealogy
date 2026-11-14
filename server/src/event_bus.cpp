@@ -62,7 +62,7 @@ void EventBus::publish(const std::string& type,
   std::ostringstream frame;
   frame << "id: " << id << "\n"
         << "event: change\n"
-        << "data: " << payload.dump() << "\n\n";
+        << "data: " << payload.dump(-1, ' ', false, nlohmann::json::error_handler_t::replace) << "\n\n";
   broadcast(frame.str());
 }
 

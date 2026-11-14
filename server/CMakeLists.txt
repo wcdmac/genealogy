@@ -23,11 +23,13 @@ add_library(genealogy-server-lib STATIC
   src/problem.cpp
   src/dto.cpp
   src/cors.cpp
+  src/body_guard.cpp
   src/event_bus.cpp
   src/routes_stream.cpp
   src/routes_persons.cpp
   src/routes_entities.cpp
   src/routes_misc.cpp
+  src/routes_sources.cpp
 )
 
 target_include_directories(genealogy-server-lib
