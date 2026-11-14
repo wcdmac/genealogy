@@ -26,6 +26,7 @@
 #include <genealogy/validate/validation.hpp>
 
 #include <filesystem>
+#include <fstream>
 #include <string>
 
 using namespace genealogy;
@@ -88,13 +89,24 @@ TEST_CASE("DbSession：开库、建档、读取、关闭") {
 }
 
 TEST_CASE("DbSession：坏路径报错且不带半截状态") {
+  namespace fs = std::filesystem;
   DbSession session;
   std::string why;
-  // 指向一个不存在的目录：打开必须失败并给出原因。
-  // 必须用正斜杠+不存在的目录链：反斜杠在 POSIX 上只是文件名字符，
-  // "Z:\\no\\such\\dir\\x.db" 会被 SQLite 当成合法相对路径建出文件
-  // （2026-11-14 macOS CI 实测 open 成功致测试失败）。
-  const bool ok = session.open("no/such/dir/x.db", &why);
+  // Database::open 会自动 create_directories 父目录（首次开库的便利），
+  // 「父目录不存在」不是坏路径——会被建出来然后打开成功（四跑 CI
+  // 三平台实测；初版的 Z:\ 反斜杠路径在 POSIX 上更是合法文件名字符）。
+  // 跨平台确定失败的坏路径用 ENOTDIR 语义：临时目录里先放一个普通
+  // 文件 blocker，再把它当父目录开库。
+  const fs::path dir = fs::temp_directory_path() / "genealogy-gui-test-badpath";
+  fs::create_directories(dir);
+  const fs::path blocker = dir / "blocker";
+  {
+    std::ofstream f(blocker, std::ios::binary);
+    f << 'x';
+  }
+  const bool ok = session.open((blocker / "x.db").string(), &why);
+  std::error_code ec;
+  fs::remove_all(dir, ec);  // 清理临时目录，成功失败都不遗留
   CHECK_FALSE(ok);
   CHECK_FALSE(why.empty());
   CHECK_FALSE(session.is_open());

@@ -2,6 +2,7 @@
 
 #include <algorithm>
 #include <cstdint>
+#include <filesystem>
 #include <fstream>
 #include <functional>
 #include <map>
@@ -525,31 +526,27 @@ void openapi_doc(const drogon::HttpRequestPtr& req, Callback&& cb) {
   // 查找顺序：可执行文件目录 → cwd → 仓库相对路径（开发树直跑用）。
   // 只用 cwd 是不行的——服务常由 systemd/脚本从别处拉起，
   // 一换工作目录就 500，而这种故障在现场极难复现。
-  std::vector<std::string> candidates;
+  //
+  // 候选路径一律走 fs::path：Windows 的窄字符 std::ifstream 以 ANSI
+  // 代码页解释路径，中文安装目录必炸；fs::path 在 MSVC 下以宽字符
+  // 开文件。旧写法 std::string(w.begin(), w.end()) 是逐元素截断而非
+  // 编码转换，非 ASCII 路径直接变乱码（CI 四跑的 C4244 揭发）。
+  std::vector<std::filesystem::path> candidates;
 #if defined(_WIN32)
   wchar_t buf[MAX_PATH];
   const DWORD n = GetModuleFileNameW(nullptr, buf, MAX_PATH);
   if (n > 0 && n < MAX_PATH) {
-    std::wstring w(buf, n);
-    const auto slash = w.find_last_of(L"\\/");
-    if (slash != std::wstring::npos) {
-      const std::wstring dir = w.substr(0, slash);
-      std::string utf8(dir.begin(), dir.end());
-      candidates.push_back(utf8 + "/openapi.yaml");
-    }
+    const std::filesystem::path exe(buf, buf + n);
+    candidates.push_back(exe.parent_path() / "openapi.yaml");
   }
 #endif
-  candidates.push_back("openapi.yaml");
-  candidates.push_back("shared/openapi/openapi.yaml");
+  candidates.emplace_back("openapi.yaml");
+  candidates.emplace_back("shared/openapi/openapi.yaml");
 
   std::ifstream f;
-  std::string used;
   for (const auto& path : candidates) {
     f.open(path, std::ios::binary);
-    if (f) {
-      used = path;
-      break;
-    }
+    if (f) break;
     f.clear();
   }
   if (!f) {
