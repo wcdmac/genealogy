@@ -53,7 +53,9 @@ export function PersonCard({
 
   async function onDelete() {
     if (!person) return;
-    if (!window.confirm(`删除 ${person.family_name}${person.given_name}？软删除，可经审计日志追溯。`)) {
+    // 当前是硬删除（spec 与实现一致）；软删除 + 审计追溯属 M8.5 路线图，
+    // 文案不得承诺还没有的行为。
+    if (!window.confirm(`删除 ${person.family_name}${person.given_name}？删除后不可恢复。`)) {
       return;
     }
     try {

@@ -1,8 +1,8 @@
 // 读写闭环冒烟（M2 验收：「TS 客户端由生成器产出并可跑通读写」）。
 //
 // 做什么：自己拉起一个临时库上的 genealogy-server，用 client.ts 走一遍
-// 「宗族建档 → 三代人 → 婚姻 → 事件 → 检索 → 算法 → 导出 → 软删除」，
-// 关键路径（409 乐观锁、404 软删除后、五服/称谓）逐条断言。
+// 「宗族建档 → 三代人 → 婚姻 → 事件 → 检索 → 算法 → 导出 → 删除」，
+// 关键路径（409 乐观锁、删除后 404、五服/称谓）逐条断言。
 //
 // 跑法：npm run smoke（依赖 build/bin/genealogy-server.exe 已构建）。
 // 退出码：0 全部通过；1 有断言失败；2 环境问题（server 起不来等）。
@@ -215,7 +215,7 @@ async function main(): Promise<number> {
 
     // ---- 删除 + 404 ----
     await client.deletePerson(son.id);
-    await expectApiError("软删除后 get 得 404", () => client.getPerson(son.id), 404);
+    await expectApiError("删除后 get 得 404", () => client.getPerson(son.id), 404);
 
     // ---- SSE 变更流（M5-3）----
     const notices: Array<{ type?: string; subject_id?: string }> = [];

@@ -15,7 +15,10 @@ export interface paths {
         };
         get?: never;
         put?: never;
-        /** 登录获取 JWT */
+        /**
+         * 登录获取 JWT
+         * @description 两种模式：本地免鉴权（默认）任意 body（可空）即发本地 steward 令牌，username/role 自选——这是单机便捷通道；--require-auth 模式 要求 username 与 password，口令对上 GENEALOGY_AUTH_PASSWORD 才 发令牌（口令即全权 steward；单机/局域网工具，无速率限制与 防爆破，用户模型与 ACL 属 M3/M8 路线图）。
+         */
         post: operations["issueToken"];
         delete?: never;
         options?: never;
@@ -185,7 +188,7 @@ export interface paths {
         get: operations["getPerson"];
         put?: never;
         post?: never;
-        /** 删除人物（软删除，入 audit_log） */
+        /** 删除人物（硬删除；其事件与迁徙随主体一并删除） */
         delete: operations["deletePerson"];
         options?: never;
         head?: never;
@@ -319,12 +322,90 @@ export interface paths {
         get: operations["getUnion"];
         put?: never;
         post?: never;
-        /** 解除结合（软删除） */
+        /** 解除结合（删除结合及成员关联） */
         delete: operations["deleteUnion"];
         options?: never;
         head?: never;
         /** 更新结合（状态/任次/时间） */
         patch: operations["updateUnion"];
+        trace?: never;
+    };
+    "/sources": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** 来源列表（按类型/标题过滤） */
+        get: operations["listSources"];
+        put?: never;
+        /** 登记来源（谱册/碑刻/口述/档案等） */
+        post: operations["createSource"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/sources/{id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: components["parameters"]["Id"];
+            };
+            cookie?: never;
+        };
+        /** 来源详情 */
+        get: operations["getSource"];
+        put?: never;
+        post?: never;
+        /** 删除来源（被引用时 409） */
+        delete: operations["deleteSource"];
+        options?: never;
+        head?: never;
+        /** 更新来源 */
+        patch: operations["updateSource"];
+        trace?: never;
+    };
+    "/citations": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** 证据引用列表（按主体/来源过滤） */
+        get: operations["listCitations"];
+        put?: never;
+        /** 登记证据引用（主体与来源都必须已存在） */
+        post: operations["createCitation"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/citations/{id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: components["parameters"]["Id"];
+            };
+            cookie?: never;
+        };
+        /** 证据引用详情 */
+        get: operations["getCitation"];
+        put?: never;
+        post?: never;
+        /** 解除证据引用 */
+        delete: operations["deleteCitation"];
+        options?: never;
+        head?: never;
+        /** 更新证据引用 */
+        patch: operations["updateCitation"];
         trace?: never;
     };
     "/events": {
@@ -591,6 +672,57 @@ export interface components {
             /** @description 约/以前/以后 */
             qualifier?: string;
         };
+        Source: {
+            id?: string;
+            /** @enum {unknown} */
+            type?: "genealogy_book" | "local_gazetteer" | "stele" | "oral" | "archive" | "photo" | "dna" | "document" | "other";
+            title?: string;
+            author?: string;
+            /** @description 年份照录原文（嘉庆四年 等） */
+            year_text?: string;
+            /** @description 收藏机构 */
+            repository?: string;
+            uri?: string;
+            /** @description 规范引文原文 */
+            citation?: string;
+            note?: string;
+        };
+        SourceCreate: {
+            /** @enum {unknown} */
+            type: "genealogy_book" | "local_gazetteer" | "stele" | "oral" | "archive" | "photo" | "dna" | "document" | "other";
+            title: string;
+            author?: string;
+            year_text?: string;
+            repository?: string;
+            uri?: string;
+            citation?: string;
+            note?: string;
+        };
+        Citation: {
+            id?: string;
+            /** @enum {unknown} */
+            subject_type?: "person" | "event" | "union" | "migration" | "branch" | "lineage";
+            subject_id?: string;
+            source_id?: string;
+            /** @description 定位串（卷/页/字段路径，如 卷三 p136 或 birth_date） */
+            locator?: string;
+            /** @enum {unknown} */
+            confidence?: "high" | "medium" | "low" | "disputed";
+            note?: string;
+        };
+        CitationCreate: {
+            /** @enum {unknown} */
+            subject_type: "person" | "event" | "union" | "migration" | "branch" | "lineage";
+            subject_id: string;
+            source_id: string;
+            locator?: string;
+            /**
+             * @default medium
+             * @enum {unknown}
+             */
+            confidence: "high" | "medium" | "low" | "disputed";
+            note?: string;
+        };
         Person: {
             id?: string;
             lineage_id?: string;
@@ -616,14 +748,20 @@ export interface components {
             death_date?: components["schemas"]["GenealogyDate"];
             burial_place_id?: string;
             biography?: string;
-            father_id?: string;
-            mother_id?: string;
+            father_id?: string | null;
+            mother_id?: string | null;
             portrait_attachment_id?: string;
             rev?: number;
             /** Format: date-time */
             created_at?: string;
             /** Format: date-time */
             updated_at?: string;
+            /** @description expand 含 events 时返回；此人的事件列表 */
+            events?: components["schemas"]["Event"][];
+            /** @description expand 含 unions 时返回；此人参与的结合（含成员角色） */
+            unions?: components["schemas"]["Union"][];
+            /** @description expand 含 migrations 时返回；此人的迁徙记录 */
+            migrations?: components["schemas"]["Migration"][];
             _links?: {
                 [key: string]: string;
             };
@@ -634,6 +772,7 @@ export interface components {
             family_name: string;
             given_name: string;
             courtesy_name?: string;
+            art_name?: string;
             /** @enum {unknown} */
             gender: "male" | "female" | "unknown";
             generation_no?: number;
@@ -643,8 +782,10 @@ export interface components {
             birth_date?: components["schemas"]["GenealogyDate"];
             death_date?: components["schemas"]["GenealogyDate"];
             biography?: string;
+            /** @description 出处页码/备注（转录纪律：必带 谱pNN） */
+            note?: string;
             father_id?: string;
-            mother_id?: string;
+            mother_id?: string | null;
         };
         PersonUpdate: {
             branch_id?: string;
@@ -954,6 +1095,15 @@ export interface components {
                 "application/problem+json": components["schemas"]["Problem"];
             };
         };
+        /** @description 缺少 If-Match 头——写操作必须携带当前 rev（code 2009，detail 含当前 rev） */
+        PreconditionRequired: {
+            headers: {
+                [name: string]: unknown;
+            };
+            content: {
+                "application/problem+json": components["schemas"]["Problem"];
+            };
+        };
         /** @description 领域规则不满足（如历法超出 1900-2100，code 5001） */
         Unprocessable: {
             headers: {
@@ -968,7 +1118,7 @@ export interface components {
         Id: string;
         Limit: number;
         Cursor: string;
-        /** @description 期望的实体版本（当前 rev），不匹配返回 409 */
+        /** @description 期望的实体版本（当前 rev）；缺失返回 428，不匹配返回 409 */
         IfMatch: string;
     };
     requestBodies: never;
@@ -987,12 +1137,14 @@ export interface operations {
             path?: never;
             cookie?: never;
         };
-        requestBody: {
+        requestBody?: {
             content: {
                 "application/json": {
-                    username: string;
+                    username?: string;
                     /** Format: password */
-                    password: string;
+                    password?: string;
+                    /** @description 请求的角色（steward/editor/viewer）。本地模式生效； 当前实现没有按角色收敛权限的 ACL（M8.4），角色信息 只进令牌与 /me。 */
+                    role?: components["schemas"]["Role"];
                 };
             };
         };
@@ -1152,7 +1304,7 @@ export interface operations {
         parameters: {
             query?: never;
             header: {
-                /** @description 期望的实体版本（当前 rev），不匹配返回 409 */
+                /** @description 期望的实体版本（当前 rev）；缺失返回 428，不匹配返回 409 */
                 "If-Match": components["parameters"]["IfMatch"];
             };
             path: {
@@ -1177,6 +1329,7 @@ export interface operations {
                 };
             };
             409: components["responses"]["Conflict"];
+            428: components["responses"]["PreconditionRequired"];
         };
     };
     listBranches: {
@@ -1267,7 +1420,7 @@ export interface operations {
         parameters: {
             query?: never;
             header: {
-                /** @description 期望的实体版本（当前 rev），不匹配返回 409 */
+                /** @description 期望的实体版本（当前 rev）；缺失返回 428，不匹配返回 409 */
                 "If-Match": components["parameters"]["IfMatch"];
             };
             path: {
@@ -1297,6 +1450,7 @@ export interface operations {
                 };
             };
             409: components["responses"]["Conflict"];
+            428: components["responses"]["PreconditionRequired"];
         };
     };
     getBranchTree: {
@@ -1379,8 +1533,8 @@ export interface operations {
     getPerson: {
         parameters: {
             query?: {
-                /** @description 展开子资源 */
-                expand?: ("events" | "unions" | "citations" | "names" | "migrations")[];
+                /** @description 展开子资源（逗号分隔）：events 事件、unions 参与的结合、 migrations 迁徙记录，随响应以同名字段返回。 citations/names 等证据链子资源属 M7（schema 已建、域模型未建）， 实现后加入本枚举。 */
+                expand?: ("events" | "unions" | "migrations")[];
             };
             header?: never;
             path: {
@@ -1390,7 +1544,7 @@ export interface operations {
         };
         requestBody?: never;
         responses: {
-            /** @description 成功（在世者按隐私级别脱敏） */
+            /** @description 成功（privacy_level 为声明式标记；在世者脱敏属隐私合规规划项，尚未实现，见 x-roadmap） */
             200: {
                 headers: {
                     ETag: components["headers"]["ETag"];
@@ -1427,7 +1581,7 @@ export interface operations {
         parameters: {
             query?: never;
             header: {
-                /** @description 期望的实体版本（当前 rev），不匹配返回 409 */
+                /** @description 期望的实体版本（当前 rev）；缺失返回 428，不匹配返回 409 */
                 "If-Match": components["parameters"]["IfMatch"];
             };
             path: {
@@ -1452,6 +1606,7 @@ export interface operations {
                 };
             };
             409: components["responses"]["Conflict"];
+            428: components["responses"]["PreconditionRequired"];
         };
     };
     getPersonAncestors: {
@@ -1673,7 +1828,7 @@ export interface operations {
         parameters: {
             query?: never;
             header: {
-                /** @description 期望的实体版本（当前 rev），不匹配返回 409 */
+                /** @description 期望的实体版本（当前 rev）；缺失返回 428，不匹配返回 409 */
                 "If-Match": components["parameters"]["IfMatch"];
             };
             path: {
@@ -1705,6 +1860,265 @@ export interface operations {
                 };
             };
             409: components["responses"]["Conflict"];
+            428: components["responses"]["PreconditionRequired"];
+        };
+    };
+    listSources: {
+        parameters: {
+            query?: {
+                type?: "genealogy_book" | "local_gazetteer" | "stele" | "oral" | "archive" | "photo" | "dna" | "document" | "other";
+                /** @description 标题模糊匹配 */
+                q?: string;
+                limit?: components["parameters"]["Limit"];
+                cursor?: components["parameters"]["Cursor"];
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description 成功 */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        data?: components["schemas"]["Source"][];
+                        page?: {
+                            next_cursor?: string | null;
+                            has_more?: boolean;
+                        };
+                    };
+                };
+            };
+        };
+    };
+    createSource: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["SourceCreate"];
+            };
+        };
+        responses: {
+            /** @description 成功 */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Source"];
+                };
+            };
+            400: components["responses"]["BadRequest"];
+        };
+    };
+    getSource: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: components["parameters"]["Id"];
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description 成功 */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Source"];
+                };
+            };
+            404: components["responses"]["NotFound"];
+        };
+    };
+    deleteSource: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: components["parameters"]["Id"];
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description 已删除 */
+            204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            404: components["responses"]["NotFound"];
+            409: components["responses"]["Conflict"];
+        };
+    };
+    updateSource: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: components["parameters"]["Id"];
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["SourceCreate"];
+            };
+        };
+        responses: {
+            /** @description 成功 */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Source"];
+                };
+            };
+            404: components["responses"]["NotFound"];
+        };
+    };
+    listCitations: {
+        parameters: {
+            query?: {
+                subject_type?: "person" | "event" | "union" | "migration" | "branch" | "lineage";
+                subject_id?: string;
+                source_id?: string;
+                limit?: components["parameters"]["Limit"];
+                cursor?: components["parameters"]["Cursor"];
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description 成功 */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        data?: components["schemas"]["Citation"][];
+                        page?: {
+                            next_cursor?: string | null;
+                            has_more?: boolean;
+                        };
+                    };
+                };
+            };
+        };
+    };
+    createCitation: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["CitationCreate"];
+            };
+        };
+        responses: {
+            /** @description 成功 */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Citation"];
+                };
+            };
+            400: components["responses"]["BadRequest"];
+            404: components["responses"]["NotFound"];
+        };
+    };
+    getCitation: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: components["parameters"]["Id"];
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description 成功 */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Citation"];
+                };
+            };
+            404: components["responses"]["NotFound"];
+        };
+    };
+    deleteCitation: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: components["parameters"]["Id"];
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description 已删除 */
+            204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            404: components["responses"]["NotFound"];
+        };
+    };
+    updateCitation: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: components["parameters"]["Id"];
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["CitationCreate"];
+            };
+        };
+        responses: {
+            /** @description 成功 */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Citation"];
+                };
+            };
+            404: components["responses"]["NotFound"];
         };
     };
     listEvents: {

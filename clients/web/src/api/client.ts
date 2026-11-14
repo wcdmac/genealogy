@@ -101,6 +101,19 @@ export class GenealogyClient {
   // ---------------------------------------------------------------- 基础
 
   /**
+   * 拼绝对 URL。同源模式（baseUrl 形如 /api/v1）在浏览器里是合法的
+   * 相对地址，但 new URL 只接受绝对地址——以当前页面 origin 为基解出。
+   * Node 冒烟传的是绝对地址，base 不参与解析（fetch 忽略多余 base）。
+   * 此前直接 new URL(baseUrl + path)，同源模式（README 宣称的默认
+   * 用法）当场抛 Invalid URL——最高频路径不可用。
+   */
+  private resolveUrl(path: string): URL {
+    const base =
+      typeof window !== "undefined" ? window.location.origin : "http://localhost";
+    return new URL(this.baseUrl + path, base);
+  }
+
+  /**
    * 发一次请求并解出业务数据。
    * 2xx → 解析体（204 → undefined，text/* → 原文）；
    * 非 2xx → 抛 ApiError（problem+json 已解析）。
@@ -110,7 +123,7 @@ export class GenealogyClient {
     path: string,
     options: RequestOptions = {},
   ): Promise<T> {
-    const url = new URL(this.baseUrl + path);
+    const url = this.resolveUrl(path);
     for (const [key, value] of Object.entries(options.query ?? {})) {
       if (value === undefined || value === null) continue;
       url.searchParams.set(key, String(value));
@@ -158,7 +171,7 @@ export class GenealogyClient {
     path: string,
     options: RequestOptions = {},
   ): Promise<{ data: T; etag?: string }> {
-    const url = new URL(this.baseUrl + path);
+    const url = this.resolveUrl(path);
     for (const [key, value] of Object.entries(options.query ?? {})) {
       if (value === undefined || value === null) continue;
       url.searchParams.set(key, String(value));
@@ -318,7 +331,9 @@ export class GenealogyClient {
 
   async getPerson(
     id: string,
-    expand?: Array<"events" | "unions" | "citations" | "names" | "migrations">,
+    // 与 spec 的 expand 枚举一致（events/unions/migrations 已实现；
+    // citations/names 属 M7，实现后再加入）。
+    expand?: Array<"events" | "unions" | "migrations">,
   ): Promise<Person> {
     return this.request("GET", `/persons/${encodeURIComponent(id)}`, {
       query: { expand: expand?.length ? expand.join(",") : undefined },
@@ -556,7 +571,7 @@ export class GenealogyClient {
     form.append("file", file, params?.filename ?? "import.ged");
     if (params?.lineage_id) form.append("lineage_id", params.lineage_id);
 
-    const url = new URL(this.baseUrl + "/imports/gedcom");
+    const url = this.resolveUrl("/imports/gedcom");
     const headers: Record<string, string> = {};
     if (this.token) headers["Authorization"] = `Bearer ${this.token}`;
     // Content-Type 不设：fetch 会按 FormData 自动带 boundary
@@ -638,7 +653,7 @@ export class GenealogyClient {
     onError?: (error: unknown) => void,
   ): () => void {
     const controller = new AbortController();
-    const url = new URL(this.baseUrl + "/events/stream");
+    const url = this.resolveUrl("/events/stream");
     const headers: Record<string, string> = {};
     if (this.token) headers["Authorization"] = `Bearer ${this.token}`;
 
@@ -669,6 +684,11 @@ export class GenealogyClient {
           }
           separator = buffer.indexOf("\n\n");
         }
+      }
+      // 服务端正常关闭流（重启/停机）也算断线：不回调的话订阅方
+      // 会停在「在线」假状态、永不重连——此前 done 后直接静默返回。
+      if (!controller.signal.aborted) {
+        onError?.(new Error("SSE 连接被服务端关闭"));
       }
     })().catch((error) => {
       if (!controller.signal.aborted) onError?.(error);

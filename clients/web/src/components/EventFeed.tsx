@@ -21,17 +21,21 @@ export function EventFeed() {
     }
     let disposed = false;
     let timer: ReturnType<typeof setTimeout> | undefined;
+    // 活跃订阅的退订函数提在 effect 作用域：cleanup 里必须真的断开
+    // fetch 流——此前 unsubscribe 被 start() 关在闭包里，卸载/断开时
+    // SSE 连接不被 abort，连接与内存一路泄漏。
+    let unsubscribe: (() => void) | undefined;
 
     const start = () => {
       if (disposed) return;
-      const unsubscribe = client.subscribe(
+      unsubscribe = client.subscribe(
         (notice) => {
           setLive(true);
           setEvents((previous) => [notice, ...previous].slice(0, 5));
         },
         () => {
           setLive(false);
-          unsubscribe();
+          unsubscribe = undefined;
           timer = setTimeout(start, 3000);
         },
       );
@@ -41,6 +45,7 @@ export function EventFeed() {
     return () => {
       disposed = true;
       if (timer) clearTimeout(timer);
+      unsubscribe?.();
     };
   }, [client, connection.connected]);
 

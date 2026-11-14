@@ -256,3 +256,216 @@ input[type="checkbox"] { width: auto; }
 }
 .panel h3 { margin: 0 0 10px; }
 code { font-family: var(--mono); background: #f3eee3; padding: 1px 4px; border-radius: 4px; }
+
+
+/* ---------------------------------------------------------------- */
+/* 谱师转录工作台                                                     */
+
+.wb {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.wb-head h2 {
+  margin: 0 0 4px 0;
+}
+
+.wb-note {
+  font-size: 12px;
+  color: var(--muted, #7a7a7a);
+  max-width: 720px;
+}
+
+.wb-settings {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 12px;
+  align-items: flex-end;
+  padding: 8px 10px;
+  border: 1px solid var(--border, #ddd);
+  border-radius: 6px;
+}
+
+.wb-settings label {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+  font-size: 12px;
+}
+
+.wb-validate {
+  margin-left: auto;
+}
+
+.wb-validate-out {
+  border: 1px solid var(--border, #ddd);
+  border-radius: 6px;
+  padding: 6px 10px;
+  font-size: 12px;
+}
+
+.wb-validate-out ul {
+  margin: 4px 0 0 0;
+  padding-left: 18px;
+  max-height: 120px;
+  overflow: auto;
+}
+
+.wb-panes {
+  display: grid;
+  grid-template-columns: minmax(380px, 1.2fr) minmax(360px, 1fr);
+  gap: 14px;
+  align-items: start;
+}
+
+.wb-viewer,
+.wb-entry {
+  border: 1px solid var(--border, #ddd);
+  border-radius: 6px;
+  padding: 10px;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.wb-viewer h3,
+.wb-entry h3,
+.wb-entry h4 {
+  margin: 0;
+}
+
+.wb-entry h4 {
+  margin-top: 8px;
+  font-size: 13px;
+  color: var(--muted, #555);
+}
+
+.wb-file {
+  display: flex;
+  gap: 8px;
+  align-items: center;
+  flex-wrap: wrap;
+  font-size: 12px;
+}
+
+.wb-canvas-wrap {
+  position: relative;
+  max-height: 620px;
+  overflow: auto;
+  border: 1px solid var(--border, #ddd);
+  background: #f3f3f3;
+  text-align: center;
+}
+
+.wb-canvas {
+  max-width: 100%;
+  cursor: crosshair;
+  touch-action: none;
+}
+
+.wb-rendering {
+  position: absolute;
+  top: 8px;
+  left: 8px;
+  font-size: 12px;
+  background: rgba(255, 255, 255, 0.85);
+  padding: 2px 8px;
+  border-radius: 4px;
+}
+
+.wb-crop {
+  width: 100%;
+  max-height: 340px;
+  border: 1px solid var(--border, #ddd);
+  background: #fafafa;
+}
+
+.wb-hint {
+  font-size: 12px;
+  color: var(--muted, #7a7a7a);
+}
+
+.wb-form {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px 12px;
+}
+
+.wb-form label,
+.wb-wife,
+.wb-son {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+  font-size: 12px;
+}
+
+.wb-wife,
+.wb-son {
+  flex-direction: row;
+  align-items: center;
+  gap: 6px;
+}
+
+.wb-check {
+  flex-direction: row !important;
+  align-items: center;
+  gap: 4px !important;
+}
+
+.wb-wide {
+  width: 100%;
+}
+
+.wb-actions {
+  display: flex;
+  gap: 10px;
+}
+
+.wb-queue {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  max-height: 260px;
+  overflow: auto;
+}
+
+.wb-item {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  align-items: center;
+  font-size: 12px;
+  border: 1px solid var(--border, #ddd);
+  border-radius: 4px;
+  padding: 4px 8px;
+}
+
+.wb-item.ok {
+  border-color: #9fcf9f;
+  background: #f2faf2;
+}
+
+.wb-item.bad {
+  border-color: #e0a0a0;
+  background: #fdf3f3;
+}
+
+.wb-item-main {
+  flex: 1;
+}
+
+.wb-item-msg {
+  color: #a06a00;
+  font-size: 11px;
+}
+
+.wb-item-id {
+  color: #3c8c3c;
+  font-family: monospace;
+  font-size: 11px;
+}

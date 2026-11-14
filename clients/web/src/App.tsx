@@ -12,8 +12,15 @@ import { TreeView } from "./views/TreeView";
 import { ExportView } from "./views/ExportView";
 import { ValidateView } from "./views/ValidateView";
 import { MigrationView } from "./views/MigrationView";
+import { TranscribeView } from "./views/TranscribeView";
 
-type ViewKey = "persons" | "tree" | "migration" | "export" | "validate";
+type ViewKey =
+  | "persons"
+  | "tree"
+  | "migration"
+  | "export"
+  | "validate"
+  | "transcribe";
 
 const NAV: Array<{ key: ViewKey; label: string; hint: string }> = [
   { key: "persons", label: "人物", hint: "检索 · 建档 · 人物卡" },
@@ -21,6 +28,7 @@ const NAV: Array<{ key: ViewKey; label: string; hint: string }> = [
   { key: "migration", label: "迁徙", hint: "迁徙登记 · 地图" },
   { key: "export", label: "导入导出", hint: "GEDCOM 双向" },
   { key: "validate", label: "校验", hint: "数据质量规则" },
+  { key: "transcribe", label: "转录工作台", hint: "老谱扫描件 → 结构化录入" },
 ];
 
 export function App() {
@@ -90,6 +98,7 @@ export function App() {
             {view === "migration" && <MigrationView />}
             {view === "export" && <ExportView />}
             {view === "validate" && <ValidateView />}
+            {view === "transcribe" && <TranscribeView />}
           </main>
         </div>
       )}
