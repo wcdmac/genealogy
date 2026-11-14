@@ -10,6 +10,12 @@ jobs:
   build:
     name: ${{ matrix.os }}
     runs-on: ${{ matrix.os }}
+    env:
+      # Windows runner 的 Python stdout 默认 cp1252，中文输出直接
+      # UnicodeEncodeError——八跑 license_check 在「检查通过」的消息上
+      # 崩溃（检查本身是过了的）；本机控制台 GBK 能编码所以从未复现。
+      # 强制所有 python 步骤 UTF-8（license/drill/openapi 全覆盖）。
+      PYTHONUTF8: "1"
     strategy:
       fail-fast: false
       matrix:
@@ -190,7 +196,10 @@ jobs:
         shell: bash
         run: |
           set -o pipefail
-          $PY -m pip install pyyaml openapi-spec-validator 2>&1 | tee "$GITHUB_WORKSPACE/openapi.log" \
+          # --break-system-packages：macOS 的 Homebrew Python 是 PEP 668
+          # externally-managed（八跑实测拒装）；ubuntu 镜像已预设同名
+          # env，windows 无感。CI 环境一次性，安全。
+          $PY -m pip install --break-system-packages pyyaml openapi-spec-validator 2>&1 | tee "$GITHUB_WORKSPACE/openapi.log" \
             && echo openapi >> "$GITHUB_WORKSPACE/_ok.txt"
           $PY tools/validate_openapi.py 2>&1 | tee -a "$GITHUB_WORKSPACE/openapi.log"
 
