@@ -90,6 +90,13 @@ set(CPACK_PACKAGE_DESCRIPTION_SUMMARY "${PROJECT_DESCRIPTION}")
 set(CPACK_PACKAGE_VENDOR "wcdmac")
 set(CPACK_PACKAGE_HOMEPAGE_URL "https://github.com/wcdmac/genealogy")
 set(CPACK_RESOURCE_FILE_LICENSE "${PROJECT_SOURCE_DIR}/LICENSE")
+if(APPLE)
+  # CMake 4.x 的 DMG 生成器移除了 license-SLA 的隐式支持：设了
+  # CPACK_RESOURCE_FILE_LICENSE 而不显式声明 SLA 行为会直接报错
+  # （2026-11-14 CI 六跑 macOS DRAGNDROP 首挂）。本项目不做 SLA 弹窗，
+  # 显式关闭。
+  set(CPACK_DMG_SLA_USE_RESOURCE_FILE_LICENSE OFF)
+endif()
 if(WIN32)
   set(CPACK_GENERATOR "ZIP")
 elseif(APPLE)

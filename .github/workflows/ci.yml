@@ -29,6 +29,18 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
+      # Python 解释器探测：Windows runner 的 python3 是 MS Store 存根
+      # （六跑许可证步骤在 Windows 单独挂、Ubuntu 同脚本通过的差异点），
+      # 不能无脑统一 python3；ubuntu-24.04 又没有裸 python。实测可用者胜出。
+      - name: 选 Python 解释器
+        shell: bash
+        run: |
+          if python3 -c "import sys" 2>/dev/null; then
+            echo "PY=python3" >> "$GITHUB_ENV"
+          else
+            echo "PY=python" >> "$GITHUB_ENV"
+          fi
+
       # Windows 的 runner PATH 上 mingw64 排在 MSVC 前，-G Ninja 时 CMake
       # 会选中 GNU 编译器（2026-11-14 CI 实测），而依赖端口是 MSVC ABI
       # 装出来的，链接必炸；显式装载 MSVC 环境让 cl 成为默认编译器。
@@ -115,25 +127,6 @@ jobs:
           set -o pipefail
           ctest --test-dir build --build-config Release --output-on-failure 2>&1 | tee test.log
 
-      # 失败诊断：完整日志只有认证后才能经 API 拉取，而 annotations
-      # 匿名可读（含本机网络只通 api.github.com 的场景）。失败时把
-      # 对应日志尾部切成 ::error:: 注解回传，拿正文不再依赖 gh 登录。
-      - name: 失败诊断（日志尾部回传 annotations）
-        if: failure()
-        shell: bash
-        run: |
-          for pair in "configure.log Configure" "build.log Build" "test.log Test" "cpack.log 打包" "license.log 许可证" "drill.log 演练" "openapi.log OpenAPI" "ts.log TS客户端" "uismoke.log UI闭环"; do
-            set -- $pair
-            LOG=$1; LABEL=$2
-            [ -f "$LOG" ] || continue
-            tail -n 120 "$LOG" | sed -e 's/\r$//' -e 's/%/%25/g' | \
-            awk -v label="$LABEL" -v file="$LOG" '
-              {buf = buf (NR>1 ? "%0A" : "") $0}
-              NR%30==0 {print "::error title=" label "（" file "）尾段" NR/30 "::" buf; buf=""}
-              END {if (buf != "") print "::error title=" label "（" file "）尾段末::" buf}
-            '
-          done
-
       # M6-1：三平台打包。CPack 内置生成器（ZIP/DRAGNDROP/TGZ），
       # 不引外部打包工具；产物上传供试装试跑。
       - name: 打包（CPack）
@@ -171,7 +164,7 @@ jobs:
         shell: bash
         run: |
           set -o pipefail
-          python3 tools/license_check.py 2>&1 | tee "$GITHUB_WORKSPACE/license.log"
+          $PY tools/license_check.py 2>&1 | tee "$GITHUB_WORKSPACE/license.log"
 
       # M6-3 验收硬指标：「备份恢复演练通过」。灌合成谱 → 备份 →
       # 删库（模拟事故）→ 恢复 → 核对人物数一致，另验 --force 保护。
@@ -181,7 +174,7 @@ jobs:
         # 统一 python3（ubuntu-24.04 没有裸 python 命令）
         run: |
           set -o pipefail
-          python3 tools/drill_backup_restore.py --genea "${{ matrix.genea_bin }}" 2>&1 | tee "$GITHUB_WORKSPACE/drill.log"
+          $PY tools/drill_backup_restore.py --genea "${{ matrix.genea_bin }}" 2>&1 | tee "$GITHUB_WORKSPACE/drill.log"
 
       # spec 是客户端代码生成的唯一事实源：spec 写坏（断引用、类型错误）
       # 不会让任何 C++ 编译失败，只会在几个月后对接第三方时炸。
@@ -191,8 +184,8 @@ jobs:
         shell: bash
         run: |
           set -o pipefail
-          python3 -m pip install pyyaml openapi-spec-validator 2>&1 | tee "$GITHUB_WORKSPACE/openapi.log"
-          python3 tools/validate_openapi.py 2>&1 | tee -a "$GITHUB_WORKSPACE/openapi.log"
+          $PY -m pip install pyyaml openapi-spec-validator 2>&1 | tee "$GITHUB_WORKSPACE/openapi.log"
+          $PY tools/validate_openapi.py 2>&1 | tee -a "$GITHUB_WORKSPACE/openapi.log"
 
       # M2 验收硬指标：「TS 客户端由生成器产出并可跑通读写」。
       # 只在 Windows 跑（server 二进制与 vcpkg DLL 路径都已就绪；
@@ -229,3 +222,25 @@ jobs:
           # ui-smoke 自拉 server 二进制，同样需要 manifest 依赖的 DLL 在 PATH
           export PATH="$GITHUB_WORKSPACE/build/vcpkg_installed/x64-windows/bin:$PATH"
           npm run ui-smoke 2>&1 | tee -a "$GITHUB_WORKSPACE/uismoke.log"
+
+      # 失败诊断：完整日志只有认证后才能经 API 拉取，而 annotations
+      # 匿名可读（含本机网络只通 api.github.com 的场景）。失败时把
+      # 对应日志尾部切成 ::error:: 注解回传，拿正文不再依赖 gh 登录。
+      # 必须放在 job 末尾：if: failure() 在步骤轮到时求值一次，
+      # 放在 Test 后面时 Test 一过就永远跳过，其后步骤的失败全进盲区
+      # （六跑 Windows 许可证/macOS 打包有日志却无注解的原因）。
+      - name: 失败诊断（日志尾部回传 annotations）
+        if: failure()
+        shell: bash
+        run: |
+          for pair in "configure.log Configure" "build.log Build" "test.log Test" "cpack.log 打包" "license.log 许可证" "drill.log 演练" "openapi.log OpenAPI" "ts.log TS客户端" "uismoke.log UI闭环"; do
+            set -- $pair
+            LOG=$1; LABEL=$2
+            [ -f "$LOG" ] || continue
+            tail -n 120 "$LOG" | sed -e 's/\r$//' -e 's/%/%25/g' | \
+            awk -v label="$LABEL" -v file="$LOG" '
+              {buf = buf (NR>1 ? "%0A" : "") $0}
+              NR%30==0 {print "::error title=" label "（" file "）尾段" NR/30 "::" buf; buf=""}
+              END {if (buf != "") print "::error title=" label "（" file "）尾段末::" buf}
+            '
+          done
