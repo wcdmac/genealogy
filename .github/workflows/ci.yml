@@ -20,7 +20,7 @@ jobs:
             genea_bin: build/bin/genea.exe
           - os: macos-latest
             triplet: arm64-osx
-            cpack_gen: DRAGNDROP
+            cpack_gen: DragNDrop
             genea_bin: build/bin/genea
           - os: ubuntu-latest
             triplet: x64-linux
@@ -113,19 +113,22 @@ jobs:
             -DVCPKG_INSTALL_OPTIONS="--clean-after-build" \
             -DBUILD_SERVER=ON \
             -DBUILD_GUI=ON \
-            "-DVCPKG_MANIFEST_FEATURES=server;gui" 2>&1 | tee configure.log
+            "-DVCPKG_MANIFEST_FEATURES=server;gui" 2>&1 | tee configure.log \
+            && echo configure >> "$GITHUB_WORKSPACE/_ok.txt"
 
       - name: Build
         shell: bash
         run: |
           set -o pipefail
-          cmake --build build --config Release --parallel 2>&1 | tee build.log
+          cmake --build build --config Release --parallel 2>&1 | tee build.log \
+            && echo build >> "$GITHUB_WORKSPACE/_ok.txt"
 
       - name: Test
         shell: bash
         run: |
           set -o pipefail
-          ctest --test-dir build --build-config Release --output-on-failure 2>&1 | tee test.log
+          ctest --test-dir build --build-config Release --output-on-failure 2>&1 | tee test.log \
+            && echo test >> "$GITHUB_WORKSPACE/_ok.txt"
 
       # M6-1：三平台打包。CPack 内置生成器（ZIP/DRAGNDROP/TGZ），
       # 不引外部打包工具；产物上传供试装试跑。
@@ -134,7 +137,8 @@ jobs:
         run: |
           cd build
           set -o pipefail
-          cpack -G "${{ matrix.cpack_gen }}" --verbose 2>&1 | tee "$GITHUB_WORKSPACE/cpack.log"
+          cpack -G "${{ matrix.cpack_gen }}" --verbose 2>&1 | tee "$GITHUB_WORKSPACE/cpack.log" \
+            && echo cpack >> "$GITHUB_WORKSPACE/_ok.txt"
           ls -la *.zip *.dmg *.tar.gz 2>/dev/null || true
 
       - name: 上传打包产物
@@ -164,7 +168,8 @@ jobs:
         shell: bash
         run: |
           set -o pipefail
-          $PY tools/license_check.py 2>&1 | tee "$GITHUB_WORKSPACE/license.log"
+          $PY tools/license_check.py 2>&1 | tee "$GITHUB_WORKSPACE/license.log" \
+            && echo license >> "$GITHUB_WORKSPACE/_ok.txt"
 
       # M6-3 验收硬指标：「备份恢复演练通过」。灌合成谱 → 备份 →
       # 删库（模拟事故）→ 恢复 → 核对人物数一致，另验 --force 保护。
@@ -174,7 +179,8 @@ jobs:
         # 统一 python3（ubuntu-24.04 没有裸 python 命令）
         run: |
           set -o pipefail
-          $PY tools/drill_backup_restore.py --genea "${{ matrix.genea_bin }}" 2>&1 | tee "$GITHUB_WORKSPACE/drill.log"
+          $PY tools/drill_backup_restore.py --genea "${{ matrix.genea_bin }}" 2>&1 | tee "$GITHUB_WORKSPACE/drill.log" \
+            && echo drill >> "$GITHUB_WORKSPACE/_ok.txt"
 
       # spec 是客户端代码生成的唯一事实源：spec 写坏（断引用、类型错误）
       # 不会让任何 C++ 编译失败，只会在几个月后对接第三方时炸。
@@ -184,7 +190,8 @@ jobs:
         shell: bash
         run: |
           set -o pipefail
-          $PY -m pip install pyyaml openapi-spec-validator 2>&1 | tee "$GITHUB_WORKSPACE/openapi.log"
+          $PY -m pip install pyyaml openapi-spec-validator 2>&1 | tee "$GITHUB_WORKSPACE/openapi.log" \
+            && echo openapi >> "$GITHUB_WORKSPACE/_ok.txt"
           $PY tools/validate_openapi.py 2>&1 | tee -a "$GITHUB_WORKSPACE/openapi.log"
 
       # M2 验收硬指标：「TS 客户端由生成器产出并可跑通读写」。
@@ -204,7 +211,8 @@ jobs:
           # installed/，那里从没人填过）；DLL 上 PATH，smoke 自拉的 server
           # 才找得到 drogon/trantor/jsoncpp
           export PATH="$GITHUB_WORKSPACE/build/vcpkg_installed/x64-windows/bin:$PATH"
-          npm run smoke 2>&1 | tee -a "$GITHUB_WORKSPACE/ts.log"
+          npm run smoke 2>&1 | tee -a "$GITHUB_WORKSPACE/ts.log" \
+            && echo ts >> "$GITHUB_WORKSPACE/_ok.txt"
 
       # M5 验收硬指标：「浏览器端完成建档→关系→世系图→导出闭环」。
       # playwright 驱动真实 Chromium 实际操作 UI，失败即闭环有洞——
@@ -221,7 +229,8 @@ jobs:
           npx playwright install chromium 2>&1 | tee -a "$GITHUB_WORKSPACE/uismoke.log"
           # ui-smoke 自拉 server 二进制，同样需要 manifest 依赖的 DLL 在 PATH
           export PATH="$GITHUB_WORKSPACE/build/vcpkg_installed/x64-windows/bin:$PATH"
-          npm run ui-smoke 2>&1 | tee -a "$GITHUB_WORKSPACE/uismoke.log"
+          npm run ui-smoke 2>&1 | tee -a "$GITHUB_WORKSPACE/uismoke.log" \
+            && echo uismoke >> "$GITHUB_WORKSPACE/_ok.txt"
 
       # 失败诊断：完整日志只有认证后才能经 API 拉取，而 annotations
       # 匿名可读（含本机网络只通 api.github.com 的场景）。失败时把
@@ -233,14 +242,23 @@ jobs:
         if: failure()
         shell: bash
         run: |
+          # 只回传「跑过且失败」的日志：tee 落盘对成功步骤也会发生，
+          # 而 GitHub 每步骤注解上限 10 条（七跑 Windows 的 license.log
+          # 被成功步骤的 configure/build/test/cpack 注解挤掉的原因）。
+          # 每步成功后写 _ok.txt 标记，这里跳过仍标记着的。
+          emitted=0
           for pair in "configure.log Configure" "build.log Build" "test.log Test" "cpack.log 打包" "license.log 许可证" "drill.log 演练" "openapi.log OpenAPI" "ts.log TS客户端" "uismoke.log UI闭环"; do
             set -- $pair
             LOG=$1; LABEL=$2
+            NAME=${LOG%.log}
             [ -f "$LOG" ] || continue
-            tail -n 120 "$LOG" | sed -e 's/\r$//' -e 's/%/%25/g' | \
+            if [ -f _ok.txt ] && grep -qx "$NAME" _ok.txt; then continue; fi
+            if [ "$emitted" -ge 8 ]; then break; fi
+            tail -n 60 "$LOG" | sed -e 's/\r$//' -e 's/%/%25/g' | \
             awk -v label="$LABEL" -v file="$LOG" '
               {buf = buf (NR>1 ? "%0A" : "") $0}
               NR%30==0 {print "::error title=" label "（" file "）尾段" NR/30 "::" buf; buf=""}
               END {if (buf != "") print "::error title=" label "（" file "）尾段末::" buf}
             '
+            emitted=$((emitted + 2))
           done

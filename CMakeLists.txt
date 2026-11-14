@@ -100,7 +100,10 @@ endif()
 if(WIN32)
   set(CPACK_GENERATOR "ZIP")
 elseif(APPLE)
-  set(CPACK_GENERATOR "DRAGNDROP")
+  # 生成器名大小写敏感：正确名是 DragNDrop。M6-1 起写的全大写
+  # DRAGNDROP 从未真正打包成功过，直到 CI 七跑在真 macOS 上
+  # 报「Could not create CPack generator: DRAGNDROP」才揭发。
+  set(CPACK_GENERATOR "DragNDrop")
 else()
   set(CPACK_GENERATOR "TGZ")
 endif()
