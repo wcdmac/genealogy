@@ -2,10 +2,13 @@
 
 #include <imgui.h>
 
+#include <optional>
 #include <string>
+#include <vector>
 
 #include <genealogy/lineage/graph.hpp>
 #include <genealogy/model/event.hpp>
+#include <genealogy/repository/citation_repository.hpp>
 #include <genealogy/repository/event_repository.hpp>
 #include <genealogy/repository/person_repository.hpp>
 #include <genealogy/repository/union_repository.hpp>
@@ -48,7 +51,26 @@ void ValidationPanel::run(DbSession& session) {
     return;
   }
 
-  auto report = validate(graph, &*evs, ValidationOptions{});
+  // R16/R17 需要全量 citation：翻页载到尽（与 CLI/REST 同口径）
+  CitationRepository citations(session.db());
+  std::vector<Citation> citation_rows;
+  std::optional<std::string> cite_cursor;
+  for (;;) {
+    CitationFilter cf;
+    cf.limit = 1000;
+    cf.cursor = cite_cursor;
+    auto page = citations.list(cf);
+    if (!page) {
+      state_.set_status("载入证据引用失败: " + page.error().message(), true);
+      ran_ = false;
+      return;
+    }
+    if (page->empty()) break;
+    for (auto& c : *page) citation_rows.push_back(std::move(c));
+    cite_cursor = citation_rows.back().id;
+  }
+
+  auto report = validate(graph, &*evs, &citation_rows, ValidationOptions{});
   if (!report) {
     state_.set_status("校验失败: " + report.error().message(), true);
     ran_ = false;

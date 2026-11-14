@@ -16,6 +16,7 @@
 
 #include <genealogy/error.hpp>
 #include <genealogy/lineage/graph.hpp>
+#include <genealogy/model/citation.hpp>
 #include <genealogy/model/event.hpp>
 
 namespace genealogy {
@@ -57,10 +58,12 @@ struct ValidationReport {
   int rules_total = 0;  // 规则表里一共几条
 };
 
-// 跑校验。graph 提供人物与婚姻结合；events 可选（墓葬早于卒年等规则需要）。
-// 调用方须保证 graph 指向的数据存活期覆盖本次调用。
+// 跑校验。graph 提供人物与婚姻结合；events 可选（墓葬早于卒年等规则需要）；
+// citations 可选（R16 无证据事实 / R17 引用冲突需要；为空时这两条静默跳过，
+// 与 events 的既有约定一致）。调用方须保证 graph 指向的数据存活期覆盖本次调用。
 Result<ValidationReport> validate(const lineage::PersonGraph& graph,
                                   const std::vector<Event>* events = nullptr,
+                                  const std::vector<Citation>* citations = nullptr,
                                   const ValidationOptions& opt = {});
 
 }  // namespace genealogy

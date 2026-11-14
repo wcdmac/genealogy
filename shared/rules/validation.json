@@ -1,7 +1,7 @@
 {
   "ruleset": "genealogy-validation",
-  "version": 1,
-  "note": "规则的等级、阈值、文案、是否启用都在这里；判定逻辑见 core/src/validate/validator.cpp 的 check_* 函数。新增规则要先加谓词，再在此登记。",
+  "version": 2,
+  "note": "规则的等级、阈值、文案、是否启用都在这里；判定逻辑见 core/src/validate/validator.cpp 的 check_* 函数。新增规则要先加谓词，再在此登记。M7.3：R15 移除（note/biography 启发式被 R16 的 citation 实测取代，编号留缺口不重排），新增 R16 无证据事实 / R17 引用冲突裁定。",
   "rules": [
     {
       "id": "R1",
@@ -144,15 +144,24 @@
       "suggestion": "可能有未录入的兄弟姐妹，或行几录错"
     },
     {
-      "id": "R15",
-      "name": "缺证据",
+      "id": "R16",
+      "name": "无证据事实",
       "severity": "info",
       "entity": "person",
-      "check": "missing_evidence",
+      "check": "missing_citation",
       "params": {},
-      "enabled": false,
-      "message": "无备注、无行传、无出处",
-      "suggestion": "谱面信息充足时可开启本条做证据普查"
+      "message": "该事实无任何证据引用（citation 0 条）",
+      "suggestion": "转录工作台挂接出处，或 genea citation add；locator 可精确到字段路径"
+    },
+    {
+      "id": "R17",
+      "name": "引用冲突待裁定",
+      "severity": "warning",
+      "entity": "person",
+      "check": "conflicting_citations",
+      "params": {},
+      "message": "同一事实存在多条不同来源的高置信引用，内容可能互斥",
+      "suggestion": "对照两处原文：一致则合并保留其一；互斥则将较低可信一条置为 disputed 完成裁定"
     }
   ]
 }

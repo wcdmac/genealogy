@@ -36,6 +36,7 @@
 #include <genealogy/repository/bootstrap.hpp>
 #include <genealogy/repository/transaction.hpp>
 #include <genealogy/repository/bulk_load.hpp>
+#include <genealogy/service/citation_service.hpp>
 #include <genealogy/service/event_service.hpp>
 #include <genealogy/service/lineage_service.hpp>
 #include <genealogy/service/person_service.hpp>
@@ -388,6 +389,26 @@ int cmd_validate(const std::vector<std::string>& args,
   std::vector<Event> event_rows =
       event_list ? std::move(*event_list) : std::vector<Event>{};
 
+  // R16/R17 需要全量 citation：翻页载到尽（游标 = 本页最后一条 id）。
+  // 人物/事件用的单次大 limit 是 M1 登记的容量假设（ROADMAP 暂缓项
+  // 「统一装载层」），这里引用是新域从一开始就用翻页，不给它埋上限。
+  CitationService citations(*db);
+  std::vector<Citation> citation_rows;
+  std::optional<std::string> cite_cursor;
+  for (;;) {
+    CitationFilter cf;
+    cf.limit = 1000;
+    cf.cursor = cite_cursor;
+    auto page = citations.list_citations(cf);
+    if (!page) {
+      print_error(page.error());
+      return exit_code_for(page.error());
+    }
+    if (page->empty()) break;
+    for (auto& c : *page) citation_rows.push_back(std::move(c));
+    cite_cursor = citation_rows.back().id;
+  }
+
   const lineage::PersonGraph graph = lineage::PersonGraph::build(rows, union_rows);
 
   ValidationOptions vo;
@@ -404,7 +425,7 @@ int cmd_validate(const std::vector<std::string>& args,
     if (!cur.empty()) vo.only_rule_ids.push_back(cur);
   }
 
-  auto report = validate(graph, &event_rows, vo);
+  auto report = validate(graph, &event_rows, &citation_rows, vo);
   if (!report) {
     print_error(report.error());
     return exit_code_for(report.error());

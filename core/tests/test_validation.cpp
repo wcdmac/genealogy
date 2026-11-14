@@ -49,11 +49,28 @@ bool has_issue(const ValidationReport& r, const std::string& rule_id,
 
 ValidationReport run(std::vector<Person> persons,
                      const std::vector<Union>& unions = {},
-                     const std::vector<Event>* events = nullptr) {
+                     const std::vector<Event>* events = nullptr,
+                     const std::vector<Citation>* citations = nullptr) {
   const PersonGraph g = PersonGraph::build(persons, unions);
-  auto r = validate(g, events);
+  auto r = validate(g, events, citations);
   REQUIRE(r.has_value());
   return *r;
+}
+
+// R16/R17 的 citation 构造器：默认 person 主体、medium 置信、无 locator
+Citation mkc(const std::string& id, const std::string& subject_id,
+             const std::string& source_id,
+             CitationSubjectType subject_type = CitationSubjectType::Person,
+             Confidence confidence = Confidence::Medium,
+             const std::string& locator = "") {
+  Citation c;
+  c.id = id;
+  c.subject_type = subject_type;
+  c.subject_id = subject_id;
+  c.source_id = source_id;
+  if (!locator.empty()) c.locator = locator;
+  c.confidence = confidence;
+  return c;
 }
 
 }  // namespace
@@ -61,11 +78,11 @@ ValidationReport run(std::vector<Person> persons,
 TEST_CASE("校验：规则表能加载，且每条规则都有谓词实现") {
   const std::vector<Person> none;
   const auto r = run(none);
-  // 15 条登记规则，1 条默认停用
-  CHECK(r.rules_total == 15);
-  CHECK(r.rules_run == 14);
+  // 16 条登记规则（R15 于 M7.3 移除，编号留缺口），全部默认启用
+  CHECK(r.rules_total == 16);
+  CHECK(r.rules_run == 16);
   CHECK(r.ruleset == "genealogy-validation");
-  CHECK(r.ruleset_version == "1");
+  CHECK(r.ruleset_version == "2");
   CHECK(r.issues.empty());
 }
 
@@ -315,7 +332,7 @@ TEST_CASE("校验：only_rule_ids 只跑指定规则") {
   ValidationOptions opt;
   opt.only_rule_ids = {"R9"};
   const PersonGraph g = PersonGraph::build(ps);
-  const auto r = validate(g, nullptr, opt);
+  const auto r = validate(g, nullptr, nullptr, opt);
   REQUIRE(r.has_value());
   CHECK(r->rules_run == 1);
   CHECK(r->issues.size() == 1);
@@ -356,4 +373,101 @@ TEST_CASE("校验：报告按 规则序 → 实体 id 排序，输出可复现")
     const auto& b = r1.issues[i];
     if (a.rule_id == b.rule_id) CHECK(a.entity_id < b.entity_id);
   }
+}
+
+TEST_CASE("校验：R16 无证据事实——无引用的人物与事件进清单，有引用的不报") {
+  std::vector<Person> ps;
+  ps.push_back(mk("P1", "陈", "有证", Gender::Male, 1900));
+  ps.push_back(mk("P2", "陈", "无证", Gender::Male, 1900));
+  std::vector<Event> evs;
+  Event ev_cited;
+  ev_cited.id = "E1";
+  ev_cited.subject_type = EventSubjectType::Person;
+  ev_cited.subject_id = "P1";
+  ev_cited.type = EventType::Burial;
+  evs.push_back(ev_cited);
+
+  // P1 人物级有引用 + 其事件 E1 也有引用；P2 完全裸奔
+  std::vector<Citation> cs;
+  cs.push_back(mkc("C1", "P1", "S1"));
+  cs.push_back(mkc("C2", "E1", "S1", CitationSubjectType::Event));
+
+  const auto r = run(ps, {}, &evs, &cs);
+  CHECK(count_rule(r, "R16") == 1);
+  CHECK(has_issue(r, "R16", "P2"));
+  CHECK_FALSE(has_issue(r, "R16", "P1"));
+  CHECK_FALSE(has_issue(r, "R16", "E1"));
+  for (const auto& i : r.issues) {
+    if (i.rule_id == "R16") {
+      CHECK(i.severity == IssueSeverity::Info);
+      CHECK(i.entity_type == "person");
+    }
+  }
+
+  // 未提供 citations（nullptr）时 R16/R17 静默跳过——旧调用方语义不变
+  const auto r_old = run(ps, {}, &evs);
+  CHECK(count_rule(r_old, "R16") == 0);
+  CHECK(count_rule(r_old, "R17") == 0);
+  // 事件无引用时按事件主体报（entity_type=event）
+  const std::vector<Citation> no_cites;
+  const auto r_no_cite = run(ps, {}, &evs, &no_cites);
+  CHECK(has_issue(r_no_cite, "R16", "P1"));
+  CHECK(has_issue(r_no_cite, "R16", "P2"));
+  CHECK(has_issue(r_no_cite, "R16", "E1"));
+}
+
+TEST_CASE("校验：R17 引用冲突——不同来源同字段两条 high 才报") {
+  std::vector<Person> ps;
+  ps.push_back(mk("P1", "陈", "甲", Gender::Male, 1900));
+  std::vector<Citation> cs;
+
+  // 命中：同主体 + 同 locator + 两条 high + 不同来源
+  cs.push_back(mkc("C1", "P1", "S1", CitationSubjectType::Person,
+                   Confidence::High, "birth_date"));
+  cs.push_back(mkc("C2", "P1", "S2", CitationSubjectType::Person,
+                   Confidence::High, "birth_date"));
+  // 不命中对照组
+  cs.push_back(mkc("C3", "P1", "S1", CitationSubjectType::Person,
+                   Confidence::High, "death_date"));   // 同来源
+  cs.push_back(mkc("C4", "P1", "S2", CitationSubjectType::Person,
+                   Confidence::Medium, "gender"));      // 非 high
+  cs.push_back(mkc("C5", "P1", "S2", CitationSubjectType::Person,
+                   Confidence::High));                  // 无 locator（主体级互证）
+  cs.push_back(mkc("C6", "P1", "S1", CitationSubjectType::Person,
+                   Confidence::High, "  birth_date  "));  // trim 后并入 C1/C2 组
+
+  const auto r = run(ps, {}, nullptr, &cs);
+  CHECK(count_rule(r, "R17") == 1);
+  REQUIRE(r.issues.size() >= 1);
+  for (const auto& i : r.issues) {
+    if (i.rule_id == "R17") {
+      CHECK(i.severity == IssueSeverity::Warning);
+      CHECK(i.entity_type == "person");
+      CHECK(i.entity_id == "P1");
+      // 动态消息必须列出两条 citation id 与来源 id（C6 trim 后同组共 3 条）
+      CHECK(i.message.find("C1") != std::string::npos);
+      CHECK(i.message.find("C2") != std::string::npos);
+      CHECK(i.message.find("C6") != std::string::npos);
+      CHECK(i.message.find("S1") != std::string::npos);
+      CHECK(i.message.find("S2") != std::string::npos);
+      CHECK(i.message.find("birth_date") != std::string::npos);
+    }
+  }
+
+  // 事件级冲突同样按事件主体报
+  std::vector<Event> evs;
+  Event ev;
+  ev.id = "E9";
+  ev.subject_type = EventSubjectType::Person;
+  ev.subject_id = "P1";
+  ev.type = EventType::Death;
+  evs.push_back(ev);
+  std::vector<Citation> cs2;
+  cs2.push_back(mkc("C7", "E9", "S1", CitationSubjectType::Event,
+                    Confidence::High, "date"));
+  cs2.push_back(mkc("C8", "E9", "S2", CitationSubjectType::Event,
+                    Confidence::High, "date"));
+  const auto r_ev = run(ps, {}, &evs, &cs2);
+  CHECK(count_rule(r_ev, "R17") == 1);
+  CHECK(has_issue(r_ev, "R17", "E9"));
 }

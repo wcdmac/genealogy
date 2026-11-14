@@ -134,7 +134,18 @@ Result<Citation> CitationRepository::update(const Citation& c) {
       " WHERE id=?7";
   Stmt st(db_.raw(), sql.c_str());
   if (!st.ok()) return internal("准备 UPDATE 失败");
-  bind_citation(st.get(), c);
+  // 不能复用 bind_citation——那是 INSERT 的参数序（id=?1..note=?7），
+  // UPDATE 的占位序不同（subject_type=?1..id=?7）；M7.2 曾因此让
+  // PATCH 引用直接违反约束 500（索引与列错位），test_http 的
+  // 「挂证据→R16 消失→R17 裁定」用例补上了这个缺口。
+  sqlite3_bind_text(st.get(), 1, to_string(c.subject_type).c_str(), -1,
+                    SQLITE_TRANSIENT);
+  sqlite3_bind_text(st.get(), 2, c.subject_id.c_str(), -1, SQLITE_TRANSIENT);
+  sqlite3_bind_text(st.get(), 3, c.source_id.c_str(), -1, SQLITE_TRANSIENT);
+  bind_opt_text(st.get(), 4, c.locator);
+  sqlite3_bind_text(st.get(), 5, to_string(c.confidence).c_str(), -1,
+                    SQLITE_TRANSIENT);
+  bind_opt_text(st.get(), 6, c.note);
   sqlite3_bind_text(st.get(), 7, c.id.c_str(), -1, SQLITE_TRANSIENT);
 
   if (sqlite3_step(st.get()) != SQLITE_DONE) {
@@ -181,6 +192,32 @@ int CitationRepository::count_for_source(const std::string& source_id) const {
           "SELECT COUNT(*) FROM citation WHERE source_id = ?1");
   if (!st.ok()) return 0;
   sqlite3_bind_text(st.get(), 1, source_id.c_str(), -1, SQLITE_TRANSIENT);
+  if (sqlite3_step(st.get()) == SQLITE_ROW) {
+    return sqlite3_column_int(st.get(), 0);
+  }
+  return 0;
+}
+
+int CitationRepository::count_subjects_without_citation(
+    CitationSubjectType type) const {
+  // NOT EXISTS 走 idx_citation_subject(subject_type, subject_id)，
+  // 20 万级主体全表反查无压力；返回值与 count_for_subject 同为
+  // int——超 21 亿引用才会溢出，先不设防。
+  const char* table = nullptr;
+  switch (type) {
+    case CitationSubjectType::Person: table = "person"; break;
+    case CitationSubjectType::Event: table = "event"; break;
+    default: return 0;  // union/migration/branch/lineage 无独立主体表口径
+  }
+  std::string sql = std::string("SELECT COUNT(*) FROM ") + table +
+                    " WHERE NOT EXISTS (SELECT 1 FROM citation WHERE "
+                    "citation.subject_type = ?1 AND "
+                    "citation.subject_id = " +
+                    table + ".id)";
+  Stmt st(db_.raw(), sql.c_str());
+  if (!st.ok()) return 0;
+  sqlite3_bind_text(st.get(), 1, to_string(type).c_str(), -1,
+                    SQLITE_TRANSIENT);
   if (sqlite3_step(st.get()) == SQLITE_ROW) {
     return sqlite3_column_int(st.get(), 0);
   }

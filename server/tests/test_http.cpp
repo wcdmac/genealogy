@@ -714,12 +714,77 @@ TEST_CASE_METHOD(ServerFixture, "HTTP：校验端点返回问题清单") {
                             R"("gregorian":"1900-01-01"},"death_date":{)"
                             R"("gregorian":"1850-01-01"}})");
   REQUIRE(bad.status == 201);
+  const std::string bad_id =
+      nlohmann::json::parse(bad.body)["id"].get<std::string>();
 
   const auto v = post(port, "/api/v1/validate", "{}");
   REQUIRE(v.status == 200);
   const auto j = nlohmann::json::parse(v.body);
   CHECK(j.contains("issues"));
   CHECK(j["summary"]["error"].get<int>() >= 1);
+
+  // M7.3 R16：挂上 citation 后该人物不再出现在无证据清单
+  bool bad_in_r16 = false;
+  {
+    const auto v16 = post(port, "/api/v1/validate", R"({"rule_ids":["R16"]})");
+    REQUIRE(v16.status == 200);
+    const auto j16 = nlohmann::json::parse(v16.body);
+    CHECK(j16["summary"]["info"].get<int>() >= 1);  // 新库大部分主体无引用
+    for (const auto& i : j16["issues"]) {
+      if (i["entity_id"] == bad_id) bad_in_r16 = true;
+    }
+    CHECK(bad_in_r16);
+  }
+  const auto src = post(port, "/api/v1/sources",
+                        R"({"type":"genealogy_book","title":"高阳李氏测试谱"})");
+  REQUIRE(src.status == 201);
+  const std::string src_id =
+      nlohmann::json::parse(src.body)["id"].get<std::string>();
+  const auto cite = post(
+      port, "/api/v1/citations",
+      R"({"subject_type":"person","subject_id":")" + bad_id +
+          R"(","source_id":")" + src_id + R"("})");
+  REQUIRE(cite.status == 201);
+  {
+    const auto v16 = post(port, "/api/v1/validate", R"({"rule_ids":["R16"]})");
+    REQUIRE(v16.status == 200);
+    const auto j16 = nlohmann::json::parse(v16.body);
+    for (const auto& i : j16["issues"]) {
+      CHECK(i["entity_id"].get<std::string>() != bad_id);  // 已有证据，不再报
+    }
+  }
+
+  // M7.3 R17：同字段两条不同来源 high 引用 → 裁定项；disputed 后消失
+  const auto src2 = post(port, "/api/v1/sources",
+                         R"({"type":"oral","title":"族老口述"})");
+  REQUIRE(src2.status == 201);
+  const std::string src2_id =
+      nlohmann::json::parse(src2.body)["id"].get<std::string>();
+  const auto c1 = post(
+      port, "/api/v1/citations",
+      R"({"subject_type":"person","subject_id":")" + bad_id +
+          R"(","source_id":")" + src_id +
+          R"(","locator":"birth_date","confidence":"high"})");
+  REQUIRE(c1.status == 201);
+  const auto c2 = post(
+      port, "/api/v1/citations",
+      R"({"subject_type":"person","subject_id":")" + bad_id +
+          R"(","source_id":")" + src2_id +
+          R"(","locator":"birth_date","confidence":"high"})");
+  REQUIRE(c2.status == 201);
+  const auto v17 = post(port, "/api/v1/validate", R"({"rule_ids":["R17"]})");
+  REQUIRE(v17.status == 200);
+  CHECK(nlohmann::json::parse(v17.body)["summary"]["warning"].get<int>() >= 1);
+
+  // 裁定：将其中一条置为 disputed（confidence PATCH）→ 冲突消除
+  const std::string c1_id = nlohmann::json::parse(c1.body)["id"].get<std::string>();
+  const auto patched =
+      patch(port, "/api/v1/citations/" + c1_id,
+            R"({"confidence":"disputed"})", {});
+  REQUIRE(patched.status == 200);
+  const auto v17b = post(port, "/api/v1/validate", R"({"rule_ids":["R17"]})");
+  REQUIRE(v17b.status == 200);
+  CHECK(nlohmann::json::parse(v17b.body)["summary"]["warning"].get<int>() == 0);
 }
 
 TEST_CASE_METHOD(ServerFixture, "HTTP：JWT 签发可自校验") {

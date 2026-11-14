@@ -5,8 +5,8 @@
 //   2. 按 check 名分派到具体谓词；
 //   3. 汇总成 ValidationReport。
 //
-// 谓词只依赖 PersonGraph 与（可选的）事件表，不碰数据库——可单测、
-// 可被 REST 层与 CLI 复用。
+// 谓词只依赖 PersonGraph 与（可选的）事件表 / 引用表，不碰数据库——
+// 可单测、可被 REST 层与 CLI 复用。
 
 #include <genealogy/validate/validation.hpp>
 
@@ -126,13 +126,17 @@ bool has_any_date(const GenealogyDate& d) {
 }
 
 void add(std::vector<ValidationIssue>* out, const RuleDef& r,
-         const std::string& entity_type, const std::string& entity_id) {
+         const std::string& entity_type, const std::string& entity_id,
+         const std::string& detail = {}) {
   ValidationIssue issue;
   issue.rule_id = r.id;
   issue.severity = r.severity;
   issue.entity_type = entity_type;
   issue.entity_id = entity_id;
   issue.message = render(r.message, r);
+  // detail：谓词级动态内容（如 R17 的 citation/来源清单），JSON 文案是
+  // 静态模板覆盖不了的部分，追加在 message 之后
+  if (!detail.empty()) issue.message += "（" + detail + "）";
   issue.suggestion = render(r.suggestion, r);
   out->push_back(std::move(issue));
 }
@@ -140,7 +144,7 @@ void add(std::vector<ValidationIssue>* out, const RuleDef& r,
 // ---------------------------------------------------------------- 谓词
 
 void check_birth_after_death(const RuleDef& r, const PersonGraph& g,
-                             const std::vector<Event>*,
+                             const std::vector<Event>*, const std::vector<Citation>*,
                              std::vector<ValidationIssue>* out) {
   for (const auto& [id, p] : g.nodes()) {
     if (!p->death_date) continue;
@@ -152,7 +156,7 @@ void check_birth_after_death(const RuleDef& r, const PersonGraph& g,
 }
 
 void check_parent_born_after_child(const RuleDef& r, const PersonGraph& g,
-                                   const std::vector<Event>*,
+                                   const std::vector<Event>*, const std::vector<Citation>*,
                                    std::vector<ValidationIssue>* out) {
   const long long min_age = param_of(r, "min_parent_age_years", 12);
   for (const auto& [id, p] : g.nodes()) {
@@ -170,7 +174,7 @@ void check_parent_born_after_child(const RuleDef& r, const PersonGraph& g,
 }
 
 void check_child_born_after_parent_death(const RuleDef& r, const PersonGraph& g,
-                                         const std::vector<Event>*,
+                                         const std::vector<Event>*, const std::vector<Citation>*,
                                          std::vector<ValidationIssue>* out) {
   const long long max_mother = param_of(r, "max_mother_age", 55);
   const long long max_father = param_of(r, "max_father_age", 80);
@@ -199,7 +203,7 @@ void check_child_born_after_parent_death(const RuleDef& r, const PersonGraph& g,
 }
 
 void check_self_parent(const RuleDef& r, const PersonGraph& g,
-                       const std::vector<Event>*,
+                       const std::vector<Event>*, const std::vector<Citation>*,
                        std::vector<ValidationIssue>* out) {
   for (const auto& [id, p] : g.nodes()) {
     if ((p->father_id && *p->father_id == id) ||
@@ -210,7 +214,7 @@ void check_self_parent(const RuleDef& r, const PersonGraph& g,
 }
 
 void check_duplicate_person(const RuleDef& r, const PersonGraph& g,
-                            const std::vector<Event>*,
+                            const std::vector<Event>*, const std::vector<Citation>*,
                             std::vector<ValidationIssue>* out) {
   const long long tol = param_of(r, "year_tolerance", 0);
   // 同名的人生年比对：按 (姓,名) 分桶，桶内两两比对——此前是全库
@@ -250,7 +254,7 @@ void check_duplicate_person(const RuleDef& r, const PersonGraph& g,
 }
 
 void check_spouse_same_gender(const RuleDef& r, const PersonGraph& g,
-                              const std::vector<Event>*,
+                              const std::vector<Event>*, const std::vector<Citation>*,
                               std::vector<ValidationIssue>* out) {
   const std::vector<Union>* unions = g.unions();
   if (unions == nullptr) return;
@@ -271,7 +275,7 @@ void check_spouse_same_gender(const RuleDef& r, const PersonGraph& g,
 }
 
 void check_parent_link_inconsistent(const RuleDef& r, const PersonGraph& g,
-                                    const std::vector<Event>*,
+                                    const std::vector<Event>*, const std::vector<Citation>*,
                                     std::vector<ValidationIssue>* out) {
   for (const auto& [id, p] : g.nodes()) {
     if (!p->father_id && !p->mother_id) continue;
@@ -305,7 +309,7 @@ void check_parent_link_inconsistent(const RuleDef& r, const PersonGraph& g,
 }
 
 void check_generation_no_missing(const RuleDef& r, const PersonGraph& g,
-                                 const std::vector<Event>*,
+                                 const std::vector<Event>*, const std::vector<Citation>*,
                                  std::vector<ValidationIssue>* out) {
   for (const auto& [id, p] : g.nodes()) {
     const bool has_parents =
@@ -316,7 +320,7 @@ void check_generation_no_missing(const RuleDef& r, const PersonGraph& g,
 }
 
 void check_missing_gender(const RuleDef& r, const PersonGraph& g,
-                          const std::vector<Event>*,
+                          const std::vector<Event>*, const std::vector<Citation>*,
                           std::vector<ValidationIssue>* out) {
   for (const auto& [id, p] : g.nodes()) {
     if (p->gender == Gender::Unknown) add(out, r, "person", id);
@@ -324,7 +328,7 @@ void check_missing_gender(const RuleDef& r, const PersonGraph& g,
 }
 
 void check_missing_birth(const RuleDef& r, const PersonGraph& g,
-                         const std::vector<Event>*,
+                         const std::vector<Event>*, const std::vector<Citation>*,
                          std::vector<ValidationIssue>* out) {
   for (const auto& [id, p] : g.nodes()) {
     if (!has_any_date(p->birth_date)) add(out, r, "person", id);
@@ -332,7 +336,7 @@ void check_missing_birth(const RuleDef& r, const PersonGraph& g,
 }
 
 void check_ancestry_cycle(const RuleDef& r, const PersonGraph& g,
-                          const std::vector<Event>*,
+                          const std::vector<Event>*, const std::vector<Citation>*,
                           std::vector<ValidationIssue>* out) {
   // 三色 DFS（显式栈迭代）：0 未访问 / 1 在栈上 / 2 已完成。
   // 此前用 std::function 递归——数十万级的病态长父母链会递归爆栈
@@ -390,7 +394,7 @@ void check_ancestry_cycle(const RuleDef& r, const PersonGraph& g,
 }
 
 void check_date_unresolved(const RuleDef& r, const PersonGraph& g,
-                           const std::vector<Event>*,
+                           const std::vector<Event>*, const std::vector<Citation>*,
                            std::vector<ValidationIssue>* out) {
   for (const auto& [id, p] : g.nodes()) {
     if (p->birth_date.lunar && !p->birth_date.gregorian) {
@@ -403,7 +407,7 @@ void check_date_unresolved(const RuleDef& r, const PersonGraph& g,
 }
 
 void check_burial_before_death(const RuleDef& r, const PersonGraph& g,
-                               const std::vector<Event>* events,
+                               const std::vector<Event>* events, const std::vector<Citation>* citations,
                                std::vector<ValidationIssue>* out) {
   if (events == nullptr) return;
   for (const auto& e : *events) {
@@ -419,7 +423,7 @@ void check_burial_before_death(const RuleDef& r, const PersonGraph& g,
 }
 
 void check_birth_order_gap(const RuleDef& r, const PersonGraph& g,
-                           const std::vector<Event>*,
+                           const std::vector<Event>*, const std::vector<Citation>*,
                            std::vector<ValidationIssue>* out) {
   // 同父或同母即算同胞；收集各自的 birth_order，看是否连续
   std::unordered_map<std::string, std::vector<int>> by_parent;
@@ -454,24 +458,97 @@ void check_birth_order_gap(const RuleDef& r, const PersonGraph& g,
   for (const auto& id : reported) add(out, r, "person", id);
 }
 
-void check_missing_evidence(const RuleDef& r, const PersonGraph& g,
-                            const std::vector<Event>*,
+// R16 无证据事实（M7.3）：主体级粒度——一个 person / event 即一个事实
+// 单位，citation 挂接（含 locator 字段级精化）在主体维度计数。locator 是
+// 自由文本、schema 无索引，字段级枚举需要虚构事实分类学且不可查询，
+// 故字段级精化留作 v2；主体级与转录工作台的实际挂接方式完全对齐。
+void check_missing_citation(const RuleDef& r, const PersonGraph& g,
+                            const std::vector<Event>* events,
+                            const std::vector<Citation>* citations,
                             std::vector<ValidationIssue>* out) {
+  if (citations == nullptr) return;  // 与 events 的既有约定一致：无输入即跳过
+  std::unordered_set<std::string> cited;
+  cited.reserve(citations->size() * 2);
+  for (const auto& c : *citations) {
+    cited.insert(std::string(to_string(c.subject_type)) + ":" + c.subject_id);
+  }
   for (const auto& [id, p] : g.nodes()) {
-    if (!p->note && !p->biography) add(out, r, "person", id);
+    if (cited.count(std::string("person:") + id) == 0) {
+      add(out, r, "person", id);
+    }
+  }
+  if (events != nullptr) {
+    for (const auto& e : *events) {
+      if (cited.count(std::string("event:") + e.id) == 0) {
+        add(out, r, "event", e.id);
+      }
+    }
+  }
+}
+
+// R17 引用冲突待裁定（M7.3）：citation 只存 source_id+locator+note，不存
+// 事实取值，机器无法证明「内容互斥」；可执行的诚实判定是——同一主体、
+// 同一非空 locator、两条 high 置信、来源不同 → 互斥嫌疑，提请人工对照。
+// 裁定出口即 confidence 四档中的 disputed（citation.hpp 预留的入口）。
+// 分桶结果必须先收集再按 key 排序：unordered_map 迭代不确定，而输出
+// 确定性（规则序→实体序）是快照测试的既定不变量。
+void check_conflicting_citations(const RuleDef& r, const PersonGraph&,
+                                 const std::vector<Event>*,
+                                 const std::vector<Citation>* citations,
+                                 std::vector<ValidationIssue>* out) {
+  if (citations == nullptr) return;
+  struct Group {
+    std::string sort_key;  // 主体类型 + id + locator，输出顺序的唯一来源
+    std::string subject_type;
+    std::string subject_id;
+    std::string locator;
+    std::vector<const Citation*> members;
+  };
+  std::unordered_map<std::string, Group> groups;
+  for (const auto& c : *citations) {
+    if (c.confidence != Confidence::High || !c.locator) continue;
+    std::string loc;
+    for (const char ch : *c.locator) {
+      if (ch != ' ' && ch != '\t' && ch != '\r' && ch != '\n') loc.push_back(ch);
+    }
+    if (loc.empty()) continue;  // 主体级整档引用：跨来源多挂是正常互证
+    const std::string type = to_string(c.subject_type);
+    Group& grp = groups[type + ":" + c.subject_id + ":" + loc];
+    grp.sort_key = type + ":" + c.subject_id + ":" + loc;
+    grp.subject_type = type;
+    grp.subject_id = c.subject_id;
+    grp.locator = loc;
+    grp.members.push_back(&c);
+  }
+  std::vector<const Group*> sorted;
+  sorted.reserve(groups.size());
+  for (const auto& kv : groups) sorted.push_back(&kv.second);
+  std::sort(sorted.begin(), sorted.end(),
+            [](const Group* a, const Group* b) { return a->sort_key < b->sort_key; });
+  for (const Group* grp : sorted) {
+    std::unordered_set<std::string> sources;
+    for (const auto* c : grp->members) sources.insert(c->source_id);
+    if (sources.size() < 2) continue;  // 同源重复挂接是数据卫生问题，非冲突
+    std::string detail;
+    for (const auto* c : grp->members) {
+      if (!detail.empty()) detail += " / ";
+      detail += "citation " + c->id + "（来源 " + c->source_id + "）";
+    }
+    add(out, r, grp->subject_type, grp->subject_id,
+        "「" + grp->locator + "」：" + detail);
   }
 }
 
 struct CheckEntry {
   const char* name;
-  void (*fn)(const RuleDef&, const PersonGraph&, const std::vector<Event>*,
+  void (*fn)(const RuleDef&, const PersonGraph&, const std::vector<Event>*, const std::vector<Citation>*,
              std::vector<ValidationIssue>*);
 };
 
 // 谓词注册表：规则表里的 check 值必须能在这里找到，
 // 否则 validate() 直接报错——不允许 silently 跳过一条规则。
-const std::array<CheckEntry, 15>& check_table() {
-  static const std::array<CheckEntry, 15> kTable = {{
+const std::array<CheckEntry, 16>& check_table() {
+  static const std::array<CheckEntry, 16> kTable = {{
       {"birth_after_death", check_birth_after_death},
       {"parent_born_after_child", check_parent_born_after_child},
       {"child_born_after_parent_death", check_child_born_after_parent_death},
@@ -486,7 +563,8 @@ const std::array<CheckEntry, 15>& check_table() {
       {"date_unresolved", check_date_unresolved},
       {"burial_before_death", check_burial_before_death},
       {"birth_order_gap", check_birth_order_gap},
-      {"missing_evidence", check_missing_evidence},
+      {"missing_citation", check_missing_citation},
+      {"conflicting_citations", check_conflicting_citations},
   }};
   return kTable;
 }
@@ -494,7 +572,7 @@ const std::array<CheckEntry, 15>& check_table() {
 }  // namespace
 
 Result<ValidationReport> validate(const PersonGraph& graph,
-                                  const std::vector<Event>* events,
+                                  const std::vector<Event>* events, const std::vector<Citation>* citations,
                                   const ValidationOptions& opt) {
   const auto rules = load_rules();
   ValidationReport report;
@@ -523,7 +601,7 @@ Result<ValidationReport> validate(const PersonGraph& graph,
                    "校验规则 " + r.id + " 的 check「" + r.check +
                        "」没有对应谓词实现——规则表与代码不同步"};
     }
-    entry->fn(r, graph, events, &report.issues);
+    entry->fn(r, graph, events, citations, &report.issues);
     ++report.rules_run;
   }
 

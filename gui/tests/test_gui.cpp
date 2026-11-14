@@ -268,7 +268,7 @@ TEST_CASE("面板数据装配：校验引擎装载路径") {
   REQUIRE(persons.has_value());
   const PersonGraph g = PersonGraph::build(std::move(*persons),
                                            std::vector<Union>{});
-  auto report = validate(g, nullptr, ValidationOptions{});
+  auto report = validate(g, nullptr, nullptr, ValidationOptions{});
   REQUIRE(report.has_value());
   CHECK(report->error_count >= 1);
   bool has_r1 = false;

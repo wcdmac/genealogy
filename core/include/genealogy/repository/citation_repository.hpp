@@ -33,6 +33,11 @@ class CitationRepository {
                         const std::string& subject_id) const;
   int count_for_source(const std::string& source_id) const;
 
+  // 无证据主体数（ROADMAP M7.3：/stats 的 uncited_facts）——该类型主体
+  // 表里 citation 一条都没挂的行数。目前主体表只有 person/event 两类
+  // 有独立表；union/migration/branch/lineage 走别的统计口径。
+  int count_subjects_without_citation(CitationSubjectType type) const;
+
  private:
   Database& db_;
 };

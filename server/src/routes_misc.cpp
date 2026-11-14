@@ -33,6 +33,7 @@
 #include <genealogy/lineage/tree.hpp>
 #include <genealogy/model/event.hpp>
 #include <genealogy/model/person.hpp>
+#include <genealogy/repository/citation_repository.hpp>
 #include <genealogy/repository/database.hpp>
 #include <genealogy/repository/event_repository.hpp>
 #include <genealogy/repository/person_repository.hpp>
@@ -141,12 +142,19 @@ void stats(const drogon::HttpRequestPtr& req, Callback&& cb) {
     dist.push_back({{"generation_no", gen}, {"count", count}});
   }
 
+  // 无证据事实（M7.3）：主体级口径——person/event 各查 citation 0 条
+  // 的行数（与 R16 同一判定，但这里是 SQL 直查，不走全量装载）。
+  CitationRepository citations(*db);
+  const long uncited =
+      citations.count_subjects_without_citation(CitationSubjectType::Person) +
+      citations.count_subjects_without_citation(CitationSubjectType::Event);
+
   nlohmann::json out;
   out["person_count"] = graph.size();
   out["event_count"] = evs->size();
   out["living_count"] = living;
   out["branch_count"] = 0;      // 支派统计按宗族拆分，M3 补 lineage 维度
-  out["uncited_facts"] = 0;     // 无 Source/Citation 模型，恒 0（M3）
+  out["uncited_facts"] = uncited;
   out["generation_distribution"] = std::move(dist);
   cb(json_ok(out, std::nullopt));
 }
@@ -194,8 +202,27 @@ void validate_run(const drogon::HttpRequestPtr& req, Callback&& cb) {
     cb(error_to_response(evs.error(), instance));
     return;
   }
+  // R16/R17 需要全量 citation：翻页载到尽（与 CLI io validate 同口径，
+  // 游标 = 本页最后一条 id）。events 的单次大 limit 是 M1 容量假设
+  // （ROADMAP 暂缓项「统一装载层」）；citation 是新域，直接用翻页。
+  CitationRepository citations(*db);
+  std::vector<Citation> citation_rows;
+  std::optional<std::string> cite_cursor;
+  for (;;) {
+    CitationFilter cf;
+    cf.limit = 1000;
+    cf.cursor = cite_cursor;
+    auto page = citations.list(cf);
+    if (!page) {
+      cb(error_to_response(page.error(), instance));
+      return;
+    }
+    if (page->empty()) break;
+    for (auto& c : *page) citation_rows.push_back(std::move(c));
+    cite_cursor = citation_rows.back().id;
+  }
 
-  auto report = validate(graph, &*evs, opt);
+  auto report = validate(graph, &*evs, &citation_rows, opt);
   if (!report) {
     cb(error_to_response(report.error(), instance));
     return;
