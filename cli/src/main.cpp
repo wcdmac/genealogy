@@ -25,6 +25,7 @@
 #include "cmd_io.hpp"
 #include "cmd_migration.hpp"
 #include "cmd_poem.hpp"
+#include "cmd_source.hpp"
 
 #include <genealogy/calendar/chinese_calendar.hpp>
 #include <genealogy/calendar/era.hpp>
@@ -924,6 +925,10 @@ int run(std::vector<std::string> raw_args) {
       return genea_cli::cmd_poem(rest, db_path, format);
     if (command == "migration")
       return genea_cli::cmd_migration(rest, db_path, format);
+    if (command == "source")
+      return genea_cli::cmd_source(rest, db_path, format);
+    if (command == "citation")
+      return genea_cli::cmd_citation(rest, db_path, format);
   } catch (const cxxopts::exceptions::exception& e) {
     // 参数/用法问题
     std::cerr << "用法错误: " << e.what() << "\n";

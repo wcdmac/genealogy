@@ -306,9 +306,16 @@ int cmd_export_gedcom(const std::vector<std::string>& args,
   eo.submitter_name = r.count("submitter") ? r["submitter"].as<std::string>()
                                            : "genealogy";
   eo.source_version = "1.0";
+  // 导出侧损失台账：与导入同口径逐条告知谱师（不许静默丢）
+  std::vector<io::MappingLoss> export_losses;
+  eo.losses = &export_losses;
   const std::string text = io::export_gedcom(eo);
 
   if (r.count("out")) {
+    for (const auto& l : export_losses) {
+      std::cerr << (l.severity == io::LossSeverity::Warning ? "  [W] " : "  [I] ")
+                << l.xref << " " << l.tag << " — " << l.reason << "\n";
+    }
     bool ok = false;
     write_file(r["out"].as<std::string>(), text, &ok);
     if (!ok) {
@@ -320,13 +327,15 @@ int cmd_export_gedcom(const std::vector<std::string>& args,
                                   {"bytes", text.size()},
                                   {"persons", rows.size()},
                                   {"unions", union_rows.size()},
-                                  {"events", event_rows.size()}}
+                                  {"events", event_rows.size()},
+                                  {"losses", export_losses.size()}}
                        .dump(2)
                 << "\n";
     } else {
       std::cout << "已导出 " << text.size() << " 字节到 " << r["out"].as<std::string>()
                 << "（人物 " << rows.size() << " · 结合 " << union_rows.size()
-                << " · 事件 " << event_rows.size() << "）\n";
+                << " · 事件 " << event_rows.size() << " · 损失 "
+                << export_losses.size() << "）\n";
     }
     return 0;
   }

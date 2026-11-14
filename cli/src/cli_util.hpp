@@ -49,11 +49,16 @@ inline cxxopts::ParseResult parse_args(cxxopts::Options& opts,
 }
 
 // 打开数据库并确保默认宗族占位（M1.2 上线 lineage 管理前，person add
-// 未显式指定 --lineage 时落入该占位宗族）。
+// 未显式指定 --lineage 时落入该占位宗族）。占位写入失败（只读库等）
+// 不拦命令——多数命令不依赖它——但要在 stderr 上留痕。
 inline genealogy::Result<genealogy::Database> open_db(
     const std::string& path) {
   auto db = genealogy::Database::open(path);
-  if (db) genealogy::ensure_default_lineage(*db);
+  if (db) {
+    if (auto r = genealogy::ensure_default_lineage(*db); !r) {
+      std::cerr << "警告: 初始化默认宗族失败: " << r.error().message() << "\n";
+    }
+  }
   return db;
 }
 

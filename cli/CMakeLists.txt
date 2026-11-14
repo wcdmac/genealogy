@@ -7,6 +7,7 @@ add_executable(genea
   src/cmd_io.cpp
   src/cmd_backup.cpp
   src/cmd_migration.cpp
+  src/cmd_source.cpp
 )
 
 target_include_directories(genea
