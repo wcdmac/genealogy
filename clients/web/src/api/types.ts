@@ -408,6 +408,45 @@ export interface paths {
         patch: operations["updateCitation"];
         trace?: never;
     };
+    "/documents": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** 文档列表（谱序/凡例/族规家训/艺文/契约） */
+        get: operations["listDocuments"];
+        put?: never;
+        /** 登记文档（lineage 须存在，title 必填） */
+        post: operations["createDocument"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/documents/{id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: components["parameters"]["Id"];
+            };
+            cookie?: never;
+        };
+        /** 文档详情 */
+        get: operations["getDocument"];
+        put?: never;
+        post?: never;
+        /** 删除文档（document 不入 citation 主体，无 409 保护） */
+        delete: operations["deleteDocument"];
+        options?: never;
+        head?: never;
+        /** 更新文档（merge 语义：absent=保留——content 是大段正文，防误清） */
+        patch: operations["updateDocument"];
+        trace?: never;
+    };
     "/events": {
         parameters: {
             query?: never;
@@ -722,6 +761,29 @@ export interface components {
              */
             confidence: "high" | "medium" | "low" | "disputed";
             note?: string;
+        };
+        Document: {
+            id?: string;
+            lineage_id?: string;
+            /** @enum {unknown} */
+            type?: "preface" | "rule" | "regulation" | "literature" | "contract" | "edition_note";
+            title?: string;
+            author?: string;
+            date_text?: string;
+            edition?: string;
+            content?: string;
+            seq?: number | null;
+        };
+        DocumentCreate: {
+            lineage_id: string;
+            /** @enum {unknown} */
+            type: "preface" | "rule" | "regulation" | "literature" | "contract" | "edition_note";
+            title: string;
+            author?: string;
+            date_text?: string;
+            edition?: string;
+            content?: string;
+            seq?: number | null;
         };
         Person: {
             id?: string;
@@ -2121,6 +2183,135 @@ export interface operations {
             404: components["responses"]["NotFound"];
         };
     };
+    listDocuments: {
+        parameters: {
+            query?: {
+                type?: "preface" | "rule" | "regulation" | "literature" | "contract" | "edition_note";
+                lineage_id?: string;
+                limit?: components["parameters"]["Limit"];
+                cursor?: components["parameters"]["Cursor"];
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description 成功 */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        data?: components["schemas"]["Document"][];
+                        page?: {
+                            next_cursor?: string | null;
+                            has_more?: boolean;
+                        };
+                    };
+                };
+            };
+        };
+    };
+    createDocument: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["DocumentCreate"];
+            };
+        };
+        responses: {
+            /** @description 已创建 */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Document"];
+                };
+            };
+            400: components["responses"]["BadRequest"];
+            404: components["responses"]["NotFound"];
+        };
+    };
+    getDocument: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: components["parameters"]["Id"];
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description 成功 */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Document"];
+                };
+            };
+            404: components["responses"]["NotFound"];
+        };
+    };
+    deleteDocument: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: components["parameters"]["Id"];
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description 已删除 */
+            204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            404: components["responses"]["NotFound"];
+        };
+    };
+    updateDocument: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: components["parameters"]["Id"];
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["DocumentCreate"];
+            };
+        };
+        responses: {
+            /** @description 已更新 */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Document"];
+                };
+            };
+            400: components["responses"]["BadRequest"];
+            404: components["responses"]["NotFound"];
+        };
+    };
     listEvents: {
         parameters: {
             query?: {
@@ -2366,10 +2557,11 @@ export interface operations {
             query?: {
                 q?: string;
                 /**
-                 * @description 检索范围。当前仅 person 与 all 可用（document/source 的
-                 *     模型随 M5 证据链补齐后开放，届时无需改接口形态）。
+                 * @description 检索范围。person=人物；document=文档正文（M7.4 trigram FTS，
+                 *     中文子串可命中，1-2 字查询回退 LIKE）；all=两者合并（items
+                 *     带 kind 判别字段，人物在前）。未知 scope 返回 400。
                  */
-                scope?: "person" | "all";
+                scope?: "person" | "document" | "all";
                 limit?: components["parameters"]["Limit"];
                 cursor?: components["parameters"]["Cursor"];
             };

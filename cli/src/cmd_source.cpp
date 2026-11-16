@@ -52,7 +52,7 @@ int cmd_source(const std::vector<std::string>& args,
       ("uri", "数字化件 URI", cxxopts::value<std::string>())
       ("citation", "规范引文原文", cxxopts::value<std::string>())
       ("note", "备注", cxxopts::value<std::string>())
-      ("q", "标题模糊匹配", cxxopts::value<std::string>())
+      ("query", "标题模糊匹配", cxxopts::value<std::string>())
       ("limit", "每页条数", cxxopts::value<int>()->default_value("50"))
       ("help", "显示用法");
   const auto r = parse_args(opts, rest);
@@ -105,7 +105,7 @@ int cmd_source(const std::vector<std::string>& args,
       auto t = source_type_from_string(r["type"].as<std::string>());
       if (t) f.type = *t;
     }
-    if (r.count("q")) f.title_contains = r["q"].as<std::string>();
+    if (r.count("query")) f.title_contains = r["query"].as<std::string>();
     f.limit = r["limit"].as<int>();
     auto rows = svc.list_sources(f);
     if (!rows) {

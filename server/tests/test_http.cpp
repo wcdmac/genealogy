@@ -36,6 +36,7 @@
 #include <genealogy/server/routes_entities.hpp>
 #include <genealogy/server/routes_misc.hpp>
 #include <genealogy/server/routes_sources.hpp>
+#include <genealogy/server/routes_documents.hpp>
 #include <genealogy/server/routes_persons.hpp>
 #include <genealogy/server/routes_auth.hpp>
 #include <genealogy/server/runtime.hpp>
@@ -142,6 +143,17 @@ void start_server_once(std::uint16_t* port_out) {
     app.registerHandler(base + "/citations/{id}", &server::citation_patch,
                         {drogon::Patch});
     app.registerHandler(base + "/citations/{id}", &server::citation_delete,
+                        {drogon::Delete});
+    // 文档（M7.4）：谱序/凡例/族规家训/艺文/契约
+    app.registerHandler(base + "/documents", &server::documents_list,
+                        {drogon::Get});
+    app.registerHandler(base + "/documents", &server::documents_create,
+                        {drogon::Post});
+    app.registerHandler(base + "/documents/{id}", &server::document_get,
+                        {drogon::Get});
+    app.registerHandler(base + "/documents/{id}", &server::document_patch,
+                        {drogon::Patch});
+    app.registerHandler(base + "/documents/{id}", &server::document_delete,
                         {drogon::Delete});
     // 迁徙（M5-4）：expand 测试要挂迁徙子资源，注册与 main.cpp 对齐
     app.registerHandler(base + "/migrations", &server::migrations_list,
@@ -785,6 +797,53 @@ TEST_CASE_METHOD(ServerFixture, "HTTP：校验端点返回问题清单") {
   const auto v17b = post(port, "/api/v1/validate", R"({"rule_ids":["R17"]})");
   REQUIRE(v17b.status == 200);
   CHECK(nlohmann::json::parse(v17b.body)["summary"]["warning"].get<int>() == 0);
+}
+
+TEST_CASE_METHOD(ServerFixture, "HTTP：文档域（建档→正文检索→merge PATCH→删除）") {
+  const std::string lid = kDefaultLineageId;
+  const auto doc = post(
+      port, "/api/v1/documents",
+      R"({"lineage_id":")" + lid +
+          R"(","type":"preface","title":"冒烟谱序","content":"我族建德星堂义庄，凡族人谨守家训。","seq":1})");
+  REQUIRE(doc.status == 201);
+  const auto jdoc = nlohmann::json::parse(doc.body);
+  const std::string doc_id = jdoc["id"].get<std::string>();
+  CHECK(jdoc["seq"].get<long long>() == 1);
+
+  // 正文检索命中（scope=document）：「义庄」全词
+  const auto hits =
+      get(port, "/api/v1/search?q=义庄&scope=document");
+  REQUIRE(hits.status == 200);
+  const auto jhits = nlohmann::json::parse(hits.body);
+  REQUIRE(jhits["data"].is_array());
+  REQUIRE(jhits["data"].size() == 1);  // 空数组上取 [0] 是 UB，先断言个数
+  CHECK(jhits["data"][0]["id"] == doc_id);
+
+  // 子串命中：「堂义庄」（trigram 的核心价值：3 字 FTS 查询，
+  // unicode61 下连续 CJK 归一个 token 不可能命中子串）
+  const auto sub =
+      get(port, "/api/v1/search?q=堂义庄&scope=document");
+  REQUIRE(sub.status == 200);
+  CHECK((nlohmann::json::parse(sub.body)["data"].size()) == 1);
+
+  // merge PATCH：只改 title，content 必须保留（absent=保留语义）
+  const auto patched =
+      patch(port, "/api/v1/documents/" + doc_id,
+            R"({"lineage_id":")" + lid +
+                R"(","type":"preface","title":"冒烟谱序·改"})",
+            {});
+  REQUIRE(patched.status == 200);
+  const auto jpatched = nlohmann::json::parse(patched.body);
+  CHECK(jpatched["title"] == "冒烟谱序·改");
+  CHECK(jpatched.contains("content"));
+  CHECK(jpatched["content"].get<std::string>().find("义庄") !=
+        std::string::npos);
+
+  // 删除 204，复删 404
+  CHECK(request(port, drogon::Delete, "/api/v1/documents/" + doc_id).status ==
+        204);
+  CHECK(request(port, drogon::Delete, "/api/v1/documents/" + doc_id).status ==
+        404);
 }
 
 TEST_CASE_METHOD(ServerFixture, "HTTP：JWT 签发可自校验") {

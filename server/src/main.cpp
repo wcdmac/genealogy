@@ -30,6 +30,7 @@
 #include <genealogy/server/routes_entities.hpp>
 #include <genealogy/server/routes_misc.hpp>
 #include <genealogy/server/routes_sources.hpp>
+#include <genealogy/server/routes_documents.hpp>
 #include <genealogy/server/routes_auth.hpp>
 #include <genealogy/server/routes_stream.hpp>
 #include <genealogy/server/runtime.hpp>
@@ -227,6 +228,15 @@ int main(int argc, char** argv) {
   app.registerHandler(base + "/citations/{id}", &citation_patch,
                       {drogon::Patch});
   app.registerHandler(base + "/citations/{id}", &citation_delete,
+                      {drogon::Delete});
+
+  // 文档（M7.4）：谱序/凡例/族规家训/艺文/契约
+  app.registerHandler(base + "/documents", &documents_list, {drogon::Get});
+  app.registerHandler(base + "/documents", &documents_create, {drogon::Post});
+  app.registerHandler(base + "/documents/{id}", &document_get, {drogon::Get});
+  app.registerHandler(base + "/documents/{id}", &document_patch,
+                      {drogon::Patch});
+  app.registerHandler(base + "/documents/{id}", &document_delete,
                       {drogon::Delete});
 
   // 迁徙（M5-4）

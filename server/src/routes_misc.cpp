@@ -33,8 +33,10 @@
 #include <genealogy/lineage/tree.hpp>
 #include <genealogy/model/event.hpp>
 #include <genealogy/model/person.hpp>
+#include <genealogy/model/document.hpp>
 #include <genealogy/repository/citation_repository.hpp>
 #include <genealogy/repository/database.hpp>
+#include <genealogy/repository/document_repository.hpp>
 #include <genealogy/repository/event_repository.hpp>
 #include <genealogy/repository/person_repository.hpp>
 #include <genealogy/repository/place_repository.hpp>
@@ -75,31 +77,90 @@ void search(const drogon::HttpRequestPtr& req, Callback&& cb) {
     cb(problem_response(400, 1001, "参数校验失败", "缺少必填参数 q", instance));
     return;
   }
-  // scope 目前只实现 person：document/source 的模型在 M3 才建表，
-  // 这里明确拒绝而不是返回空列表——空列表会让调用方以为「查过了，没有」。
+  // scope 三值（spec 已声明枚举）：person=人物、document=文档正文
+  // （M7.4 trigram FTS，验收门「文档可按正文检索命中」）、all=两者合并。
+  // scope=all 的 items 带 kind 判别字段（"person"/"document"，人物在前）；
+  // 单一 scope 的 items 不加 kind（保持既有形状）。未知 scope 返回 400
+  // 而非空列表——空列表会让调用方以为「查过了，没有」。
   const std::string scope = req->getParameter("scope").empty()
                                 ? std::string("all")
                                 : req->getParameter("scope");
-  if (scope != "person" && scope != "all") {
-    cb(problem_response(501, 9001, "尚未实现",
-                        "scope=" + scope + " 的检索在 M3 补模型后开放",
-                        instance));
+  if (scope != "person" && scope != "document" && scope != "all") {
+    cb(problem_response(400, 1001, "参数校验失败",
+                        "scope 应为 person / document / all", instance));
     return;
   }
 
-  PersonService svc(*db);
-  auto got = svc.search_persons(q, page.limit + 1);
-  if (!got) {
-    cb(error_to_response(got.error(), instance));
+  const bool want_person = scope == "person" || scope == "all";
+  const bool want_document = scope == "document" || scope == "all";
+
+  std::vector<nlohmann::json> items;
+  std::string next;
+  bool more = false;
+
+  if (want_person) {
+    PersonService svc(*db);
+    auto got = svc.search_persons(q, page.limit + 1);
+    if (!got) {
+      cb(error_to_response(got.error(), instance));
+      return;
+    }
+    if (got->size() > static_cast<std::size_t>(page.limit)) {
+      more = true;
+      got->pop_back();
+    }
+    for (auto& p : *got) {
+      nlohmann::json j = to_json(p);
+      if (scope == "all") j["kind"] = "person";
+      items.push_back(std::move(j));
+      next = p.id;  // 游标口径：最后一个命中 id（scope=all 仅人物参与翻页）
+    }
+    if (scope == "person") {
+      cb(json_ok(page_envelope(std::move(items), more ? next : "", more),
+                 std::nullopt));
+      return;
+    }
+    // scope=all：人物已占满一页时不再查文档
+    if (!more) {
+      DocumentRepository docs(*db);
+      auto doc_hits = docs.search(q, page.limit + 1);
+      if (!doc_hits) {
+        cb(error_to_response(doc_hits.error(), instance));
+        return;
+      }
+      if (doc_hits->size() > static_cast<std::size_t>(page.limit)) {
+        more = true;
+        doc_hits->pop_back();
+      }
+      for (auto& d : *doc_hits) {
+        nlohmann::json j = to_json(d);
+        j["kind"] = "document";
+        items.push_back(std::move(j));
+        next = d.id;
+      }
+    }
+    cb(json_ok(page_envelope(std::move(items), more ? next : "", more),
+               std::nullopt));
     return;
   }
-  const bool more = got->size() > static_cast<std::size_t>(page.limit);
-  if (more) got->pop_back();
-  std::vector<nlohmann::json> items;
-  for (const auto& p : *got) items.push_back(to_json(p));
-  std::string next;
-  if (more && !got->empty()) next = got->back().id;
-  cb(json_ok(page_envelope(std::move(items), next, more), std::nullopt));
+
+  // scope=document
+  DocumentRepository docs(*db);
+  auto doc_hits = docs.search(q, page.limit + 1);
+  if (!doc_hits) {
+    cb(error_to_response(doc_hits.error(), instance));
+    return;
+  }
+  if (doc_hits->size() > static_cast<std::size_t>(page.limit)) {
+    more = true;
+    doc_hits->pop_back();
+  }
+  for (auto& d : *doc_hits) {
+    items.push_back(to_json(d));
+    next = d.id;
+  }
+  cb(json_ok(page_envelope(std::move(items), more ? next : "", more),
+             std::nullopt));
 }
 
 // ================================================================ 统计

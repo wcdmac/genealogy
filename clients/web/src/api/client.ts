@@ -41,6 +41,9 @@ export type Migration = Omit<
   components["schemas"]["Migration"],
   "id" | "subject_id"
 > & { id: string; subject_id: string };
+// Document 无 rev（M7.4 篇章正文）：id 必有，rev 无
+export type Document = Entity<components["schemas"]["Document"]>;
+export type DocumentCreate = components["schemas"]["DocumentCreate"];
 
 /** 列表端点统一返回的分页信封（spec components/responses/Page）。 */
 export interface PageEnvelope {
@@ -526,7 +529,7 @@ export class GenealogyClient {
 
   async search(params: {
     q: string;
-    scope?: "person" | "all";
+    scope?: "person" | "document" | "all";
     limit?: number;
     cursor?: string;
   }): Promise<PageEnvelope> {
@@ -607,6 +610,42 @@ export class GenealogyClient {
       query: { person_id: personId, format },
       accept: "text/plain",
     });
+  }
+
+  // ---------------------------------------------------------------- 文档
+
+  async listDocuments(params?: {
+    type?:
+      | "preface"
+      | "rule"
+      | "regulation"
+      | "literature"
+      | "contract"
+      | "edition_note";
+    lineage_id?: string;
+    limit?: number;
+    cursor?: string;
+  }): Promise<PageEnvelope> {
+    return this.request("GET", "/documents", { query: { ...params } });
+  }
+
+  async getDocument(id: string): Promise<Document> {
+    return this.request("GET", `/documents/${encodeURIComponent(id)}`);
+  }
+
+  async createDocument(body: DocumentCreate): Promise<Document> {
+    return this.request("POST", "/documents", { body });
+  }
+
+  /** merge 语义（absent=保留）：content 是大段正文，改标题不会误清正文 */
+  async updateDocument(id: string, body: DocumentCreate): Promise<Document> {
+    return this.request("PATCH", `/documents/${encodeURIComponent(id)}`, {
+      body,
+    });
+  }
+
+  async deleteDocument(id: string): Promise<void> {
+    await this.request("DELETE", `/documents/${encodeURIComponent(id)}`);
   }
 
   // ---------------------------------------------------------------- 迁徙

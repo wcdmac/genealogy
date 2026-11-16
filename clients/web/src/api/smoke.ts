@@ -281,6 +281,37 @@ async function main(): Promise<number> {
       400,
     );
 
+    // ---- 文档（M7.4）：建档 → 正文检索命中 → merge PATCH 保 content → 删 ----
+    const doc = await client.createDocument({
+      lineage_id: lineage.id,
+      type: "preface",
+      title: "冒烟谱序",
+      content: "我族建德星堂义庄，凡族人谨守家训。",
+      seq: 1,
+    });
+    check("文档建档", typeof doc.id === "string", doc.id);
+    const docHits = await client.search({ q: "义庄", scope: "document" });
+    check(
+      "文档正文检索命中（trigram）",
+      (docHits.data ?? []).some((row) => row.id === doc.id),
+    );
+    const docPatched = await client.updateDocument(doc.id, {
+      lineage_id: lineage.id,
+      type: "preface",
+      title: "冒烟谱序·改",
+    });
+    check(
+      "文档 PATCH merge 保留正文",
+      docPatched.title === "冒烟谱序·改" && docPatched.content !== undefined,
+    );
+    const docSubHits = await client.search({ q: "堂义庄", scope: "document" });
+    check(
+      "文档子串检索命中",
+      (docSubHits.data ?? []).some((row) => row.id === doc.id),
+    );
+    await client.deleteDocument(doc.id);
+    await expectApiError("删除后 get 得 404", () => client.getDocument(doc.id), 404);
+
     // ---- 分页迭代器 ----
     let visited = 0;
     for await (const _person of paginate((cursor) =>

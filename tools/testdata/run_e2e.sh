@@ -185,6 +185,16 @@ if [ -f "$DB3" ]; then
   C=$(rule_counts "$DB3" R14); set -- $C; check_ge "R14 排行断层 warning"   $2 1
 fi
 
+echo "== 18. 文档域：建谱序 → 正文检索命中（M7.4 验收门） =="
+DOC=$($GENE document add --db "$DB" --lineage "$L" --type preface --title "冒烟谱序"   --content "我族建德星堂义庄，凡族人谨守家训。" --seq 1 --format json | jid)
+check_ge "document add 返回 ID" ${#DOC} 20
+check_eq "正文全词命中（义庄）" 1 "$($GENE document search --db "$DB" --query 义庄 --format json | jlen)"
+check_eq "正文子串命中（堂义庄，trigram）" 1 "$($GENE document search --db "$DB" --query 堂义庄 --format json | jlen)"
+check_eq "两字查询回退命中（家训）" 1 "$($GENE document search --db "$DB" --query 家训 --format json | jlen)"
+check_eq "无命中不报错（空结果）" 0 "$($GENE document search --db "$DB" --query 不存在的碑文 --format json | jlen)"
+$GENE document remove --db "$DB" "$DOC" >/dev/null
+check_eq "document remove 退出码" 0 $?
+
 echo
 echo "=========================================="
 echo "端到端结果: PASS=$PASS FAIL=$FAIL"

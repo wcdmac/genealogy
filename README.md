@@ -35,6 +35,9 @@
 - [x] **M6 发行**：三平台打包（CPack：Windows ZIP / macOS dmg / Linux tar.gz，
   Windows DLL 全量随包）+ 文档站（`docs/`：使用手册 + 修谱工作流）+
   备份恢复（`genea db backup|restore`，VACUUM INTO 一致性快照；演练 13 项断言，CI 卡点）
+- [x] **M7 数据可信度（进行中）**：证据链（source/citation 全生命周期，三端；删除被引事实 409）+
+  校验 R16 无证据事实清单 / R17 引用冲突裁定（confidence=disputed 出口）+
+  Document 域（谱序/凡例/族规家训/艺文/契约；正文 trigram FTS 检索，中文子串可命中）
 - [x] Catch2 测试（core 786187 断言 / 105 用例 + server HTTP 集成 + GUI 数据层）+
   三平台 CI（构建/测试/打包/规范校验/TS 客户端/UI 冒烟/备份演练）+ 许可证白名单卡点
 

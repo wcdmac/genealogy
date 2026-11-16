@@ -14,6 +14,7 @@ add_executable(genealogy-core-tests
   test_rules_snapshot.cpp
   test_migration.cpp
   test_tree_render.cpp
+  test_documents.cpp
 )
 
 target_link_libraries(genealogy-core-tests

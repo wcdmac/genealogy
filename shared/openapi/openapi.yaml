@@ -43,11 +43,11 @@ tags:
     description: 迁徙登记与迁徙地图数据源
   - name: places
   - name: sources
-    description: 文献来源（规划中，M5；见根级 x-roadmap）
+    description: 文献来源（M7.2）
   - name: citations
-    description: 证据挂接（规划中，M5；见根级 x-roadmap）
+    description: 事实↔证据挂接（M7.2）
   - name: documents
-    description: 谱序/凡例/家训/艺文/契约（规划中，M5；见根级 x-roadmap）
+    description: 谱序/凡例/族规家训/艺文/契约（M7.4，正文 trigram FTS 检索）
   - name: attachments
     description: 附件（规划中，M5；见根级 x-roadmap）
   - name: search-stats
@@ -789,6 +789,95 @@ paths:
         "204": { description: 已删除 }
         "404": { $ref: "#/components/responses/NotFound" }
 
+  /documents:
+    get:
+      tags: [documents]
+      summary: 文档列表（谱序/凡例/族规家训/艺文/契约）
+      operationId: listDocuments
+      parameters:
+        - name: type
+          in: query
+          schema:
+            enum: [preface, rule, regulation, literature, contract,
+                   edition_note]
+        - name: lineage_id
+          in: query
+          schema: { type: string }
+        - $ref: "#/components/parameters/Limit"
+        - $ref: "#/components/parameters/Cursor"
+      responses:
+        "200":
+          description: 成功
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  data:
+                    type: array
+                    items: { $ref: "#/components/schemas/Document" }
+                  page:
+                    type: object
+                    properties:
+                      next_cursor: { type: [string, "null"] }
+                      has_more: { type: boolean }
+    post:
+      tags: [documents]
+      summary: 登记文档（lineage 须存在，title 必填）
+      operationId: createDocument
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/DocumentCreate" }
+      responses:
+        "201":
+          description: 已创建
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Document" }
+        "400": { $ref: "#/components/responses/BadRequest" }
+        "404": { $ref: "#/components/responses/NotFound" }
+
+  /documents/{id}:
+    parameters:
+      - $ref: "#/components/parameters/Id"
+    get:
+      tags: [documents]
+      summary: 文档详情
+      operationId: getDocument
+      responses:
+        "200":
+          description: 成功
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Document" }
+        "404": { $ref: "#/components/responses/NotFound" }
+    patch:
+      tags: [documents]
+      summary: 更新文档（merge 语义：absent=保留——content 是大段正文，防误清）
+      operationId: updateDocument
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/DocumentCreate" }
+      responses:
+        "200":
+          description: 已更新
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Document" }
+        "400": { $ref: "#/components/responses/BadRequest" }
+        "404": { $ref: "#/components/responses/NotFound" }
+    delete:
+      tags: [documents]
+      summary: 删除文档（document 不入 citation 主体，无 409 保护）
+      operationId: deleteDocument
+      responses:
+        "204": { description: 已删除 }
+        "404": { $ref: "#/components/responses/NotFound" }
+
   /events:
     get:
       tags: [events]
@@ -961,9 +1050,10 @@ paths:
         - name: scope
           in: query
           description: |
-            检索范围。当前仅 person 与 all 可用（document/source 的
-            模型随 M5 证据链补齐后开放，届时无需改接口形态）。
-          schema: { enum: [person, all], default: all }
+            检索范围。person=人物；document=文档正文（M7.4 trigram FTS，
+            中文子串可命中，1-2 字查询回退 LIKE）；all=两者合并（items
+            带 kind 判别字段，人物在前）。未知 scope 返回 400。
+          schema: { enum: [person, document, all], default: all }
         - $ref: "#/components/parameters/Limit"
         - $ref: "#/components/parameters/Cursor"
       responses:
@@ -1257,6 +1347,34 @@ components:
         locator: { type: string }
         confidence: { enum: [high, medium, low, disputed], default: medium }
         note: { type: string }
+
+    Document:
+      type: object
+      properties:
+        id: { type: string }
+        lineage_id: { type: string }
+        type:
+          enum: [preface, rule, regulation, literature, contract, edition_note]
+        title: { type: string }
+        author: { type: string }
+        date_text: { type: string }
+        edition: { type: string }
+        content: { type: string }
+        seq: { type: [integer, "null"] }
+
+    DocumentCreate:
+      type: object
+      required: [lineage_id, type, title]
+      properties:
+        lineage_id: { type: string }
+        type:
+          enum: [preface, rule, regulation, literature, contract, edition_note]
+        title: { type: string }
+        author: { type: string }
+        date_text: { type: string }
+        edition: { type: string }
+        content: { type: string }
+        seq: { type: [integer, "null"] }
 
     Person:
       type: object
@@ -1667,21 +1785,11 @@ components:
 # 第三方按 spec 开发必然踩空。M5 实现时同步加回 paths 与 schemas。
 x-roadmap:
   planned_paths:
-    - /persons/{id}/names        # 名号变更（谱名/乳名/学名/改后名），M5
-    - /sources                   # 文献来源，M5 证据链
-    - /citations                 # 事实↔证据挂接，M5 证据链
-    - /documents                 # 谱序/凡例/家训/艺文/契约，M5
-    - /attachments               # 遗像/扫描件上传下载（内容寻址），M5
+    - /persons/{id}/names        # 名号变更（谱名/乳名/学名/改后名），M7.1
+    - /attachments               # 遗像/扫描件上传下载（内容寻址），暂缓项
   planned_schemas:
     - PersonName
     - PersonNameCreate
-    - Source
-    - SourceType
-    - SourceCreate
-    - Citation
-    - CitationCreate
-    - Document
-    - DocumentCreate
     - Attachment
   planned_behaviors:
     - 在世者脱敏          # 设计文档 4.9/6.5：is_living + privacy_level 联动，

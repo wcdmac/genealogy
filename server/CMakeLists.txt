@@ -30,6 +30,7 @@ add_library(genealogy-server-lib STATIC
   src/routes_entities.cpp
   src/routes_misc.cpp
   src/routes_sources.cpp
+  src/routes_documents.cpp
 )
 
 target_include_directories(genealogy-server-lib
