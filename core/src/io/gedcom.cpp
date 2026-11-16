@@ -929,6 +929,135 @@ Result<ImportResult> import_gedcom(const GedcomDocument& doc,
     return pl.id;
   };
 
+  // ---- 第零遍：0 @Sx@ SOUR 来源记录（M7.5 出处链）----
+  // TITL→title、AUTH→author、PUBL→repository、PUBB→year_text（部分老谱
+  // 用的非标 tag，语义即刊行年份照录）、TEXT→citation_text、NOTE→note。
+  // 缺 TITL 仍建档（占位标题），否则引用它的 citation 全部悬空；未映射
+  // 子字段逐条 Info loss——损失显式化纪律不因映射而放松。
+  std::unordered_map<std::string, std::string> source_ids;  // @S1@ → id
+  for (const auto& rec : doc.records) {
+    if (rec.tag != "SOUR") continue;
+    const std::string sxref = "@" + rec.xref + "@";
+    Source s;
+    s.id = generate_ulid();
+    s.title = trim(rec.child_value("TITL"));
+    if (s.title.empty()) s.title = trim(rec.child_value("TITLE"));
+    if (s.title.empty()) {
+      s.title = "(未命名来源 " + sxref + ")";
+      add_loss(LossSeverity::Info, sxref, "SOUR",
+               "来源记录缺 TITLE，已用占位标题建档");
+    }
+    if (const auto* a = rec.child("AUTH")) {
+      const std::string v = trim(a->value);
+      if (!v.empty()) s.author = v;
+    }
+    if (const auto* p = rec.child("PUBL")) {
+      const std::string v = trim(p->value);
+      if (!v.empty()) s.repository = v;
+    }
+    if (const auto* p = rec.child("PUBB")) {
+      const std::string v = trim(p->value);
+      if (!v.empty()) s.year_text = v;
+    }
+    if (const auto* t = rec.child("TEXT")) {
+      const std::string v = trim(t->value);
+      if (!v.empty()) s.citation_text = v;
+    }
+    if (const auto* n = rec.child("NOTE")) {
+      const std::string v = trim(n->value);
+      if (!v.empty()) s.note = v;
+    }
+    for (const auto& ch : rec.children) {
+      if (ch.tag == "TITL" || ch.tag == "TITLE" || ch.tag == "AUTH" ||
+          ch.tag == "PUBL" || ch.tag == "PUBB" || ch.tag == "TEXT" ||
+          ch.tag == "NOTE") {
+        continue;
+      }
+      add_loss(LossSeverity::Info, sxref, "SOUR." + ch.tag,
+               "来源记录子字段 " + ch.tag + " 无对应字段，未映射");
+    }
+    const std::string sid = s.id;  // 先留底：move 后读 s.id 是空串（ULID 26 字符超 SSO）
+    if (!source_ids.emplace(sxref, sid).second) {
+      add_loss(LossSeverity::Warning, sxref, "SOUR",
+               "重复的来源标识（文件内出现多次），保留第一条");
+      continue;
+    }
+    res.sources.push_back(std::move(s));
+    res.id_map.emplace(sxref, sid);
+  }
+
+  // QUAY ↔ confidence（双向映射的导入半边）：3=direct/primary→high、
+  // 2=secondary→medium、1=questionable→low、0=unreliable→disputed
+  // （disputed 取其「不可信/待裁定」一半，换往返对称）；缺省=medium
+  // （M7.2 既定默认），非法值照缺省——宁可保守不猜。
+  auto quay_to_confidence = [&](const GedcomNode* sour_node) -> Confidence {
+    const auto* q = sour_node == nullptr ? nullptr : sour_node->child("QUAY");
+    if (q == nullptr) return Confidence::Medium;
+    const std::string v = trim(q->value);
+    if (v == "3") return Confidence::High;
+    if (v == "2") return Confidence::Medium;
+    if (v == "1") return Confidence::Low;
+    if (v == "0") return Confidence::Disputed;
+    return Confidence::Medium;
+  };
+
+  // SOUR 结构（1 SOUR / 2 SOUR 节点）→ Citation。值是 @xref@ 形式时查
+  // 第零遍的来源表；非 @ 形式 = inline 来源（整段文本即出处描述，如
+  // 「1 SOUR 家谱软件测试数据生成器」），隐式建 Source。PAGE→locator、
+  // EVEN/DATA.TEXT→note。
+  auto citation_from_sour = [&](const GedcomNode& sour,
+                                const std::string& subject_xref,
+                                CitationSubjectType st,
+                                const std::string& subject_id) {
+    Citation c;
+    c.id = generate_ulid();
+    c.subject_type = st;
+    c.subject_id = subject_id;
+    const std::string val = trim(sour.value);
+    if (!val.empty() && val.front() == '@' && val.back() == '@') {
+      const auto it = res.id_map.find(val);
+      if (it == res.id_map.end()) {
+        add_loss(LossSeverity::Warning, subject_xref, "SOUR",
+                 "引用了未定义的来源记录 " + val + "，出处链断链");
+        return;
+      }
+      c.source_id = it->second;
+    } else if (!val.empty()) {
+      Source s;
+      s.id = generate_ulid();
+      s.title = val;
+      const std::string sid = s.id;  // 同上：先留底再 move
+      res.sources.push_back(std::move(s));
+      c.source_id = sid;
+    } else {
+      add_loss(LossSeverity::Warning, subject_xref, "SOUR",
+               "SOUR 结构既无指向也无文本，无法建档");
+      return;
+    }
+    if (const auto* pg = sour.child("PAGE")) {
+      const std::string loc = trim(pg->value);
+      if (!loc.empty()) c.locator = loc;
+    }
+    c.confidence = quay_to_confidence(&sour);
+    std::vector<std::string> bits;
+    if (const auto* ev = sour.child("EVEN")) {
+      const std::string v = trim(ev->value);
+      if (!v.empty()) bits.push_back("EVEN: " + v);
+    }
+    if (const auto* data = sour.child("DATA")) {
+      if (const auto* t = data->child("TEXT")) {
+        const std::string v = trim(t->value);
+        if (!v.empty()) bits.push_back("TEXT: " + v);
+      }
+    }
+    if (const auto* n = sour.child("NOTE")) {
+      const std::string v = trim(n->value);
+      if (!v.empty()) bits.push_back(v);  // 导出把 note 写成 2 NOTE
+    }
+    if (!bits.empty()) c.note = join_lines(bits);
+    res.citations.push_back(std::move(c));
+  };
+
   // ---- 第一遍：INDI ----
   for (const auto& rec : doc.records) {
     if (rec.tag != "INDI") continue;
@@ -991,6 +1120,13 @@ Result<ImportResult> import_gedcom(const GedcomDocument& doc,
       if (ev_type == EventType::Death) {
         if (fact_val == "N") {
           p.is_living = true;   // 显式在世：恢复在世保护标记
+          // DEAT N 不建事件（无事实可引），但引用它的出处不能静默丢
+          for (const auto* s : node->children_all("SOUR")) {
+            add_loss(LossSeverity::Info, xref, "SOUR",
+                     "「未死亡」事实不建事件，其下的出处引用无处挂接，"
+                     "已按损失记账");
+            (void)s;
+          }
           return;
         }
         p.is_living = false;
@@ -1033,6 +1169,10 @@ Result<ImportResult> import_gedcom(const GedcomDocument& doc,
           }
         }
       }
+      // 事实级 2 SOUR → 挂到该事实创建的事件（M7.5 出处链）
+      for (const auto* s : node->children_all("SOUR")) {
+        citation_from_sour(*s, xref, CitationSubjectType::Event, e.id);
+      }
     };
 
     handle_fact("BIRT", EventType::Birth, "");
@@ -1069,10 +1209,10 @@ Result<ImportResult> import_gedcom(const GedcomDocument& doc,
       add_loss(LossSeverity::Warning, xref, "OBJE",
                "多媒体附件未建模（M1 无附件库），链接已丢失");
     }
-    if (const auto* sour = rec.child("SOUR")) {
-      (void)sour;
-      add_loss(LossSeverity::Warning, xref, "SOUR",
-               "证据引用未建模（M1 无 Source/Citation），出处链已丢失");
+    // INDI 级 1 SOUR（无事实上下文）→ Person 级 citation（M7.5）；
+    // 多条 SOUR 全部收集（此前只看第一条）
+    for (const auto* sour : rec.children_all("SOUR")) {
+      citation_from_sour(*sour, xref, CitationSubjectType::Person, p.id);
     }
     for (const auto* uid : rec.children_all("_UID")) {
       (void)uid;
@@ -1109,6 +1249,7 @@ Result<ImportResult> import_gedcom(const GedcomDocument& doc,
     const GedcomNode* marr = nullptr;
     const GedcomNode* div = nullptr;
     const GedcomNode* note = nullptr;
+    const GedcomNode* node = nullptr;  // 整记录节点：FAM 级 1 SOUR 取用
     bool has_obje = false;
   };
   std::vector<FamRaw> fams;
@@ -1137,6 +1278,7 @@ Result<ImportResult> import_gedcom(const GedcomDocument& doc,
     f.marr = rec.child("MARR");
     f.div = rec.child("DIV");
     f.note = rec.child("NOTE");
+    f.node = &rec;
     f.has_obje = !rec.children_all("OBJE").empty();
     fams.push_back(std::move(f));
   }
@@ -1253,6 +1395,10 @@ Result<ImportResult> import_gedcom(const GedcomDocument& doc,
           if (!pid.empty()) e.place_id = pid;
         }
         res.events.push_back(e);
+        // MARR 事实级 2 SOUR → 挂到婚姻事件（M7.5）
+        for (const auto* s : f.marr->children_all("SOUR")) {
+          citation_from_sour(*s, f.xref, CitationSubjectType::Event, e.id);
+        }
       }
     }
     if (f.div) {
@@ -1271,6 +1417,12 @@ Result<ImportResult> import_gedcom(const GedcomDocument& doc,
     if (f.has_obje) {
       add_loss(LossSeverity::Warning, f.xref, "OBJE",
                "多媒体附件未建模（M1 无附件库），链接已丢失");
+    }
+    // FAM 级 1 SOUR → Union 级 citation（M7.5 出处链）
+    if (f.node != nullptr) {
+      for (const auto* s : f.node->children_all("SOUR")) {
+        citation_from_sour(*s, f.xref, CitationSubjectType::Union, u.id);
+      }
     }
     res.unions.push_back(std::move(u));
   }
@@ -1291,9 +1443,11 @@ Result<ImportResult> import_gedcom(const GedcomDocument& doc,
   // 未支持的记录类型
   for (const auto& rec : doc.records) {
     // HEAD/SUBM/SUBN/TRLR 是文件框架而非谱面信息，无领域模型但也不是
-    // 「丢失的信息」；记 Info 只会淹没真正要人看的损失，故直接跳过
+    // 「丢失的信息」；记 Info 只会淹没真正要人看的损失，故直接跳过。
+    // SOUR 于 M7.5 建模（第零遍），同样移出兜底。
     if (rec.tag == "INDI" || rec.tag == "FAM" || rec.tag == "HEAD" ||
-        rec.tag == "SUBM" || rec.tag == "SUBN" || rec.tag == "TRLR") {
+        rec.tag == "SUBM" || rec.tag == "SUBN" || rec.tag == "TRLR" ||
+        rec.tag == "SOUR") {
       continue;
     }
     add_loss(LossSeverity::Info, "@" + rec.xref + "@", rec.tag,
@@ -1503,10 +1657,21 @@ std::string export_gedcom(const ExportOptions& opt) {
       union_xref.emplace(u.id, "@F" + std::to_string(++fam_no) + "@");
     }
   }
+  // M7.5：来源 xref（@S1@…）。来源不属于任何导出过滤维度（表无
+  // lineage 列），给全量分配 xref；没被任何 citation 引用的来源
+  // 照写 0 SOUR 记录——出处档案跟着谱走。
+  std::unordered_map<std::string, std::string> source_xref;
+  int source_no = 0;
+  if (opt.sources) {
+    for (const auto& s : *opt.sources) {
+      source_xref.emplace(s.id, "@S" + std::to_string(++source_no) + "@");
+    }
+  }
 
   // 事件按主体归拢：必须写进对应记录内部，不能挂在最后一条下面
   std::unordered_map<std::string, std::vector<const Event*>> events_of_person;
   std::unordered_map<std::string, std::vector<const Event*>> events_of_union;
+  std::unordered_set<std::string> event_ids;
   if (opt.events) {
     for (const auto& e : *opt.events) {
       // 主体不在导出集内的事件：GEDCOM 里没有挂靠点，静默丢等于
@@ -1521,10 +1686,54 @@ std::string export_gedcom(const ExportOptions& opt) {
                         e.subject_id + " 不在导出集内，事件无法挂靠");
         continue;
       }
+      event_ids.insert(e.id);
       if (e.subject_type == EventSubjectType::Person) {
         events_of_person[e.subject_id].push_back(&e);
       } else if (e.subject_type == EventSubjectType::Union) {
         events_of_union[e.subject_id].push_back(&e);
+      }
+    }
+  }
+
+  // M7.5：citation 按主体归拢——写 INDI/FAM/事实行时取用。来源不在
+  // 导出集（不该发生：sources 全量分配了 xref）或主体不在导出集的
+  // 引用逐条记账；migration/branch/lineage 主体不在 GEDCOM 导出范围。
+  std::unordered_map<std::string, std::vector<const Citation*>>
+      person_cites;
+  std::unordered_map<std::string, std::vector<const Citation*>> union_cites;
+  std::unordered_map<std::string, std::vector<const Citation*>> event_cites;
+  if (opt.citations && opt.sources) {
+    for (const auto& c : *opt.citations) {
+      if (source_xref.count(c.source_id) == 0) {
+        export_loss(LossSeverity::Warning, "", "SOUR",
+                    "引用的来源 " + c.source_id + " 不在来源表中，出处链缺失");
+        continue;
+      }
+      if (c.subject_type == CitationSubjectType::Person) {
+        if (person_ids.count(c.subject_id) > 0) {
+          person_cites[c.subject_id].push_back(&c);
+        } else {
+          export_loss(LossSeverity::Warning, "", "SOUR",
+                      "人物 " + c.subject_id + " 不在导出集内，其证据引用无法挂靠");
+        }
+      } else if (c.subject_type == CitationSubjectType::Union) {
+        if (union_ids.count(c.subject_id) > 0) {
+          union_cites[c.subject_id].push_back(&c);
+        } else {
+          export_loss(LossSeverity::Warning, "", "SOUR",
+                      "结合 " + c.subject_id + " 不在导出集内，其证据引用无法挂靠");
+        }
+      } else if (c.subject_type == CitationSubjectType::Event) {
+        if (event_ids.count(c.subject_id) > 0) {
+          event_cites[c.subject_id].push_back(&c);
+        } else {
+          export_loss(LossSeverity::Warning, "", "SOUR",
+                      "事件 " + c.subject_id + " 不在导出集内，其证据引用无法挂靠");
+        }
+      } else {
+        export_loss(LossSeverity::Warning, "", "SOUR",
+                    "主体类型 " + std::string(to_string(c.subject_type)) +
+                        " 不在 GEDCOM 导出范围，证据引用无法表达");
       }
     }
   }
@@ -1645,6 +1854,46 @@ std::string export_gedcom(const ExportOptions& opt) {
     }
   }
 
+  // M7.5：写出一条 citation（SOUR 行 + PAGE/QUAY/NOTE 子结构）。
+  // QUAY 反向映射：high→3、medium→2、low→1、disputed→0（与导入半边
+  // 对称，往返零损失）。
+  auto confidence_to_quay = [](Confidence cf) -> const char* {
+    switch (cf) {
+      case Confidence::High: return "3";
+      case Confidence::Medium: return "2";
+      case Confidence::Low: return "1";
+      case Confidence::Disputed: return "0";
+    }
+    return "2";
+  };
+  auto write_cite = [&](int level, const Citation& c) {
+    const auto sit = source_xref.find(c.source_id);
+    if (sit == source_xref.end()) return;  // 索引阶段已记账
+    w.raw(level, "SOUR " + sit->second);
+    if (c.locator && !c.locator->empty()) w.text(level + 1, "PAGE", *c.locator);
+    w.raw(level + 1, std::string("QUAY ") + confidence_to_quay(c.confidence));
+    if (c.note && !c.note->empty()) w.text(level + 1, "NOTE", *c.note);
+  };
+
+  // 某主体指定类型事件的 citation 写在 level（手写事实行下）。
+  // Birth/Death/Marriage 的事件行由人物/结合字段手写（emit_facts 跳过），
+  // 事件级 citation 必须跟手写行走，否则往返丢失（M7.5 实测踩过）。
+  auto write_event_cites =
+      [&](int level,
+          const std::unordered_map<std::string, std::vector<const Event*>>&
+              idx,
+          const std::string& subject_id, EventType type) {
+        const auto found = idx.find(subject_id);
+        if (found == idx.end()) return;
+        for (const Event* e : found->second) {
+          if (e->type != type) continue;
+          const auto it = event_cites.find(e->id);
+          if (it != event_cites.end()) {
+            for (const Citation* c : it->second) write_cite(level, *c);
+          }
+        }
+      };
+
   auto emit_facts = [&](int level, const std::vector<const Event*>* evs,
                         EventType skip_type_a, EventType skip_type_b) {
     if (evs == nullptr) return;
@@ -1664,8 +1913,27 @@ std::string export_gedcom(const ExportOptions& opt) {
           e->type == EventType::Annotation) {
         w.text(level + 1, "NOTE", *e->description);
       }
+      // 事件级 citation → 事实行下的 2 SOUR（M7.5）
+      if (const auto it = event_cites.find(e->id); it != event_cites.end()) {
+        for (const Citation* c : it->second) write_cite(level + 1, *c);
+      }
     }
   };
+
+  // 0 SOUR 来源记录（M7.5）：写在 INDI 之前（记录顺序对 GEDCOM 语义
+  // 无影响，此处取「来源定义先于引用」的阅读习惯）。PUBB 为非标 tag，
+  // 与导入侧对称——自家读取器认它，第三方软件会忽略，不会读错。
+  if (opt.sources) {
+    for (const auto& s : *opt.sources) {
+      w.raw(0, source_xref[s.id] + " SOUR");
+      w.text(1, "TITL", s.title);
+      if (s.author) w.text(1, "AUTH", *s.author);
+      if (s.repository) w.text(1, "PUBL", *s.repository);
+      if (s.year_text) w.text(1, "PUBB", *s.year_text);
+      if (s.citation_text) w.text(1, "TEXT", *s.citation_text);
+      if (s.note) w.text(1, "NOTE", *s.note);
+    }
+  }
 
   if (opt.persons) {
     for (const auto& p : *opt.persons) {
@@ -1692,6 +1960,7 @@ std::string export_gedcom(const ExportOptions& opt) {
         if (!dv.empty()) w.text(2, "DATE", dv);
         const std::string n = place_name(p.birth_place_id);
         if (!n.empty()) w.text(2, "PLAC", n);
+        write_event_cites(2, events_of_person, p.id, EventType::Birth);
       }
       const bool has_death = p.death_date.has_value() &&
                              (p.death_date->gregorian.has_value() ||
@@ -1702,6 +1971,7 @@ std::string export_gedcom(const ExportOptions& opt) {
         if (!dv.empty()) w.text(2, "DATE", dv);
         const std::string n = place_name(p.death_place_id);
         if (!n.empty()) w.text(2, "PLAC", n);
+        write_event_cites(2, events_of_person, p.id, EventType::Death);
       } else if (p.is_living) {
         // 在世：显式 DEAT N（EVENT_Y_OR_N，N = 未发生）。此前写成
         // 「在世者输出 DEAT Y」——标准语义 Y = 死亡事件已发生，
@@ -1713,6 +1983,7 @@ std::string export_gedcom(const ExportOptions& opt) {
         // 导入时记录的地点在往返后无声蒸发。
         w.raw(1, "DEAT");
         w.text(2, "PLAC", n);
+        write_event_cites(2, events_of_person, p.id, EventType::Death);
       }
       // is_living=false 且无死亡日期、无卒地的人不写 DEAT：模型里
       // 「未登记」与「已故而无任何信息」同为 (is_living=false, 空)，
@@ -1722,6 +1993,25 @@ std::string export_gedcom(const ExportOptions& opt) {
       if (!burial.empty()) {
         w.raw(1, "BURI");
         w.text(2, "PLAC", burial);
+        write_event_cites(2, events_of_person, p.id, EventType::Burial);
+      }
+      // M7.5：人物 citation 路由——已知字段级 locator（birth_date/
+      // death_date/burial）落到对应事实行下（2 SOUR），其余作为记录级
+      // 1 SOUR。无事实行可落的 locator（如事实行未写出）降级为记录级
+      // 并由 2 PAGE 保留原文，往返不丢。
+      if (const auto it = person_cites.find(p.id); it != person_cites.end()) {
+        for (const Citation* c : it->second) {
+          const std::string loc = c->locator ? *c->locator : "";
+          if (loc == "birth_date" && has_birth) {
+            write_cite(2, *c);
+          } else if (loc == "death_date" && has_death) {
+            write_cite(2, *c);
+          } else if (loc == "burial" && !burial.empty()) {
+            write_cite(2, *c);
+          } else {
+            write_cite(1, *c);
+          }
+        }
       }
       if (p.note && !p.note->empty()) w.text(1, "NOTE", *p.note);
       emit_facts(1, lookup_ptr(events_of_person, p.id), EventType::Birth,
@@ -1762,6 +2052,7 @@ std::string export_gedcom(const ExportOptions& opt) {
         if (!dv.empty()) w.text(2, "DATE", dv);
         const std::string n = place_name(u.place_id);
         if (!n.empty()) w.text(2, "PLAC", n);
+        write_event_cites(2, events_of_union, u.id, EventType::Marriage);
       }
       if (u.status == UnionStatus::Dissolved) {
         w.raw(1, "DIV");
@@ -1771,6 +2062,10 @@ std::string export_gedcom(const ExportOptions& opt) {
         }
       }
       if (u.note && !u.note->empty()) w.text(1, "NOTE", *u.note);
+      // M7.5：Union 级 citation → FAM 下的 1 SOUR
+      if (const auto it = union_cites.find(u.id); it != union_cites.end()) {
+        for (const Citation* c : it->second) write_cite(1, *c);
+      }
       // 子女链：GEDCOM 的权威亲子关系在 FAM.CHIL，只写孩子的 FAMC 是不够的。
       // 反查表在建索引时已算好，这里只按结合取自己那一份。
       const auto kids = children_of_union.find(u.id);

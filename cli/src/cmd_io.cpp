@@ -41,6 +41,7 @@
 #include <genealogy/service/lineage_service.hpp>
 #include <genealogy/service/person_service.hpp>
 #include <genealogy/service/place_service.hpp>
+#include <genealogy/service/source_service.hpp>
 #include <genealogy/service/tree_service.hpp>
 #include <genealogy/service/union_service.hpp>
 #include <genealogy/validate/validation.hpp>
@@ -87,6 +88,8 @@ std::string persist(Database& db, io::ImportResult& r, int* created) {
   PersonService persons(db);
   UnionService unions(db);
   EventService events(db);
+  SourceService sources(db);
+  CitationService citations(db);
   *created = 0;
 
   for (const auto& pl : r.places) {
@@ -108,6 +111,17 @@ std::string persist(Database& db, io::ImportResult& r, int* created) {
   for (const auto& e : r.events) {
     auto made = events.create_event(e);
     if (!made) return "建事件失败: " + made.error().to_string();
+    ++*created;
+  }
+  // 出处链（M7.5）：来源先于引用（citation.source_id 外键）
+  for (const auto& s : r.sources) {
+    auto made = sources.create_source(s);
+    if (!made) return "建来源失败: " + made.error().to_string();
+    ++*created;
+  }
+  for (const auto& c : r.citations) {
+    auto made = citations.create_citation(c);
+    if (!made) return "建证据引用失败: " + made.error().to_string();
     ++*created;
   }
   if (auto c = tx.commit(); !c) {
@@ -174,7 +188,9 @@ int cmd_import_gedcom(const std::vector<std::string>& args,
     out["imported"] = {{"persons", data.persons.size()},
                        {"unions", data.unions.size()},
                        {"events", data.events.size()},
-                       {"places", data.places.size()}};
+                       {"places", data.places.size()},
+                       {"sources", data.sources.size()},
+                       {"citations", data.citations.size()}};
     out["created_records"] = created;
     nlohmann::json losses = nlohmann::json::array();
     int warnings = 0;
@@ -299,11 +315,40 @@ int cmd_export_gedcom(const std::vector<std::string>& args,
   std::vector<Place> place_rows =
       place_list ? std::move(*place_list) : std::vector<Place>{};
 
+  // 出处链（M7.5）：来源全量 + 引用按导出集过滤。引用主体（人物/
+  // 结合/事件）是否在集内由 export_gedcom 内部记账——这里只装载。
+  SourceService sources(*db);
+  SourceFilter sf;
+  sf.limit = 100000;
+  auto source_list = sources.list_sources(sf);
+  if (!source_list) {
+    print_error(source_list.error());
+    return exit_code_for(source_list.error());
+  }
+  CitationService citations(*db);
+  std::vector<Citation> citation_rows;
+  std::optional<std::string> cite_cursor;
+  for (;;) {
+    CitationFilter cf;
+    cf.limit = 1000;
+    cf.cursor = cite_cursor;
+    auto page = citations.list_citations(cf);
+    if (!page) {
+      print_error(page.error());
+      return exit_code_for(page.error());
+    }
+    if (page->empty()) break;
+    for (auto& c : *page) citation_rows.push_back(std::move(c));
+    cite_cursor = citation_rows.back().id;
+  }
+
   io::ExportOptions eo;
   eo.persons = &rows;
   eo.unions = &union_rows;
   eo.events = &event_rows;
   eo.places = &place_rows;
+  eo.sources = &*source_list;
+  eo.citations = &citation_rows;
   eo.submitter_name = r.count("submitter") ? r["submitter"].as<std::string>()
                                            : "genealogy";
   eo.source_version = "1.0";

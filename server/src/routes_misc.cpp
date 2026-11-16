@@ -40,6 +40,7 @@
 #include <genealogy/repository/event_repository.hpp>
 #include <genealogy/repository/person_repository.hpp>
 #include <genealogy/repository/place_repository.hpp>
+#include <genealogy/repository/source_repository.hpp>
 #include <genealogy/repository/bulk_load.hpp>
 #include <genealogy/repository/transaction.hpp>
 #include <genealogy/repository/union_repository.hpp>
@@ -430,6 +431,19 @@ void import_gedcom(const drogon::HttpRequestPtr& req, Callback&& cb) {
         ++created;
       }
     }
+    // 出处链（M7.5）：来源先于引用（citation.source_id 外键）
+    if (fail.empty()) {
+      for (const auto& s : data.sources) {
+        if (auto e = loader.add_source(s); !e) { fail = e.error().to_string(); break; }
+        ++created;
+      }
+    }
+    if (fail.empty()) {
+      for (const auto& c : data.citations) {
+        if (auto e = loader.add_citation(c); !e) { fail = e.error().to_string(); break; }
+        ++created;
+      }
+    }
     if (!fail.empty() || !tx.commit()) {
       cb(problem_response(500, 9001, "内部错误",
                           "导入落库失败（已回滚，库中无残留）: " +
@@ -530,16 +544,54 @@ void export_gedcom(const drogon::HttpRequestPtr& req, Callback&& cb) {
     return;
   }
 
+  // 出处链（M7.5）：来源全量 + 引用全量（citation 按 subject_id 与
+  // 导出集的匹配由 export_gedcom 内部记账——主体不在集内的引用记
+  // loss 而不是静默丢）。
+  SourceRepository sources(*db);
+  SourceFilter sf;
+  sf.limit = 100000;
+  auto source_rows = sources.list(sf);
+  if (!source_rows) {
+    cb(error_to_response(source_rows.error(), instance));
+    return;
+  }
+  CitationRepository cites(*db);
+  std::vector<Citation> citation_rows;
+  std::optional<std::string> cite_cursor;
+  for (;;) {
+    CitationFilter cf;
+    cf.limit = 1000;
+    cf.cursor = cite_cursor;
+    auto page = cites.list(cf);
+    if (!page) {
+      cb(error_to_response(page.error(), instance));
+      return;
+    }
+    if (page->empty()) break;
+    for (auto& c : *page) citation_rows.push_back(std::move(c));
+    cite_cursor = citation_rows.back().id;
+  }
+
   io::ExportOptions eo;
   eo.persons = &*rows;
   eo.unions = &union_rows;
   eo.events = &event_rows;
   eo.places = &*place_rows;
+  eo.sources = &*source_rows;
+  eo.citations = &citation_rows;
+  // 导出侧损失台账：与导入同口径逐条记账（此前未传，fallback 直接
+  // 丢弃——谱师看不到「库里有但没导出」的东西，与纪律相悖）。GEDCOM
+  // 文本响应无结构化 losses 通道：数量走 X-Loss-Count 响应头。
+  std::vector<io::MappingLoss> export_losses;
+  eo.losses = &export_losses;
   const std::string text = io::export_gedcom(eo);
 
   auto resp = drogon::HttpResponse::newHttpResponse();
   resp->setBody(text);
   resp->setContentTypeString("text/plain; charset=utf-8");
+  if (!export_losses.empty()) {
+    resp->addHeader("X-Loss-Count", std::to_string(export_losses.size()));
+  }
   cb(resp);
 }
 

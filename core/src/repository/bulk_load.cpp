@@ -9,12 +9,16 @@
 namespace genealogy {
 
 using repo_internal::Stmt;
+using repo_internal::bind_citation;
 using repo_internal::bind_event;
+using repo_internal::bind_source;
 using repo_internal::bind_person;
 using repo_internal::bind_place;
 using repo_internal::bind_union;
 using repo_internal::bind_union_member;
+using repo_internal::citation_insert_sql;
 using repo_internal::event_insert_sql;
+using repo_internal::source_insert_sql;
 using repo_internal::person_insert_sql;
 using repo_internal::place_insert_sql;
 using repo_internal::union_insert_sql;
@@ -26,6 +30,8 @@ struct BulkLoader::Impl {
   std::unique_ptr<Stmt> union_row;
   std::unique_ptr<Stmt> member;
   std::unique_ptr<Stmt> event;
+  std::unique_ptr<Stmt> source;
+  std::unique_ptr<Stmt> citation;
 };
 
 BulkLoader::BulkLoader(Database& db) : db_(db), impl_(std::make_unique<Impl>()) {
@@ -34,6 +40,8 @@ BulkLoader::BulkLoader(Database& db) : db_(db), impl_(std::make_unique<Impl>()) 
   impl_->union_row = std::make_unique<Stmt>(db_.raw(), union_insert_sql());
   impl_->member = std::make_unique<Stmt>(db_.raw(), union_member_insert_sql());
   impl_->event = std::make_unique<Stmt>(db_.raw(), event_insert_sql());
+  impl_->source = std::make_unique<Stmt>(db_.raw(), source_insert_sql());
+  impl_->citation = std::make_unique<Stmt>(db_.raw(), citation_insert_sql());
 }
 
 BulkLoader::~BulkLoader() {
@@ -110,6 +118,26 @@ Result<void> BulkLoader::add_event(const Event& e) {
   bind_event(impl_->event->get(), e);
   if (auto r = step(impl_->event->get(), "event"); !r) return r.error();
   ++events_;
+  return {};
+}
+
+Result<void> BulkLoader::add_source(const Source& s) {
+  if (auto r = ensure_started(); !r) return r.error();
+  if (s.id.empty()) return invalid_argument("灌库来源必须带 id");
+  bind_source(impl_->source->get(), s);
+  if (auto r = step(impl_->source->get(), "source"); !r) return r.error();
+  ++sources_;
+  return {};
+}
+
+Result<void> BulkLoader::add_citation(const Citation& c) {
+  if (auto r = ensure_started(); !r) return r.error();
+  if (c.id.empty()) return invalid_argument("灌库证据引用必须带 id");
+  if (c.subject_id.empty()) return invalid_argument("灌库证据引用必须带 subject_id");
+  if (c.source_id.empty()) return invalid_argument("灌库证据引用必须带 source_id");
+  bind_citation(impl_->citation->get(), c);
+  if (auto r = step(impl_->citation->get(), "citation"); !r) return r.error();
+  ++citations_;
   return {};
 }
 

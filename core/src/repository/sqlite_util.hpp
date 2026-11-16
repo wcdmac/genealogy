@@ -15,7 +15,9 @@
 #include <genealogy/model/event.hpp>
 #include <genealogy/model/genealogy_date.hpp>
 #include <genealogy/model/person.hpp>
+#include <genealogy/model/citation.hpp>
 #include <genealogy/model/place.hpp>
+#include <genealogy/model/source.hpp>
 #include <genealogy/model/union.hpp>
 
 namespace genealogy::repo_internal {
@@ -65,12 +67,16 @@ const char* place_insert_sql() noexcept;
 const char* union_insert_sql() noexcept;
 const char* union_member_insert_sql() noexcept;
 const char* event_insert_sql() noexcept;
+const char* source_insert_sql() noexcept;
+const char* citation_insert_sql() noexcept;
 
 // 行 → 绑定参数（不含 id/rev/时间戳的默认值处理，由调用方决定）
 void bind_person(sqlite3_stmt* st, const Person& p);
 void bind_place(sqlite3_stmt* st, const Place& p);
 void bind_union(sqlite3_stmt* st, const Union& u);
 void bind_event(sqlite3_stmt* st, const Event& e);
+void bind_source(sqlite3_stmt* st, const Source& s);
+void bind_citation(sqlite3_stmt* st, const Citation& c);
 void bind_union_member(sqlite3_stmt* st, const std::string& union_id,
                        const UnionMember& m);
 

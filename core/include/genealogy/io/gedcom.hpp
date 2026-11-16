@@ -20,10 +20,12 @@
 #include <vector>
 
 #include <genealogy/error.hpp>
+#include <genealogy/model/citation.hpp>
 #include <genealogy/model/event.hpp>
 #include <genealogy/model/genealogy_date.hpp>
 #include <genealogy/model/person.hpp>
 #include <genealogy/model/place.hpp>
+#include <genealogy/model/source.hpp>
 #include <genealogy/model/union.hpp>
 
 namespace genealogy::io {
@@ -83,8 +85,12 @@ struct ImportResult {
   std::vector<Union> unions;
   std::vector<Event> events;
   std::vector<Place> places;
+  // M7.5：0 SOUR 记录与 INDI/FAM/事实级 1/2 SOUR 引用 → 出处链
+  std::vector<Source> sources;
+  std::vector<Citation> citations;
   std::vector<MappingLoss> losses;
-  // GEDCOM xref（"@I1@"）→ 新分配的 id，供调用方追溯与报告
+  // GEDCOM xref（"@I1@"）→ 新分配的 id，供调用方追溯与报告。
+  // 键含来源记录（"@S1@"）。
   std::unordered_map<std::string, std::string> id_map;
 };
 
@@ -103,6 +109,11 @@ struct ExportOptions {
   const std::vector<Union>* unions = nullptr;
   const std::vector<Event>* events = nullptr;
   const std::vector<Place>* places = nullptr;  // place_id → 名称 解析用
+  // M7.5：出处链——sources 全量导出（0 SOUR 记录），citations 按
+  // 主体路由（Person 级→INDI 1 SOUR、Event 级→事实行 2 SOUR、
+  // Union 级→FAM 1 SOUR）；主体不在导出集内的引用跳过并记 loss。
+  const std::vector<Source>* sources = nullptr;
+  const std::vector<Citation>* citations = nullptr;
   std::string submitter_name = "genealogy";
   std::string source_version = "1.0";
   // 导出侧损失台账（镜像导入侧的 add_loss）：凡「库里有、GEDCOM

@@ -191,6 +191,16 @@ const char* union_member_insert_sql() noexcept {
          " VALUES (?1,?2,?3)";
 }
 
+const char* source_insert_sql() noexcept {
+  return "INSERT INTO source(id, type, title, author, year_text, repository,"
+         " uri, citation, note) VALUES (?1,?2,?3,?4,?5,?6,?7,?8,?9)";
+}
+
+const char* citation_insert_sql() noexcept {
+  return "INSERT INTO citation(id, subject_type, subject_id, source_id,"
+         " locator, confidence, note) VALUES (?1,?2,?3,?4,?5,?6,?7)";
+}
+
 const char* event_insert_sql() noexcept {
   return "INSERT INTO event(id, subject_type, subject_id, type, date, place_id,"
          " description, created_at) VALUES (?1,?2,?3,?4,?5,?6,?7,?8)";
@@ -240,6 +250,32 @@ void bind_union(sqlite3_stmt* st, const Union& u) {
   bind_opt_text(st, i++, u.place_id);
   bind_opt_text(st, i++, u.note);
   sqlite3_bind_int64(st, i++, static_cast<std::int64_t>(u.rev));
+}
+
+void bind_source(sqlite3_stmt* st, const Source& s) {
+  int i = 1;
+  sqlite3_bind_text(st, i++, s.id.c_str(), -1, SQLITE_TRANSIENT);
+  sqlite3_bind_text(st, i++, to_string(s.type).c_str(), -1, SQLITE_TRANSIENT);
+  sqlite3_bind_text(st, i++, s.title.c_str(), -1, SQLITE_TRANSIENT);
+  bind_opt_text(st, i++, s.author);
+  bind_opt_text(st, i++, s.year_text);
+  bind_opt_text(st, i++, s.repository);
+  bind_opt_text(st, i++, s.uri);
+  bind_opt_text(st, i++, s.citation_text);
+  bind_opt_text(st, i++, s.note);
+}
+
+void bind_citation(sqlite3_stmt* st, const Citation& c) {
+  int i = 1;
+  sqlite3_bind_text(st, i++, c.id.c_str(), -1, SQLITE_TRANSIENT);
+  sqlite3_bind_text(st, i++, to_string(c.subject_type).c_str(), -1,
+                    SQLITE_TRANSIENT);
+  sqlite3_bind_text(st, i++, c.subject_id.c_str(), -1, SQLITE_TRANSIENT);
+  sqlite3_bind_text(st, i++, c.source_id.c_str(), -1, SQLITE_TRANSIENT);
+  bind_opt_text(st, i++, c.locator);
+  sqlite3_bind_text(st, i++, to_string(c.confidence).c_str(), -1,
+                    SQLITE_TRANSIENT);
+  bind_opt_text(st, i++, c.note);
 }
 
 void bind_event(sqlite3_stmt* st, const Event& e) {

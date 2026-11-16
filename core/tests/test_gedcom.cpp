@@ -551,10 +551,20 @@ TEST_CASE("GEDCOM 映射：损失显式化，绝不静默丢弃") {
     return false;
   };
   CHECK(has("OBJE", LossSeverity::Warning));      // 附件未建模
-  CHECK(has("SOUR", LossSeverity::Warning));      // 证据链未建模
+  // M7.5：SOUR 已建模（0 SOUR 记录 + INDI 1 SOUR → 出处链），不再进损失
+  for (const auto& l : r->losses) {
+    CHECK(l.tag != "SOUR");
   CHECK(has("_UID", LossSeverity::Info));
   CHECK(has("ASSO", LossSeverity::Info));
-  CHECK(has("SOUR", LossSeverity::Info));         // 未支持的记录类型
+  }
+  // 出处链：0 @S1@ SOUR 的 TITLE → 来源；INDI 1 SOUR → Person 级引用
+  REQUIRE(r->sources.size() == 1);
+  CHECK(r->sources[0].title == "族谱抄本");
+  REQUIRE(r->citations.size() == 1);
+  CHECK(r->citations[0].subject_type == CitationSubjectType::Person);
+  CHECK(r->citations[0].source_id == r->sources[0].id);
+  CHECK(r->citations[0].confidence == Confidence::Medium);  // 无 QUAY 缺省
+  CHECK_FALSE(r->citations[0].locator.has_value());
 
   // ALIA 有字段，不算损失
   const Person* p = nullptr;
@@ -633,7 +643,7 @@ TEST_CASE("GEDCOM 写出：在世写 DEAT N，未知不写") {
 
   std::vector<Person> only_living = {living};
   const std::string out_living = export_gedcom(
-      ExportOptions{&only_living, {}, {}, {}, "谱师", "1.0"});
+      ExportOptions{&only_living, {}, {}, {}, {}, {}, "谱师", "1.0"});
   // 在世：显式 DEAT N（标准语义「未死亡」）；绝不写 DEAT Y——
   // 那会让第三方软件把活人读成死人
   CHECK(out_living.find("1 DEAT N") != std::string::npos);
@@ -648,7 +658,7 @@ TEST_CASE("GEDCOM 写出：在世写 DEAT N，未知不写") {
 
   std::vector<Person> only_unknown = {unknown};
   const std::string out_unknown = export_gedcom(
-      ExportOptions{&only_unknown, {}, {}, {}, "谱师", "1.0"});
+      ExportOptions{&only_unknown, {}, {}, {}, {}, {}, "谱师", "1.0"});
   // 未知（未登记在世）：不写 DEAT，避免误标为已故
   CHECK(out_unknown.find("1 DEAT") == std::string::npos);
 }
@@ -671,7 +681,7 @@ TEST_CASE("GEDCOM 写出：结构与 255 字节切行") {
   persons.push_back(p);
 
   const std::string out = export_gedcom(ExportOptions{&persons, nullptr, nullptr,
-                                                      nullptr, "谱师", "1.0"});
+                                                      nullptr, {}, {}, "谱师", "1.0"});
 
   // 每行都不超过 255 字节
   int line_no = 0;
@@ -782,7 +792,7 @@ TEST_CASE("GEDCOM 往返：导出再导入，信息不丢") {
   events.push_back(burial);
 
   const std::string out = export_gedcom(
-      ExportOptions{&persons, &unions, &events, &places, "谱师", "1.0"});
+      ExportOptions{&persons, &unions, &events, &places, {}, {}, "谱师", "1.0"});
 
   // 导出文本应能自洽：妾用扩展标签，离异有 DIV
   CHECK(out.find("1 _CONC @I4@") != std::string::npos);
@@ -915,8 +925,8 @@ TEST_CASE("GEDCOM 导出：部分导出的损失台账") {
 
   std::vector<io::MappingLoss> losses;
   const std::string out = io::export_gedcom(
-      io::ExportOptions{&persons, &unions, &events, nullptr, "谱师", "1.0",
-                        &losses});
+      io::ExportOptions{&persons, &unions, &events, nullptr, {}, {}, "谱师",
+                        "1.0", &losses});
 
   // B 缺集 → WIFE 成员链缺失、F2 结合缺 HUSB、C 的母链无法表达
   int wife_loss = 0, husb_loss = 0, famc_loss = 0, event_loss = 0;
@@ -994,4 +1004,83 @@ TEST_CASE("GEDCOM 映射：世系环拒绝并点名，不报误导性的「父�
   REQUIRE(ok_doc.has_value());
   const auto ok = import_gedcom(*ok_doc, ImportOptions{"L1", "陈", true});
   CHECK(ok.has_value());
+}
+
+TEST_CASE("GEDCOM 出处链：QUAY/PAGE 映射 + 往返零损失") {
+  const std::string s =
+      "0 HEAD\n1 CHAR UTF-8\n"
+      "0 @S1@ SOUR\n1 TITL 中湘陈氏族谱\n1 AUTH 修谱局\n1 PUBL 上海图书馆\n"
+      "0 @I1@ INDI\n1 NAME 甲 /一/\n"
+      "1 BIRT\n2 DATE 1900 JAN 1\n2 SOUR @S1@\n3 PAGE 卷三 p136\n3 QUAY 3\n"
+      "1 SOUR @S1@\n2 QUAY 1\n"
+      "0 TRLR\n";
+  const auto doc = parse_gedcom(s);
+  REQUIRE(doc.has_value());
+  const auto r = import_gedcom(*doc, ImportOptions{"L1", "陈", true});
+  REQUIRE(r.has_value());
+
+  // 事实级 2 SOUR → 事件引用（QUAY 3→high、PAGE→locator）；
+  // INDI 级 1 SOUR → 人物引用（QUAY 1→low）
+  REQUIRE(r->sources.size() == 1);
+  CHECK(r->sources[0].title == "中湘陈氏族谱");
+  CHECK(r->sources[0].author.has_value());
+  CHECK(*r->sources[0].author == "修谱局");
+  CHECK(r->sources[0].repository.has_value());
+  CHECK(*r->sources[0].repository == "上海图书馆");
+  REQUIRE(r->citations.size() == 2);
+  const Citation* ev_cite = nullptr;
+  const Citation* per_cite = nullptr;
+  for (const auto& c : r->citations) {
+    if (c.subject_type == CitationSubjectType::Event) ev_cite = &c;
+    if (c.subject_type == CitationSubjectType::Person) per_cite = &c;
+  }
+  REQUIRE(ev_cite != nullptr);
+  CHECK(ev_cite->confidence == Confidence::High);
+  REQUIRE(ev_cite->locator.has_value());
+  CHECK(*ev_cite->locator == "卷三 p136");
+  REQUIRE(r->events.size() == 1);  // BIRT 事件
+  CHECK(ev_cite->subject_id == r->events[0].id);
+  REQUIRE(per_cite != nullptr);
+  CHECK(per_cite->confidence == Confidence::Low);
+  CHECK_FALSE(per_cite->locator.has_value());
+  CHECK(per_cite->source_id == r->sources[0].id);
+
+  // 往返：导出（含出处链）→ 再导入 → 来源与引用逐字段稳定
+  io::ExportOptions eo;
+  eo.persons = &r->persons;
+  eo.unions = &r->unions;
+  eo.events = &r->events;
+  eo.sources = &r->sources;
+  eo.citations = &r->citations;
+  const std::string out = export_gedcom(eo);
+  CHECK(out.find("0 @S1@ SOUR") != std::string::npos);
+  CHECK(out.find("1 SOUR @S1@") != std::string::npos);
+  CHECK(out.find("2 SOUR @S1@") != std::string::npos);
+  CHECK(out.find("3 QUAY 3") != std::string::npos);
+  CHECK(out.find("3 PAGE 卷三 p136") != std::string::npos);
+
+  const auto doc2 = parse_gedcom(out);
+  REQUIRE(doc2.has_value());
+  const auto r2 = import_gedcom(*doc2, ImportOptions{"L1", "陈", true});
+  REQUIRE(r2.has_value());
+  CHECK(r2->sources.size() == 1);
+  CHECK(r2->sources[0].title == "中湘陈氏族谱");
+  CHECK(r2->sources[0].author.has_value());
+  CHECK(*r2->sources[0].author == "修谱局");
+  CHECK(r2->sources[0].repository.has_value());
+  CHECK(*r2->sources[0].repository == "上海图书馆");
+  REQUIRE(r2->citations.size() == 2);
+  const Citation* ev2 = nullptr;
+  const Citation* per2 = nullptr;
+  for (const auto& c : r2->citations) {
+    if (c.subject_type == CitationSubjectType::Event) ev2 = &c;
+    if (c.subject_type == CitationSubjectType::Person) per2 = &c;
+  }
+  REQUIRE(ev2 != nullptr);
+  REQUIRE(per2 != nullptr);
+  CHECK(ev2->confidence == Confidence::High);
+  CHECK(ev2->locator.has_value());
+  CHECK(*ev2->locator == "卷三 p136");
+  CHECK(per2->confidence == Confidence::Low);
+  CHECK_FALSE(per2->locator.has_value());
 }
