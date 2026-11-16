@@ -447,6 +447,46 @@ export interface paths {
         patch: operations["updateDocument"];
         trace?: never;
     };
+    "/persons/{id}/names": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: components["parameters"]["Id"];
+            };
+            cookie?: never;
+        };
+        /** 名号列表（主名在前；人物不存在 404） */
+        get: operations["listPersonNames"];
+        put?: never;
+        /** 登记名号（置主时清除同人多条；人物不存在 404） */
+        post: operations["createPersonName"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/persons/{id}/names/{nameId}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: components["parameters"]["Id"];
+                nameId: string;
+            };
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post?: never;
+        /** 删除名号（台账语义：修正=删了重录） */
+        delete: operations["deletePersonName"];
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/events": {
         parameters: {
             query?: never;
@@ -785,6 +825,26 @@ export interface components {
             content?: string;
             seq?: number | null;
         };
+        PersonName: {
+            id?: string;
+            person_id?: string;
+            name?: string;
+            /** @enum {unknown} */
+            name_type?: "genealogy" | "infant" | "school" | "renamed" | "posthumous";
+            start_date?: components["schemas"]["GenealogyDate"];
+            end_date?: components["schemas"]["GenealogyDate"];
+            is_primary?: boolean;
+            note?: string;
+        };
+        PersonNameCreate: {
+            name: string;
+            /** @enum {unknown} */
+            name_type: "genealogy" | "infant" | "school" | "renamed" | "posthumous";
+            start_date?: components["schemas"]["GenealogyDate"];
+            end_date?: components["schemas"]["GenealogyDate"];
+            is_primary?: boolean;
+            note?: string;
+        };
         Person: {
             id?: string;
             lineage_id?: string;
@@ -795,6 +855,8 @@ export interface components {
             courtesy_name?: string;
             /** @description 号 */
             art_name?: string;
+            /** @description 别称/改名前名 */
+            alias?: string;
             posthumous_title?: string;
             /** @enum {unknown} */
             gender?: "male" | "female" | "unknown";
@@ -2309,6 +2371,84 @@ export interface operations {
                 };
             };
             400: components["responses"]["BadRequest"];
+            404: components["responses"]["NotFound"];
+        };
+    };
+    listPersonNames: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: components["parameters"]["Id"];
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description 成功 */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        data?: components["schemas"]["PersonName"][];
+                        page?: {
+                            next_cursor?: string | null;
+                            has_more?: boolean;
+                        };
+                    };
+                };
+            };
+        };
+    };
+    createPersonName: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: components["parameters"]["Id"];
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["PersonNameCreate"];
+            };
+        };
+        responses: {
+            /** @description 已创建 */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["PersonName"];
+                };
+            };
+            400: components["responses"]["BadRequest"];
+            404: components["responses"]["NotFound"];
+        };
+    };
+    deletePersonName: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: components["parameters"]["Id"];
+                nameId: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description 已删除 */
+            204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
             404: components["responses"]["NotFound"];
         };
     };

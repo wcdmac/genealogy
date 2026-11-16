@@ -39,8 +39,10 @@
 #include <genealogy/lineage/relationship.hpp>
 #include <genealogy/model/genealogy_date.hpp>
 #include <genealogy/model/person.hpp>
+#include <genealogy/model/person_name.hpp>
 #include <genealogy/repository/bootstrap.hpp>
 #include <genealogy/repository/database.hpp>
+#include <genealogy/service/person_name_service.hpp>
 #include <genealogy/service/person_service.hpp>
 #include <genealogy/service/union_service.hpp>
 
@@ -118,6 +120,133 @@ int cmd_db_init(const std::string& db_path, const std::string& format) {
               << "（schema v" << db->schema_version() << "）\n";
   }
   return 0;
+}
+
+// 名号（M7.1）：genea person name add|list|remove —— 一人多名的变更史。
+// 主名全人唯一：--primary 置主时服务层清除同人多条。
+int cmd_person_name(const std::vector<std::string>& args,
+                    const std::string& db_path, const std::string& format) {
+  // main 对 person 系列传 args（不含子命令，见分发处注释）：
+  // `genea person name add ...` 时 args[0]="add"
+  if (args.empty()) {
+    std::cerr << "用法错误: genea person name add|list|remove ...\n";
+    return 2;
+  }
+  const std::string sub = args[0];
+  const std::vector<std::string> rest(args.begin() + 1, args.end());
+  cxxopts::Options opts("genea person name " + sub, "名号" + sub);
+  opts.add_options()
+      ("person", "人物 ID", cxxopts::value<std::string>())
+      ("type", "名号类型: genealogy|infant|school|renamed|posthumous",
+       cxxopts::value<std::string>()->default_value("genealogy"))
+      ("name", "名号文本", cxxopts::value<std::string>())
+      ("start", "起用（ISO 或老谱原文）", cxxopts::value<std::string>())
+      ("end", "停用（格式同 --start）", cxxopts::value<std::string>())
+      ("primary", "置为此人当前主名",
+       cxxopts::value<bool>()->default_value("false")->implicit_value("true"))
+      ("note", "备注", cxxopts::value<std::string>());
+  const auto r = parse_args(opts, rest);
+
+  auto db = open_db(db_path);
+  if (!db) {
+    print_error(db.error());
+    return exit_code_for(db.error());
+  }
+  PersonNameService svc(*db);
+
+  if (sub == "add") {
+    if (r.count("person") == 0 || r.count("name") == 0) {
+      std::cerr << "用法错误: person name add --person <id> --name <名号> "
+                   "[--type ...] [--start ...] [--end ...] [--primary] "
+                   "[--note ...]\n";
+      return 2;
+    }
+    PersonName n;
+    n.person_id = r["person"].as<std::string>();
+    n.name = r["name"].as<std::string>();
+    auto t = person_name_type_from_string(r["type"].as<std::string>());
+    if (!t) {
+      std::cerr << "用法错误: --type 应为 genealogy/infant/school/renamed/"
+                   "posthumous\n";
+      return 2;
+    }
+    n.type = *t;
+    if (r.count("start")) {
+      auto d = parse_date_arg(r["start"].as<std::string>());
+      if (!d) {
+        print_error(d.error());
+        return exit_code_for(d.error());
+      }
+      n.start_date = *d;
+    }
+    if (r.count("end")) {
+      auto d = parse_date_arg(r["end"].as<std::string>());
+      if (!d) {
+        print_error(d.error());
+        return exit_code_for(d.error());
+      }
+      n.end_date = *d;
+    }
+    n.is_primary = r["primary"].as<bool>();
+    if (r.count("note")) n.note = r["note"].as<std::string>();
+    auto made = svc.create_person_name(n);
+    if (!made) {
+      print_error(made.error());
+      return exit_code_for(made.error());
+    }
+    if (format == "json") {
+      std::cout << to_json(*made).dump(2) << "\n";
+    } else {
+      std::cout << "已登记名号: " << made->id << "	"
+                << to_string(made->type) << "	" << made->name
+                << (made->is_primary ? "	[主名]" : "") << "\n";
+    }
+    return 0;
+  }
+
+  if (sub == "list") {
+    if (r.count("person") == 0) {
+      std::cerr << "用法错误: person name list --person <id>\n";
+      return 2;
+    }
+    auto rows = svc.list_person_names(r["person"].as<std::string>());
+    if (!rows) {
+      print_error(rows.error());
+      return exit_code_for(rows.error());
+    }
+    if (format == "json") {
+      nlohmann::json arr = nlohmann::json::array();
+      for (const auto& n : *rows) arr.push_back(to_json(n));
+      std::cout << arr.dump(2) << "\n";
+      return 0;
+    }
+    for (const auto& n : *rows) {
+      std::cout << n.id << "	" << to_string(n.type) << "	" << n.name;
+      if (n.start_date) std::cout << "	起:" << n.start_date->display();
+      if (n.end_date) std::cout << "	止:" << n.end_date->display();
+      if (n.is_primary) std::cout << "	[主名]";
+      if (n.note) std::cout << "	" << *n.note;
+      std::cout << "\n";
+    }
+    return 0;
+  }
+
+  if (sub == "remove") {
+    if (rest.empty()) {
+      std::cerr << "用法错误: person name remove <id>\n";
+      return 2;
+    }
+    auto removed = svc.remove_person_name(rest[0]);
+    if (!removed) {
+      print_error(removed.error());
+      return exit_code_for(removed.error());
+    }
+    std::cout << "已删除名号 " << rest[0] << "\n";
+    return 0;
+  }
+
+  std::cerr << "用法错误: genea person name add|list|remove\n";
+  return 2;
 }
 
 int cmd_person_add(const std::vector<std::string>& args,
@@ -899,6 +1028,7 @@ int run(std::vector<std::string> raw_args) {
     }
     if (command == "person") {
       if (sub == "add") return cmd_person_add(args, db_path, format);
+      if (sub == "name") return cmd_person_name(args, db_path, format);
       if (sub == "list") return cmd_person_list(args, db_path, format);
       if (sub == "show") return cmd_person_show(args, db_path, format);
       if (sub == "relation") return cmd_person_relation(args, db_path, format);

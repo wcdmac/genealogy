@@ -180,6 +180,13 @@ int main(int argc, char** argv) {
                       &person_mourning, {drogon::Get});
   app.registerHandler(base + "/persons/{id}/appellation",
                       &person_appellation, {drogon::Get});
+  // 名号（M7.1）：一人多名的变更史
+  app.registerHandler(base + "/persons/{id}/names", &person_names_list,
+                      {drogon::Get});
+  app.registerHandler(base + "/persons/{id}/names", &person_names_create,
+                      {drogon::Post});
+  app.registerHandler(base + "/persons/{id}/names/{nameId}",
+                      &person_name_delete, {drogon::Delete});
 
   // 基础资源
   app.registerHandler(base + "/lineages", &lineages_list, {drogon::Get});

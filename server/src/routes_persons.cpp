@@ -19,9 +19,12 @@
 #include <genealogy/lineage/tree.hpp>
 #include <genealogy/model/migration.hpp>
 #include <genealogy/model/person.hpp>
+#include <genealogy/model/person_name.hpp>
 #include <genealogy/repository/database.hpp>
 #include <genealogy/repository/event_repository.hpp>
 #include <genealogy/repository/migration_repository.hpp>
+#include <genealogy/repository/person_name_repository.hpp>
+#include <genealogy/service/person_name_service.hpp>
 #include <genealogy/repository/person_repository.hpp>
 #include <genealogy/repository/union_repository.hpp>
 #include <genealogy/server/dto.hpp>
@@ -257,10 +260,12 @@ void person_get(const drogon::HttpRequestPtr& req, Callback&& cb) {
   bool want_events = false;
   bool want_unions = false;
   bool want_migrations = false;
+  bool want_names = false;
   for (const auto& item : split_csv_expand(req->getParameter("expand"))) {
     if (item == "events") want_events = true;
     else if (item == "unions") want_unions = true;
     else if (item == "migrations") want_migrations = true;
+    else if (item == "names") want_names = true;
   }
   // 单主体子资源的安全上限：正常人不会有一万条事件/迁徙；真到了
   // 上限宁可截断也不无限翻页（与 200000 全量装载的口径取舍一致）。
@@ -325,6 +330,17 @@ void person_get(const drogon::HttpRequestPtr& req, Callback&& cb) {
     nlohmann::json arr = nlohmann::json::array();
     for (const auto& m : ms) arr.push_back(to_json(m));
     body["migrations"] = arr;
+  }
+  if (want_names) {
+    PersonNameRepository names(*db);
+    auto ns = names.list(got->id);
+    if (!ns) {
+      cb(error_to_response(ns.error(), instance));
+      return;
+    }
+    nlohmann::json arr = nlohmann::json::array();
+    for (const auto& n : *ns) arr.push_back(to_json(n));
+    body["names"] = arr;
   }
   cb(json_ok(std::move(body), got->rev));
 }
@@ -767,6 +783,146 @@ void person_appellation(const drogon::HttpRequestPtr& req, Callback&& cb) {
   out["path"] = app->path;   // 规则表字母序列（F.M.B+ …）
   out["basis"] = app->basis;
   cb(json_ok(out, std::nullopt));
+}
+
+// ------------------------------------------------------- 名号（M7.1）
+
+void person_names_list(const drogon::HttpRequestPtr& req, Callback&& cb) {
+  std::string why;
+  auto* db = db_from(req, &why);
+  if (db == nullptr) {
+    cb(problem_response(500, 9001, "内部错误", why, req->path()));
+    return;
+  }
+  const std::string person_id = path_id(req);
+  // 人物存在性先查：404 而不是「空列表」（空会让调用方以为查过了没有）
+  PersonRepository persons(*db);
+  auto got = persons.get(person_id);
+  if (!got) {
+    cb(error_to_response(got.error(), req->path()));
+    return;
+  }
+  PersonNameRepository names(*db);
+  auto ns = names.list(person_id);
+  if (!ns) {
+    cb(error_to_response(ns.error(), req->path()));
+    return;
+  }
+  nlohmann::json arr = nlohmann::json::array();
+  for (const auto& n : *ns) arr.push_back(to_json(n));
+  cb(json_ok(page_envelope(std::move(arr), std::string{}, false),
+             std::nullopt));
+}
+
+void person_names_create(const drogon::HttpRequestPtr& req, Callback&& cb) {
+  std::string why;
+  auto* db = db_from(req, &why);
+  if (db == nullptr) {
+    cb(problem_response(500, 9001, "内部错误", why, req->path()));
+    return;
+  }
+  const std::string instance = req->path();
+  const std::string person_id = path_id(req);
+  nlohmann::json body;
+  try {
+    body = nlohmann::json::parse(req->body());
+  } catch (const std::exception& e) {
+    cb(problem_response(400, 1001, "参数校验失败",
+                        std::string("请求体不是合法 JSON: ") + e.what(),
+                        instance));
+    return;
+  }
+
+  PersonNameService svc(*db);
+  PersonName draft;
+  draft.person_id = person_id;
+  if (const auto it = body.find("name"); it != body.end() && it->is_string()) {
+    draft.name = it->get<std::string>();
+  }
+  if (const auto it = body.find("name_type");
+      it != body.end() && it->is_string()) {
+    auto t = person_name_type_from_string(it->get<std::string>());
+    if (!t) {
+      cb(validation_problem(instance,
+                            {{"name_type", "应为 genealogy/infant/school/"
+                                          "renamed/posthumous"}},
+                            "名号类型不合法"));
+      return;
+    }
+    draft.type = *t;
+  }
+  // 日期接受 GenealogyDate JSON（ISO 年份/完整日期均可）。缺失或 null
+  // = 不设；非对象或解析失败走 400——名号起止是事实，猜不得。
+  const auto opt_date = [&](const char* k) -> Result<GenealogyDate> {
+    const auto it = body.find(k);
+    if (it == body.end() || it->is_null()) return GenealogyDate{};
+    if (!it->is_object()) {
+      return invalid_argument(std::string(k) +
+                              " 应为日期对象（如 {\"gregorian\":\"1901\"}）");
+    }
+    return GenealogyDate::from_json(*it);
+  };
+  {
+    auto d1 = opt_date("start_date");
+    if (!d1) {
+      cb(validation_problem(instance, {{"start_date", d1.error().message()}},
+                            "日期不合法"));
+      return;
+    }
+    if (d1->gregorian.has_value() || d1->lunar.has_value()) {
+      draft.start_date = *d1;
+    }
+    auto d2 = opt_date("end_date");
+    if (!d2) {
+      cb(validation_problem(instance, {{"end_date", d2.error().message()}},
+                            "日期不合法"));
+      return;
+    }
+    if (d2->gregorian.has_value() || d2->lunar.has_value()) {
+      draft.end_date = *d2;
+    }
+  }
+  if (const auto it = body.find("is_primary");
+      it != body.end() && it->is_boolean()) {
+    draft.is_primary = it->get<bool>();
+  }
+  if (const auto it = body.find("note"); it != body.end() && it->is_string()) {
+    draft.note = it->get<std::string>();
+  }
+
+  auto made = svc.create_person_name(draft);
+  if (!made) {
+    cb(error_to_response(made.error(), instance));
+    return;
+  }
+  // 名号变更入 SSE（人物详情随名单变化）
+  GENEALOGY_PUBLISH_CHANGE("person.updated", "person", person_id, 0);
+  cb(json_created(to_json(*made)));
+}
+
+void person_name_delete(const drogon::HttpRequestPtr& req, Callback&& cb) {
+  std::string why;
+  auto* db = db_from(req, &why);
+  if (db == nullptr) {
+    cb(problem_response(500, 9001, "内部错误", why, req->path()));
+    return;
+  }
+  const auto& params = req->getRoutingParameters();
+  if (params.size() < 2) {
+    cb(problem_response(400, 1001, "参数校验失败", "缺少名号 id",
+                        req->path()));
+    return;
+  }
+  PersonNameService svc(*db);
+  auto removed = svc.remove_person_name(params[1]);
+  if (!removed) {
+    cb(error_to_response(removed.error(), req->path()));
+    return;
+  }
+  GENEALOGY_PUBLISH_CHANGE("person.updated", "person", params[0], 0);
+  auto resp = drogon::HttpResponse::newHttpResponse();
+  resp->setStatusCode(drogon::k204NoContent);
+  cb(resp);
 }
 
 }  // namespace genealogy::server

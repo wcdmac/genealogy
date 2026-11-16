@@ -38,6 +38,7 @@
 #include <genealogy/server/routes_sources.hpp>
 #include <genealogy/server/routes_documents.hpp>
 #include <genealogy/server/routes_persons.hpp>
+#include <genealogy/server/routes_persons.hpp>
 #include <genealogy/server/routes_auth.hpp>
 #include <genealogy/server/runtime.hpp>
 
@@ -155,6 +156,13 @@ void start_server_once(std::uint16_t* port_out) {
                         {drogon::Patch});
     app.registerHandler(base + "/documents/{id}", &server::document_delete,
                         {drogon::Delete});
+    // 名号（M7.1）：/persons/{id}/names
+    app.registerHandler(base + "/persons/{id}/names", &server::person_names_list,
+                        {drogon::Get});
+    app.registerHandler(base + "/persons/{id}/names", &server::person_names_create,
+                        {drogon::Post});
+    app.registerHandler(base + "/persons/{id}/names/{nameId}",
+                        &server::person_name_delete, {drogon::Delete});
     // 迁徙（M5-4）：expand 测试要挂迁徙子资源，注册与 main.cpp 对齐
     app.registerHandler(base + "/migrations", &server::migrations_list,
                         {drogon::Get});
@@ -844,6 +852,68 @@ TEST_CASE_METHOD(ServerFixture, "HTTP：文档域（建档→正文检索→merg
         204);
   CHECK(request(port, drogon::Delete, "/api/v1/documents/" + doc_id).status ==
         404);
+}
+
+TEST_CASE_METHOD(ServerFixture, "HTTP：名号域（建档→置主互斥→expand→删除）") {
+  const std::string lid = kDefaultLineageId;
+  const auto person = post(
+      port, "/api/v1/persons",
+      R"({"lineage_id":")" + lid +
+          R"(","family_name":"陈","given_name":"文远","gender":"male"})");
+  REQUIRE(person.status == 201);
+  const std::string pid =
+      nlohmann::json::parse(person.body)["id"].get<std::string>();
+
+  // 空名号 400
+  const auto empty_name = post(
+      port, "/api/v1/persons/" + pid + "/names",
+      R"({"name":"","name_type":"infant"})");
+  CHECK(empty_name.status == 400);
+
+  // 第一条：乳名（非主）
+  const auto n1 = post(
+      port, "/api/v1/persons/" + pid + "/names",
+      R"({"name":"乳名阿远","name_type":"infant","note":"幼时家称"})");
+  REQUIRE(n1.status == 201);
+  // 第二条：谱名置主
+  const auto n2 = post(
+      port, "/api/v1/persons/" + pid + "/names",
+      R"({"name":"文远","name_type":"genealogy","is_primary":true})");
+  REQUIRE(n2.status == 201);
+  // 第三条：学名再置主 → 旧主被降级（全人唯一主名，服务层清他条）
+  const auto n3 = post(
+      port, "/api/v1/persons/" + pid + "/names",
+      R"({"name":"振家","name_type":"school","is_primary":true})");
+  REQUIRE(n3.status == 201);
+
+  const auto list = get(port, "/api/v1/persons/" + pid + "/names");
+  REQUIRE(list.status == 200);
+  const auto jlist = nlohmann::json::parse(list.body);
+  REQUIRE(jlist["data"].size() == 3);
+  int primaries = 0;
+  for (const auto& row : jlist["data"]) {
+    if (row["is_primary"].get<bool>()) ++primaries;
+  }
+  CHECK(primaries == 1);
+  CHECK(jlist["data"][0]["name_type"] == "school");  // 主名排最前
+
+  // expand=names 一次取全
+  const auto expanded = get(port, "/api/v1/persons/" + pid + "?expand=names");
+  REQUIRE(expanded.status == 200);
+  CHECK(nlohmann::json::parse(expanded.body)["names"].size() == 3);
+
+  // 非法类型 400
+  const auto bad_type = post(
+      port, "/api/v1/persons/" + pid + "/names",
+      R"({"name":"X","name_type":"bogus"})");
+  CHECK(bad_type.status == 400);
+
+  // 删除 204 / 复删 404
+  const std::string n1_id =
+      nlohmann::json::parse(n1.body)["id"].get<std::string>();
+  const std::string names_base = "/api/v1/persons/" + pid + "/names/";
+  CHECK(request(port, drogon::Delete, names_base + n1_id).status == 204);
+  CHECK(request(port, drogon::Delete, names_base + n1_id).status == 404);
 }
 
 TEST_CASE_METHOD(ServerFixture, "HTTP：JWT 签发可自校验") {

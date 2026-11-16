@@ -15,6 +15,7 @@ add_executable(genealogy-core-tests
   test_migration.cpp
   test_tree_render.cpp
   test_documents.cpp
+  test_person_name.cpp
 )
 
 target_link_libraries(genealogy-core-tests

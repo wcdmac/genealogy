@@ -32,5 +32,9 @@ void person_descendants(const drogon::HttpRequestPtr& req, Callback&& cb);
 void person_tree(const drogon::HttpRequestPtr& req, Callback&& cb);
 void person_mourning(const drogon::HttpRequestPtr& req, Callback&& cb);
 void person_appellation(const drogon::HttpRequestPtr& req, Callback&& cb);
+// 名号（M7.1）：/persons/{id}/names
+void person_names_list(const drogon::HttpRequestPtr& req, Callback&& cb);
+void person_names_create(const drogon::HttpRequestPtr& req, Callback&& cb);
+void person_name_delete(const drogon::HttpRequestPtr& req, Callback&& cb);
 
 }  // namespace genealogy::server

@@ -41,6 +41,8 @@ class PersonCardPanel : public Panel {
   std::string buf_biography_;  // 行传
   std::string buf_note_;
   std::string buf_birth_;      // 公历 ISO
+  // 名号变更史（M7.1）：只读展示，编辑走 genea person name / REST
+  std::vector<std::string> name_rows_;
   std::string buf_death_;      // 公历 ISO
   int buf_gender_ = 2;         // 0 男 / 1 女 / 2 未知
   int buf_privacy_ = 1;        // 0 公开 / 1 亲缘 / 2 私密

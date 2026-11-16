@@ -44,6 +44,9 @@ export type Migration = Omit<
 // Document 无 rev（M7.4 篇章正文）：id 必有，rev 无
 export type Document = Entity<components["schemas"]["Document"]>;
 export type DocumentCreate = components["schemas"]["DocumentCreate"];
+// PersonName 无 rev（台账语义）：id 必有
+export type PersonName = Entity<components["schemas"]["PersonName"]>;
+export type PersonNameCreate = components["schemas"]["PersonNameCreate"];
 
 /** 列表端点统一返回的分页信封（spec components/responses/Page）。 */
 export interface PageEnvelope {
@@ -336,7 +339,7 @@ export class GenealogyClient {
     id: string,
     // 与 spec 的 expand 枚举一致（events/unions/migrations 已实现；
     // citations/names 属 M7，实现后再加入）。
-    expand?: Array<"events" | "unions" | "migrations">,
+    expand?: Array<"events" | "unions" | "migrations" | "names">,
   ): Promise<Person> {
     return this.request("GET", `/persons/${encodeURIComponent(id)}`, {
       query: { expand: expand?.length ? expand.join(",") : undefined },
@@ -357,6 +360,33 @@ export class GenealogyClient {
 
   async deletePerson(id: string): Promise<void> {
     return this.request("DELETE", `/persons/${encodeURIComponent(id)}`);
+  }
+
+  // ------------------------------------------------------- 名号（M7.1）
+
+  async listPersonNames(personId: string): Promise<PageEnvelope> {
+    return this.request(
+      "GET",
+      `/persons/${encodeURIComponent(personId)}/names`,
+    );
+  }
+
+  async createPersonName(
+    personId: string,
+    body: PersonNameCreate,
+  ): Promise<PersonName> {
+    return this.request(
+      "POST",
+      `/persons/${encodeURIComponent(personId)}/names`,
+      { body },
+    );
+  }
+
+  async deletePersonName(personId: string, nameId: string): Promise<void> {
+    await this.request(
+      "DELETE",
+      `/persons/${encodeURIComponent(personId)}/names/${encodeURIComponent(nameId)}`,
+    );
   }
 
   // ------------------------------------------------------- 世系算法端点

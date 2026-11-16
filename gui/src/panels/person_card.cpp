@@ -7,6 +7,7 @@
 #include <algorithm>
 
 #include <genealogy/model/person.hpp>
+#include <genealogy/repository/person_name_repository.hpp>
 #include <genealogy/repository/person_repository.hpp>
 #include <genealogy/repository/union_repository.hpp>
 #include <genealogy/ulid.hpp>
@@ -67,6 +68,25 @@ bool PersonCardPanel::load(DbSession& session) {
   // 长文本同步进常驻缓冲（截断保护：超长按缓冲容量截，丢字比崩好）
   std::snprintf(bio_buf_, sizeof(bio_buf_), "%s", buf_biography_.c_str());
   std::snprintf(note_buf_, sizeof(note_buf_), "%s", buf_note_.c_str());
+  // 名号变更史（M7.1）：读失败不拦人物卡（列表留空 + 状态栏提示），
+  // 主信息照常编辑——名号是补充维度，不该阻塞主流程
+  name_rows_.clear();
+  {
+    PersonNameRepository names(session.db());
+    auto ns = names.list(id);
+    if (ns) {
+      for (const auto& n : *ns) {
+        std::string row = std::string("[") + to_string(n.type) + "] " + n.name;
+        if (n.is_primary) row += "（主名）";
+        if (n.start_date) row += " 起:" + n.start_date->display();
+        if (n.end_date) row += " 止:" + n.end_date->display();
+        if (n.note) row += " — " + *n.note;
+        name_rows_.push_back(std::move(row));
+      }
+    } else {
+      state_.set_status("读取名号失败: " + ns.error().message(), true);
+    }
+  }
   buf_birth_ = p.birth_date.gregorian.value_or(std::string{});
   buf_death_ = p.death_date ? p.death_date->gregorian.value_or(std::string{})
                             : std::string{};
@@ -232,6 +252,14 @@ void PersonCardPanel::draw(DbSession& session) {
 
   ImGui::SetNextItemWidth(180);
   input_text("别称/改名前名", &buf_alias_, 96);
+  // 名号变更史（M7.1 验收门：人物卡显示全部名号）——只读列表，
+  // 增删走 genea person name / REST /persons/{id}/names
+  if (!name_rows_.empty()) {
+    ImGui::SeparatorText("名号");
+    for (const auto& row : name_rows_) {
+      ImGui::TextUnformatted(row.c_str());
+    }
+  }
 
   ImGui::SeparatorText("生卒");
   ImGui::SetNextItemWidth(120);

@@ -82,6 +82,7 @@ target_sources(genealogy-core
     src/model/source.cpp
     src/model/citation.cpp
     src/model/document.cpp
+    src/model/person_name.cpp
     src/model/union.cpp
     src/model/event.cpp
     src/model/migration.cpp
@@ -97,6 +98,7 @@ target_sources(genealogy-core
     src/repository/source_repository.cpp
     src/repository/citation_repository.cpp
     src/repository/document_repository.cpp
+    src/repository/person_name_repository.cpp
     src/repository/union_repository.cpp
     src/repository/event_repository.cpp
     src/repository/migration_repository.cpp
@@ -110,6 +112,7 @@ target_sources(genealogy-core
     src/service/source_service.cpp
     src/service/citation_service.cpp
     src/service/document_service.cpp
+    src/service/person_name_service.cpp
     src/service/union_service.cpp
     src/service/event_service.cpp
     src/service/migration_service.cpp

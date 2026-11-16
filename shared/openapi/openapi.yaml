@@ -48,6 +48,8 @@ tags:
     description: 事实↔证据挂接（M7.2）
   - name: documents
     description: 谱序/凡例/族规家训/艺文/契约（M7.4，正文 trigram FTS 检索）
+  - name: names
+    description: 名号变更史（M7.1，一人多名：谱名/乳名/学名/改后名/身后名）
   - name: attachments
     description: 附件（规划中，M5；见根级 x-roadmap）
   - name: search-stats
@@ -878,6 +880,62 @@ paths:
         "204": { description: 已删除 }
         "404": { $ref: "#/components/responses/NotFound" }
 
+  /persons/{id}/names:
+    parameters:
+      - $ref: "#/components/parameters/Id"
+    get:
+      tags: [names]
+      summary: 名号列表（主名在前；人物不存在 404）
+      operationId: listPersonNames
+      responses:
+        "200":
+          description: 成功
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  data:
+                    type: array
+                    items: { $ref: "#/components/schemas/PersonName" }
+                  page:
+                    type: object
+                    properties:
+                      next_cursor: { type: [string, "null"] }
+                      has_more: { type: boolean }
+    post:
+      tags: [names]
+      summary: 登记名号（置主时清除同人多条；人物不存在 404）
+      operationId: createPersonName
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/PersonNameCreate" }
+      responses:
+        "201":
+          description: 已创建
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/PersonName" }
+        "400": { $ref: "#/components/responses/BadRequest" }
+        "404": { $ref: "#/components/responses/NotFound" }
+
+  /persons/{id}/names/{nameId}:
+    parameters:
+      - $ref: "#/components/parameters/Id"
+      - name: nameId
+        in: path
+        required: true
+        schema: { type: string }
+    delete:
+      tags: [names]
+      summary: 删除名号（台账语义：修正=删了重录）
+      operationId: deletePersonName
+      responses:
+        "204": { description: 已删除 }
+        "404": { $ref: "#/components/responses/NotFound" }
+
   /events:
     get:
       tags: [events]
@@ -1376,6 +1434,31 @@ components:
         content: { type: string }
         seq: { type: [integer, "null"] }
 
+    PersonName:
+      type: object
+      properties:
+        id: { type: string }
+        person_id: { type: string }
+        name: { type: string }
+        name_type:
+          enum: [genealogy, infant, school, renamed, posthumous]
+        start_date: { $ref: "#/components/schemas/GenealogyDate" }
+        end_date: { $ref: "#/components/schemas/GenealogyDate" }
+        is_primary: { type: boolean }
+        note: { type: string }
+
+    PersonNameCreate:
+      type: object
+      required: [name, name_type]
+      properties:
+        name: { type: string }
+        name_type:
+          enum: [genealogy, infant, school, renamed, posthumous]
+        start_date: { $ref: "#/components/schemas/GenealogyDate" }
+        end_date: { $ref: "#/components/schemas/GenealogyDate" }
+        is_primary: { type: boolean }
+        note: { type: string }
+
     Person:
       type: object
       properties:
@@ -1386,6 +1469,7 @@ components:
         given_name: { type: string }
         courtesy_name: { type: string, description: 字 }
         art_name: { type: string, description: 号 }
+        alias: { type: string, description: 别称/改名前名 }
         posthumous_title: { type: string }
         gender: { enum: [male, female, unknown] }
         generation_no: { type: integer }
@@ -1788,8 +1872,6 @@ x-roadmap:
     - /persons/{id}/names        # 名号变更（谱名/乳名/学名/改后名），M7.1
     - /attachments               # 遗像/扫描件上传下载（内容寻址），暂缓项
   planned_schemas:
-    - PersonName
-    - PersonNameCreate
     - Attachment
   planned_behaviors:
     - 在世者脱敏          # 设计文档 4.9/6.5：is_living + privacy_level 联动，

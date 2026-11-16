@@ -187,6 +187,17 @@ if [ -f "$DB3" ]; then
   C=$(rule_counts "$DB3" R14); set -- $C; check_ge "R14 排行断层 warning"   $2 1
 fi
 
+echo "== 17b. 名号域：谱名/乳名变更史 + 主名互斥（M7.1 验收门） =="
+PID1=$($GENE person list --db "$DB" --format json | $PY -c "import sys,json;print(json.load(sys.stdin)[0]['id'])")
+N1=$($GENE person name add --db "$DB" --person "$PID1" --type infant --name "测试乳名" --format json | jid)
+check_ge "person name add 返回 ID" ${#N1} 20
+N2=$($GENE person name add --db "$DB" --person "$PID1" --type genealogy --name "测试谱名" --primary --format json | jid)
+check_ge "person name add 置主返回 ID" ${#N2} 20
+check_eq "名号 list 按 person 命中 2 条" 2 "$($GENE person name list --db "$DB" --person "$PID1" --format json | jlen)"
+check_eq "主名全人唯一（is_primary=1 恰一条）" 1 "$($GENE person name list --db "$DB" --person "$PID1" --format json | $PY -c "import sys,json;print(sum(1 for r in json.load(sys.stdin) if r['is_primary']))")"
+$GENE person name remove --db "$DB" "$N1" >/dev/null
+check_eq "person name remove 退出码" 0 $?
+
 echo "== 18. 文档域：建谱序 → 正文检索命中（M7.4 验收门） =="
 DOC=$($GENE document add --db "$DB" --lineage "$L" --type preface --title "冒烟谱序"   --content "我族建德星堂义庄，凡族人谨守家训。" --seq 1 --format json | jid)
 check_ge "document add 返回 ID" ${#DOC} 20

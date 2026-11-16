@@ -281,6 +281,30 @@ async function main(): Promise<number> {
       400,
     );
 
+    // ---- 名号（M7.1）：加乳名（置主）→ list 命中 → 删 ----
+    const infantName = await client.createPersonName(grandpa.id, {
+      name: "冒烟乳名",
+      name_type: "infant",
+      is_primary: true,
+      note: "幼时家称",
+    });
+    check("名号建档", typeof infantName.id === "string", infantName.id);
+    const namePage = await client.listPersonNames(grandpa.id);
+    check(
+      "名号按主体可查",
+      (namePage.data ?? []).some((row) => row.id === infantName.id),
+    );
+    await expectApiError(
+      "空名号被拒（400）",
+      () =>
+        client.createPersonName(grandpa.id, {
+          name: "",
+          name_type: "infant",
+        }),
+      400,
+    );
+    await client.deletePersonName(grandpa.id, infantName.id);
+
     // ---- 文档（M7.4）：建档 → 正文检索命中 → merge PATCH 保 content → 删 ----
     const doc = await client.createDocument({
       lineage_id: lineage.id,
