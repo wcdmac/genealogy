@@ -37,6 +37,7 @@ class Transaction {
   Database& db_;
   bool owns_ = false;   // 本次由本对象开启（否则只是搭最外层的车）
   bool done_ = false;
+  bool locked_ = false;  // M9.1：本对象持有写互斥（owns_ 为 true 时必持有）
   std::optional<Error> start_error_;
 };
 

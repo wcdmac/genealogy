@@ -469,3 +469,50 @@ code { font-family: var(--mono); background: #f3eee3; padding: 1px 4px; border-r
   font-family: monospace;
   font-size: 11px;
 }
+
+/* ============================================================
+   M9.4 移动适配（≤720px）：验收门「手机浏览器可完成建档→关系查询」。
+   三个必改点：148px 固定左栏折为顶部横排、双栏网格并排转单列、
+   表格类视图给横向滚动容器。桌面样式零改动。
+   ============================================================ */
+@media (max-width: 720px) {
+  .body {
+    flex-direction: column;
+  }
+
+  /* 左侧导航：纵向侧栏 → 顶部横排（可横向滑动） */
+  .nav {
+    width: auto;
+    display: flex;
+    flex-direction: row;
+    overflow-x: auto;
+    gap: 4px;
+    border-right: none;
+    border-bottom: 1px solid var(--border, #ddd);
+    padding: 6px 8px;
+  }
+  .nav button,
+  .nav a {
+    white-space: nowrap;
+  }
+
+  /* 双栏并排网格 → 单列 */
+  .card-grid {
+    grid-template-columns: 1fr;
+  }
+  .wb-panes {
+    grid-template-columns: 1fr;
+  }
+
+  /* 表格类视图：横向滚动兜底（列多时手机上拖动查看） */
+  .table-wrap,
+  .content {
+    min-width: 0;
+    overflow-x: auto;
+  }
+
+  .topbar {
+    flex-wrap: wrap;
+    gap: 6px;
+  }
+}

@@ -14,12 +14,14 @@
 #include <cxxopts.hpp>
 
 #include <algorithm>
+#include <atomic>
 #include <chrono>
 #include <cstdio>
 #include <filesystem>
 #include <fstream>
 #include <iostream>
 #include <sstream>
+#include <thread>
 #include <string>
 #include <unordered_set>
 #include <system_error>
@@ -776,6 +778,8 @@ int cmd_bench(const std::vector<std::string>& args, const std::string& db_path,
   cxxopts::Options opts("genea bench", "性能验收基准（M1.6）");
   opts.add_options()
       ("persons", "灌库人物数", cxxopts::value<std::size_t>()->default_value("100000"))
+      ("writers", "并发写线程数（M9.1：各持独立连接灌 5 人，验收门=0 locked）",
+       cxxopts::value<int>()->default_value("1"))
       ("events-per-person", "每人事件数（合成谱每人是 3 条）",
        cxxopts::value<int>()->default_value("3"))
       ("depth", "十代树的展开层数", cxxopts::value<int>()->default_value("10"))
@@ -978,6 +982,60 @@ int cmd_bench(const std::vector<std::string>& args, const std::string& db_path,
                         std::to_string(static_cast<int>(
                             std::chrono::duration<double, std::milli>(m3 - m2).count())) +
                         " ms",
+                    "参考项", 0, "", true});
+  }
+
+  // ---- 5. 并发写（M9.1 验收门：--writers N 线程各持独立连接，
+  // 断言零 locked——单写者互斥 + WAL/busy_timeout 双层兜底）----
+  const int writers = std::max(1, r["writers"].as<int>());
+  if (writers > 1) {
+    const auto c0 = std::chrono::steady_clock::now();
+    std::atomic<int> locked{0};
+    std::atomic<int> inserted{0};
+    std::atomic<int> failures{0};
+    {
+      std::vector<std::thread> threads;
+      threads.reserve(static_cast<std::size_t>(writers));
+      for (int w = 0; w < writers; ++w) {
+        threads.emplace_back([&, w] {
+          auto wdb = open_db(db_path);
+          if (!wdb) {
+            ++failures;
+            return;
+          }
+          PersonService wsvc(*wdb);
+          PersonFilter pf;
+          pf.limit = 1;
+          for (int i = 0; i < 5; ++i) {
+            Person p;
+            p.lineage_id = kDefaultLineageId;
+            p.family_name = "并发";
+            p.given_name = "写" + std::to_string(w) + "-" + std::to_string(i);
+            p.gender = Gender::Male;
+            auto made = wsvc.create_person(p);
+            if (!made) {
+              if (made.error().message().find("locked") != std::string::npos) {
+                ++locked;
+              } else {
+                ++failures;
+              }
+            } else {
+              ++inserted;
+            }
+          }
+        });
+      }
+      for (auto& t : threads) t.join();
+    }
+    const auto c1 = std::chrono::steady_clock::now();
+    const double conc_ms =
+        std::chrono::duration<double, std::milli>(c1 - c0).count();
+    rows.push_back({"并发写 " + std::to_string(writers) + " 线程 × 5 人",
+                    "0 locked",
+                    conc_ms, "ms", locked.load() == 0 && failures.load() == 0});
+    rows.push_back({"  其中：入库 " + std::to_string(inserted.load()) +
+                        " · locked " + std::to_string(locked.load()) +
+                        " · 失败 " + std::to_string(failures.load()),
                     "参考项", 0, "", true});
   }
 

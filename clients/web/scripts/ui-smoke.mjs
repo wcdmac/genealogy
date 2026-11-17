@@ -240,6 +240,65 @@ async function main() {
     await page.screenshot({ path: join(repoRoot, "build", "ui-smoke.png"), fullPage: true });
     console.log("[ui-smoke] 截图: build/ui-smoke.png");
 
+    // ---- M9.4 验收门：窄视口（375×812，isMobile）完成建档→关系查询 ----
+    const mobile = await browser.newContext({
+      viewport: { width: 375, height: 812 },
+      isMobile: true,
+      hasTouch: true,
+    });
+    const mpage = await mobile.newPage();
+    mpage.on("pageerror", (e) => consoleErrors.push("mobile: " + String(e)));
+    await mpage.goto(UI_BASE);
+    await mpage.fill('input[aria-label="服务器地址"]', API_BASE);
+    await mpage.getByRole("button", { name: "连接" }).click();
+    await mpage.waitForSelector("text=已连接", { timeout: 15000 });
+
+    // 窄屏断言：导航可见（响应式折行后仍可达；按钮可访问名含 hint 文本）
+    const navVisible = await mpage
+      .getByRole("button", { name: /人物/ })
+      .first()
+      .isVisible();
+    check("窄屏导航可见（响应式布局生效）", navVisible);
+
+    // 窄屏建档：人物视图 → 新建人物 → 弹人物卡（对齐桌面流程选择器）
+    await mpage.getByRole("button", { name: /新建人物/ }).click();
+    await mpage.locator(".modal").getByLabel("姓", { exact: true }).fill("窄");
+    await mpage.locator(".modal").getByLabel("名", { exact: true }).fill("屏建档");
+    await mpage.locator(".modal").getByLabel("世代").fill("1");
+    // 窄屏下弹窗内容高于视口：滚到底再点保存（否则 <dd> 等内容遮挡）
+    await mpage.locator(".modal").evaluate((el) => {
+      el.scrollTop = el.scrollHeight;
+    });
+    await mpage.getByRole("button", { name: "保存" }).click();
+    await mpage.waitForSelector(".modal-head:has-text('窄屏建档')", {
+      timeout: 10000,
+    });
+    check("窄屏人物建档并弹人物卡", true);
+
+    // 关人物卡（开着会盖住导航——modal-backdrop 拦截点击）
+    await mpage.getByRole("button", { name: "关闭" }).click();
+    await mpage.waitForTimeout(300);
+
+    // 窄屏关系查询：抓人物 ID → 世系图视图填中心人物 → 绘制
+    // （对齐桌面流程：树以「中心人物 ID」为根，须显式填写）
+    const mobileIdCell = await mpage
+      .locator("table.grid tbody tr:has-text('窄屏建档') td.mono")
+      .first()
+      .textContent();
+    const mobilePersonId = (mobileIdCell ?? "").trim();
+    await mpage.getByRole("button", { name: /世系图/ }).click();
+    await mpage.getByPlaceholder("中心人物 ID", { exact: true }).fill(mobilePersonId);
+    await mpage.getByRole("button", { name: "绘制" }).click();
+    await mpage.waitForSelector("svg .tree-node", { timeout: 10000 });
+    check("窄屏世系图渲染（关系查询闭环）", true);
+
+    await mpage.screenshot({
+      path: join(repoRoot, "build", "ui-smoke-mobile.png"),
+      fullPage: true,
+    });
+    await mobile.close();
+    console.log("[ui-smoke] 窄视口验收: build/ui-smoke-mobile.png");
+
     console.log(failures === 0 ? "\n[ui-smoke] 全部通过" : `\n[ui-smoke] ${failures} 项失败`);
     return failures === 0 ? 0 : 1;
   } finally {

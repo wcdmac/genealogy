@@ -17,7 +17,7 @@ export function Modal({
     <div className="modal-backdrop" onClick={onClose}>
       <div
         className="modal"
-        style={{ width }}
+        style={{ width: `min(${width}px, 92vw)` }}
         onClick={(event) => event.stopPropagation()}
       >
         <div className="modal-head">

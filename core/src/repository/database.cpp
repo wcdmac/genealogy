@@ -62,6 +62,7 @@ Result<void> record_migration(sqlite3* db, const char* name,
 struct Database::Impl {
   std::unique_ptr<sqlite3, SqliteCloser> db;
   std::size_t applied = 0;
+  std::recursive_mutex write_mu;  // M9.1 单写者：写事务全程持有
 };
 
 Result<Database> Database::open(const std::filesystem::path& path) {
@@ -135,6 +136,10 @@ Database::Database(Database&&) noexcept = default;
 Database& Database::operator=(Database&&) noexcept = default;
 
 sqlite3* Database::raw() const noexcept { return impl_->db.get(); }
+
+std::recursive_mutex& Database::write_mutex() noexcept {
+  return impl_->write_mu;
+}
 
 std::size_t Database::schema_version() const { return impl_->applied; }
 

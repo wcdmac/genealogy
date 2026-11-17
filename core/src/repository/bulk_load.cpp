@@ -46,12 +46,19 @@ BulkLoader::BulkLoader(Database& db) : db_(db), impl_(std::make_unique<Impl>()) 
 
 BulkLoader::~BulkLoader() {
   // 未提交就析构：回滚，不留半截数据。没开过事务就不能乱滚。
-  if (done_ || !started_) return;
+  if (done_ || !started_) {
+    if (locked_) db_.write_mutex().unlock();
+    return;
+  }
   repo_internal::rollback(db_.raw());
+  if (locked_) db_.write_mutex().unlock();
 }
 
 Result<void> BulkLoader::ensure_started() {
   if (started_) return {};
+  // M9.1：灌库事务全程持有写互斥（与 Transaction 同一把递归锁）
+  db_.write_mutex().lock();
+  locked_ = true;
   if (!impl_->place->ok() || !impl_->person->ok() || !impl_->union_row->ok() ||
       !impl_->member->ok() || !impl_->event->ok()) {
     return Error{ErrorCode::Internal, "灌库预备语句准备失败（SQL 或列名有误）"};
@@ -143,8 +150,15 @@ Result<void> BulkLoader::add_citation(const Citation& c) {
 
 Result<void> BulkLoader::finish() {
   if (done_) return invalid_argument("灌库器已提交，不能重复 finish");
-  if (auto r = repo_internal::commit(db_.raw()); !r) return r.error();
+  if (auto r = repo_internal::commit(db_.raw()); !r) {
+    repo_internal::rollback(db_.raw());  // commit 失败先回滚清场再放锁
+    if (locked_) db_.write_mutex().unlock();
+    locked_ = false;
+    return r.error();
+  }
   done_ = true;
+  if (locked_) db_.write_mutex().unlock();
+  locked_ = false;
   return {};
 }
 

@@ -67,6 +67,7 @@ class BulkLoader {
 
   Database& db_;
   bool started_ = false;
+  bool locked_ = false;  // M9.1：写互斥（ensure_started 到 finish/析构）
   bool done_ = false;
   std::size_t persons_ = 0;
   std::size_t places_ = 0;
