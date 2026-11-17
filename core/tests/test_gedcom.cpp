@@ -926,7 +926,7 @@ TEST_CASE("GEDCOM 导出：部分导出的损失台账") {
   std::vector<io::MappingLoss> losses;
   const std::string out = io::export_gedcom(
       io::ExportOptions{&persons, &unions, &events, nullptr, {}, {},
-                        "谱师", "1.0", false, &losses});
+                        "谱师", "1.0", {}, false, &losses});
 
   // B 缺集 → WIFE 成员链缺失、F2 结合缺 HUSB、C 的母链无法表达
   int wife_loss = 0, husb_loss = 0, famc_loss = 0, event_loss = 0;
@@ -1083,4 +1083,62 @@ TEST_CASE("GEDCOM 出处链：QUAY/PAGE 映射 + 往返零损失") {
   CHECK(*ev2->locator == "卷三 p136");
   CHECK(per2->confidence == Confidence::Low);
   CHECK_FALSE(per2->locator.has_value());
+}
+
+
+TEST_CASE("GEDCOM 7.0：写出 HEAD/SPEC + 无 CONC + 往返零损失") {
+  // 构造一份含长备注（5.5.1 会 CONC 切行）的谱，导出 7.0
+  std::vector<Person> persons;
+  Person p;
+  p.id = "P7";
+  p.lineage_id = "L1";
+  p.family_name = "陈";
+  p.given_name = "七世";
+  p.gender = Gender::Male;
+  p.birth_date = GenealogyDate::from_iso("1900").value();
+  std::string long_note;  // 400 个「长」= 1200 UTF-8 字节，5.5.1 下必 CONC 切行
+  for (int i = 0; i < 100; ++i) long_note += "长长长长";
+  p.note = long_note;
+  persons.push_back(p);
+
+  io::ExportOptions eo;
+  eo.persons = &persons;
+  eo.gedcom_version = "7.0";
+  const std::string out = export_gedcom(eo);
+  REQUIRE(!out.empty());
+
+  // 7.0 头：VERS 7.0 + 必填 SPEC + 方言声明
+  CHECK(out.find("2 VERS 7.0") != std::string::npos);
+  CHECK((out.find("HEAD.SPEC") != std::string::npos ||
+         out.find("SPEC https://gedcom.io") != std::string::npos));
+  CHECK(out.find(" CONC ") == std::string::npos);  // 7.0 无 CONC
+  CHECK(out.find("长长长长") != std::string::npos);  // 长备注完整在行内
+
+  // 自家读取器读回：无损
+  const auto doc = parse_gedcom(out);
+  REQUIRE(doc.has_value());
+  CHECK(doc->gedcom_version == "7.0");
+  const auto r = import_gedcom(*doc, ImportOptions{"L1", "陈", true});
+  REQUIRE(r.has_value());
+  REQUIRE(r->persons.size() == 1);
+  CHECK(r->persons[0].note.has_value());
+  CHECK(r->persons[0].note->size() == 1200);  // 400 个「长」× 3 字节
+  CHECK(r->persons[0].given_name == "七世");
+}
+
+TEST_CASE("GEDCOM：导出拒绝不支持的版本") {
+  std::vector<Person> persons;
+  persons.push_back([] {
+    Person p;
+    p.id = "P";
+    p.lineage_id = "L1";
+    p.family_name = "陈";
+    p.given_name = "甲";
+    p.gender = Gender::Male;
+    return p;
+  }());
+  io::ExportOptions eo;
+  eo.persons = &persons;
+  eo.gedcom_version = "6.6";  // 不存在的版本
+  CHECK(export_gedcom(eo).empty());
 }

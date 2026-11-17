@@ -1467,13 +1467,23 @@ Result<ImportResult> import_gedcom(const GedcomDocument& doc,
 // 约束：单行不超过 255 字符（GEDCOM 规范），超长按 CONC 切、且必须在
 // UTF-8 字符边界上切；文本里的换行走 CONT。这两条保证自家读取器
 // 能无损读回（往返测试见 test_gedcom.cpp）。
+// 7.0 差异（M9.3）：7.0 删除了 CONC 标签、且不再约束行长——7.0 写出
+// 走单行长行（allow_conc=false），CONT 换行语义不变。
 
 namespace {
 
 class LineWriter {
  public:
+  explicit LineWriter(bool allow_conc = true) : allow_conc_(allow_conc) {}
+
   void raw(int level, const std::string& body) {
     const std::string prefix = std::to_string(level) + " ";
+    if (!allow_conc_) {
+      // 7.0：无 CONC，超长直接单行长行（7.0 不约束行长；自家读取器
+      // split_line 不限长，能无损读回）
+      out_ += prefix + body + "\n";
+      return;
+    }
     if (prefix.size() + body.size() <= 255) {
       out_ += prefix + body + "\n";
       return;
@@ -1519,6 +1529,7 @@ class LineWriter {
 
  private:
   std::string out_;
+  bool allow_conc_ = true;  // false = 7.0 模式（无 CONC）
 };
 
 // GenealogyDate → GEDCOM DATE 值。原文（lunar）优先，保证往返无损；
@@ -1592,7 +1603,17 @@ const std::vector<std::string>& lookup_vec(
 }  // namespace
 
 std::string export_gedcom(const ExportOptions& opt) {
-  LineWriter w;
+  // M9.3：目标版本分派。7.0 与 5.5.1 并存（自动识别导入已天然支持——
+  // 语法层版本无关，映射层宽松读）。
+  // 空串 = 未设置（位置式聚合初始化的 {}），按缺省 5.5.1 处理；
+  // 显式传了未知版本才拒绝——不写出自称未支持版本的文件
+  const std::string ver =
+      opt.gedcom_version.empty() ? std::string("5.5.1") : opt.gedcom_version;
+  if (ver != "5.5.1" && ver != "7.0") {
+    return std::string();  // 空输出 = 调用方报告「不支持的版本」
+  }
+  const bool is_70 = ver == "7.0";
+  LineWriter w(!is_70);
   // 导出侧损失台账。部分导出时缺集引用、无法表达的亲子链都在这里
   // 逐条记账——导出与导入同样不许静默丢（高阳李氏试修实证）。
   std::vector<MappingLoss> fallback_losses;
@@ -1635,8 +1656,15 @@ std::string export_gedcom(const ExportOptions& opt) {
   w.raw(1, "DATE " + iso_to_gedcom_datetime(utc_now_iso()));
   w.raw(1, "SUBM @U1@");
   w.raw(1, "GEDC");
-  w.raw(2, "VERS 5.5.1");
+  w.raw(2, "VERS " + (is_70 ? std::string("7.0") : std::string("5.5.1")));
   w.raw(2, "FORM LINEAGE-LINKED");
+  if (is_70) {
+    // 7.0 必填：HEAD.SPEC 声明规范 URI；自家 _CONC 扩展一并在方言
+    // 声明里注明（7.0 弃用 _ 前缀惯例，允许任意标签但须 SPEC 声明）
+    w.raw(2, "SPEC https://gedcom.io/familysearch-gedcom/v7.html");
+    w.raw(2,
+          "NOTE 本文件含自家方言标签 _CONC（妾/继配成员，payload 为人物 xref）");
+  }
   w.raw(1, "CHAR UTF-8");
   w.raw(0, "@U1@ SUBM");
   w.raw(1, "NAME " + (opt.submitter_name.empty() ? std::string("genealogy")

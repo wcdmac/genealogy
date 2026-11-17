@@ -642,6 +642,15 @@ void export_gedcom(const drogon::HttpRequestPtr& req, Callback&& cb) {
     cite_cursor = citation_rows.back().id;
   }
 
+  const std::string version = req->getParameter("version").empty()
+                                  ? std::string("5.5.1")
+                                  : req->getParameter("version");
+  if (version != "5.5.1" && version != "7.0") {
+    cb(problem_response(400, 1001, "参数校验失败",
+                        "version 应为 5.5.1 / 7.0", instance));
+    return;
+  }
+
   io::ExportOptions eo;
   eo.persons = &*rows;
   eo.unions = &union_rows;
@@ -649,6 +658,7 @@ void export_gedcom(const drogon::HttpRequestPtr& req, Callback&& cb) {
   eo.places = &*place_rows;
   eo.sources = &*source_rows;
   eo.citations = &citation_rows;
+  eo.gedcom_version = version;
   // M8.3：导出同口径脱敏——raw 令牌（本地）完整导出，其余按在世者
   // privacy_level 屏蔽（ GedCOM 导出含在世者时即视为对外披露面）
   eo.respect_privacy = !identity_of(req).raw_privacy;

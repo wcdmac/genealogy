@@ -116,6 +116,11 @@ struct ExportOptions {
   const std::vector<Citation>* citations = nullptr;
   std::string submitter_name = "genealogy";
   std::string source_version = "1.0";
+  // M9.3：目标 GEDCOM 版本——"5.5.1"（默认）或 "7.0"。7.0 差异：
+  // HEAD.GEDC.VERS 7.0 + 必填 HEAD.SPEC；无 CONC 标签（超长走单行长行，
+  // 7.0 不约束行长）；_CONC 扩展保留并由 SPEC 声明方言。其他值导出时
+  // 拒绝（宁可让调用方改参数，也不写出自称未支持版本的文件）。
+  std::string gedcom_version = "5.5.1";
   // M8.3：在世者脱敏同口径。false（默认）= 完整导出（本地 raw 身份）；
   // true = 在世者按 privacy_level 屏蔽（private 抹生卒/PLAC/NOTE、
   // kin 生卒只留年份）——REST 导出按调用方令牌的 raw_privacy 设置，

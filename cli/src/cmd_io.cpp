@@ -245,6 +245,8 @@ int cmd_export_gedcom(const std::vector<std::string>& args,
       ("lineage", "只导出这个宗族（缺省导出全部）", cxxopts::value<std::string>())
       ("out", "输出文件路径（缺省打到标准输出）", cxxopts::value<std::string>())
       ("submitter", "提交人姓名", cxxopts::value<std::string>())
+      ("gedcom-version", "目标 GEDCOM 版本：5.5.1（默认）或 7.0",
+       cxxopts::value<std::string>()->default_value("5.5.1"))
       ("limit", "单次导出上限", cxxopts::value<int>()->default_value("100000"));
   const auto r = parse_args(opts, args);
 
@@ -354,10 +356,17 @@ int cmd_export_gedcom(const std::vector<std::string>& args,
   eo.submitter_name = r.count("submitter") ? r["submitter"].as<std::string>()
                                            : "genealogy";
   eo.source_version = "1.0";
+  eo.gedcom_version = r["gedcom-version"].as<std::string>();
   // 导出侧损失台账：与导入同口径逐条告知谱师（不许静默丢）
   std::vector<io::MappingLoss> export_losses;
   eo.losses = &export_losses;
   const std::string text = io::export_gedcom(eo);
+  if (text.empty() && eo.gedcom_version != "5.5.1" &&
+      eo.gedcom_version != "7.0") {
+    std::cerr << "错误[6001]: 不支持的 GEDCOM 版本 " << eo.gedcom_version
+              << "（支持 5.5.1 / 7.0）\n";
+    return 1;
+  }
 
   if (r.count("out")) {
     for (const auto& l : export_losses) {
