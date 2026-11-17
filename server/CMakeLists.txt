@@ -31,6 +31,7 @@ add_library(genealogy-server-lib STATIC
   src/routes_misc.cpp
   src/routes_sources.cpp
   src/routes_documents.cpp
+  src/audit.cpp
 )
 
 target_include_directories(genealogy-server-lib
@@ -42,6 +43,7 @@ target_include_directories(genealogy-server-lib
 target_link_libraries(genealogy-server-lib
   PUBLIC
     genealogy-core
+    genealogy-sqlite3
     Drogon::Drogon
 )
 

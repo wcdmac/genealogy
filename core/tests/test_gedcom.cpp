@@ -925,8 +925,8 @@ TEST_CASE("GEDCOM 导出：部分导出的损失台账") {
 
   std::vector<io::MappingLoss> losses;
   const std::string out = io::export_gedcom(
-      io::ExportOptions{&persons, &unions, &events, nullptr, {}, {}, "谱师",
-                        "1.0", &losses});
+      io::ExportOptions{&persons, &unions, &events, nullptr, {}, {},
+                        "谱师", "1.0", false, &losses});
 
   // B 缺集 → WIFE 成员链缺失、F2 结合缺 HUSB、C 的母链无法表达
   int wife_loss = 0, husb_loss = 0, famc_loss = 0, event_loss = 0;

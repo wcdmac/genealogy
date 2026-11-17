@@ -114,6 +114,17 @@ PersonDraft parse_person_create(const nlohmann::json& j) {
   if (auto v = opt_int(j, "birth_order", &errs)) out.person.birth_order = *v;
   if (auto v = opt_bool(j, "is_heir", &errs)) out.person.is_heir = *v;
   if (auto v = opt_bool(j, "is_living", &errs)) out.person.is_living = *v;
+  // M8.3：建档即可声明隐私级别（此前只有 PATCH 能改，建档默认 kin
+  // 后要二次 PATCH——在世者数据从落库起就该按级别受保护）
+  if (const auto it = j.find("privacy_level"); it != j.end() &&
+      it->is_string()) {
+    auto pv = privacy_from_string(it->get<std::string>());
+    if (pv) {
+      out.person.privacy = *pv;
+    } else {
+      errs.push_back({"privacy_level", "应为 public / kin / private"});
+    }
+  }
   if (auto v = opt_date(j, "birth_date", &errs)) out.person.birth_date = *v;
   if (auto v = opt_date(j, "death_date", &errs)) out.person.death_date = *v;
   if (const auto it = j.find("gender"); it != j.end() && it->is_string()) {
@@ -464,6 +475,45 @@ drogon::HttpResponsePtr json_ok(const nlohmann::json& body,
 drogon::HttpResponsePtr error_to_response(const Error& err,
                                           const std::string& instance) {
   return problem_response(err, instance);
+}
+
+}  // namespace genealogy::server
+
+namespace genealogy::server {
+
+// 把日期对象缩到年份（kin 级）：{"gregorian":"1901-05-04"} → {"gregorian":"1901"}。
+// lunar 原文整体删（原文常含月日）；既无公历也无农历的日期对象原样返回。
+static nlohmann::json date_to_year(const nlohmann::json& d) {
+  if (!d.is_object()) return d;
+  nlohmann::json out = nlohmann::json::object();
+  if (d.contains("gregorian") && d["gregorian"].is_string()) {
+    const std::string g = d["gregorian"].get<std::string>();
+    out["gregorian"] = g.size() >= 4 ? g.substr(0, 4) : g;
+  }
+  return out;
+}
+
+void sanitize_person(nlohmann::json& person, bool viewer_raw) {
+  if (viewer_raw || !person.is_object()) return;
+  const bool living = person.contains("is_living") &&
+                      person["is_living"].get<bool>();
+  if (!living) return;  // 历史人物不脱敏
+  const std::string privacy = person.value("privacy_level", std::string("kin"));
+  if (privacy == "public") return;
+  for (const char* k : {"birth_place_id", "death_place_id", "burial_place_id",
+                        "biography", "portrait_attachment_id", "note"}) {
+    person.erase(k);
+  }
+  const bool keep_year_only = privacy == "kin";
+  for (const char* k : {"birth_date", "death_date"}) {
+    const auto it = person.find(k);
+    if (it == person.end()) continue;
+    if (keep_year_only) {
+      *it = date_to_year(*it);
+    } else {
+      person.erase(k);  // private：生卒全脱
+    }
+  }
 }
 
 }  // namespace genealogy::server

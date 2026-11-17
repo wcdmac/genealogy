@@ -120,6 +120,17 @@ Page parse_page(const drogon::HttpRequestPtr& req,
 nlohmann::json page_envelope(std::vector<nlohmann::json> items,
                              const std::string& next_cursor, bool has_more);
 
+// ---------- 在世者脱敏（M8.3，设计 4.9/5.2.4「隐私优先于权限」） ----------
+
+// 对 to_json(person) 的结果做后处理（就地修改）。豁免唯一依据是调用方
+// 令牌的 raw_privacy claim（本地单机恒 true；require-auth 签发恒 false
+// ——云端永不签发豁免令牌）。口径（ROADMAP 8.3）：仅对 is_living 生效，
+// 历史人物不脱敏——
+//   private → 全脱：生卒/三地/传记/肖像引用/备注
+//   kin（默认）→ 生卒只留年份（{gregorian:"1901"}），其余同上
+//   public → 完整
+void sanitize_person(nlohmann::json& person, bool viewer_raw);
+
 // ---------- ETag / If-Match ----------
 
 // 从 If-Match 头取期望版本；缺失返回 nullopt（调用方决定是否要求必填）。

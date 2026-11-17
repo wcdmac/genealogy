@@ -1,5 +1,8 @@
 #include <genealogy/server/routes_persons.hpp>
 
+#include <genealogy/server/audit.hpp>
+#include <genealogy/server/routes_auth.hpp>
+
 #include <algorithm>
 #include <cstdint>
 #include <functional>
@@ -173,7 +176,12 @@ void persons_list(const drogon::HttpRequestPtr& req, Callback&& cb) {
     std::vector<nlohmann::json> items;
     const bool more = got->size() > static_cast<std::size_t>(page.limit);
     if (more) got->pop_back();
-    for (const auto& p : *got) items.push_back(to_json(p));
+    const bool viewer_raw = identity_of(req).raw_privacy;
+    for (const auto& p : *got) {
+      nlohmann::json j = to_json(p);
+      sanitize_person(j, viewer_raw);
+      items.push_back(std::move(j));
+    }
     std::string next;
     if (more && !got->empty()) next = got->back().id;
     cb(json_ok(page_envelope(std::move(items), next, more), std::nullopt));
@@ -189,7 +197,12 @@ void persons_list(const drogon::HttpRequestPtr& req, Callback&& cb) {
   if (more) got->pop_back();
   std::vector<nlohmann::json> items;
   items.reserve(got->size());
-  for (const auto& p : *got) items.push_back(to_json(p));
+  const bool viewer_raw = identity_of(req).raw_privacy;
+  for (const auto& p : *got) {
+    nlohmann::json j = to_json(p);
+    sanitize_person(j, viewer_raw);
+    items.push_back(std::move(j));
+  }
   std::string next;
   if (more && !got->empty()) next = got->back().id;
   cb(json_ok(page_envelope(std::move(items), next, more), std::nullopt));
@@ -228,7 +241,12 @@ void persons_create(const drogon::HttpRequestPtr& req, Callback&& cb) {
     cb(error_to_response(made.error(), instance));
     return;
   }
-  cb(json_created(to_json(*made), made->rev));
+  audit_write(*db, req, "person", made->id, "insert", to_json(*made));
+  {
+    nlohmann::json j = to_json(*made);
+    sanitize_person(j, identity_of(req).raw_privacy);
+    cb(json_created(std::move(j), made->rev));
+  }
   GENEALOGY_PUBLISH_CHANGE("person.created", "person", made->id, made->rev);
 }
 
@@ -257,6 +275,7 @@ void person_get(const drogon::HttpRequestPtr& req, Callback&& cb) {
   // （此前单页 200 硬截断、超限静默缺失）；仓储出错向上传播为 500，
   // 不伪装成「没有子资源」。
   nlohmann::json body = to_json(*got);
+  sanitize_person(body, identity_of(req).raw_privacy);
   bool want_events = false;
   bool want_unions = false;
   bool want_migrations = false;
@@ -422,7 +441,14 @@ void person_patch(const drogon::HttpRequestPtr& req, Callback&& cb) {
     cb(error_to_response(saved.error(), instance));
     return;
   }
-  cb(json_ok(to_json(*saved), saved->rev));
+  // M8.5：字段级 diff 入审计（before=改前实体 current、after=saved）
+  audit_write(*db, req, "person", updated.id, "update",
+              json_diff(to_json(*current), to_json(*saved)));
+  {
+    nlohmann::json j = to_json(*saved);
+    sanitize_person(j, identity_of(req).raw_privacy);
+    cb(json_ok(std::move(j), saved->rev));
+  }
   GENEALOGY_PUBLISH_CHANGE("person.updated", "person", saved->id, saved->rev);
 }
 
@@ -437,6 +463,8 @@ void person_delete(const drogon::HttpRequestPtr& req, Callback&& cb) {
   }
   const std::string instance = req->path();
   PersonService svc(*db);
+  // 删前取实体：审计 diff 记被删内容（M8.5）
+  auto before = svc.get_person(path_id(req));
   auto gone = svc.remove_person(path_id(req));
   if (!gone) {
     cb(error_to_response(gone.error(), instance));
@@ -445,6 +473,8 @@ void person_delete(const drogon::HttpRequestPtr& req, Callback&& cb) {
   auto resp = drogon::HttpResponse::newHttpResponse();
   resp->setStatusCode(drogon::k204NoContent);
   cb(resp);
+  audit_write(*db, req, "person", path_id(req), "delete",
+              before ? to_json(*before) : nlohmann::json::object());
   GENEALOGY_PUBLISH_CHANGE("person.deleted", "person", path_id(req),
                            std::nullopt);
 }
@@ -484,6 +514,7 @@ void person_ancestors(const drogon::HttpRequestPtr& req, Callback&& cb) {
   // 规范 AncestorTree：{person, generations:[{depth, persons:[…]}]}
   nlohmann::json out;
   out["person"] = to_json(*me);
+  sanitize_person(out["person"], identity_of(req).raw_privacy);
   nlohmann::json gens = nlohmann::json::array();
   std::vector<const Person*> frontier{&*me};
   for (int d = 1; d <= depth && !frontier.empty(); ++d) {
@@ -499,7 +530,11 @@ void person_ancestors(const drogon::HttpRequestPtr& req, Callback&& cb) {
     nlohmann::json row;
     row["depth"] = d;
     nlohmann::json arr = nlohmann::json::array();
-    for (const auto* p : next) arr.push_back(to_json(*p));
+    for (const auto* p : next) {
+      nlohmann::json j = to_json(*p);
+      sanitize_person(j, identity_of(req).raw_privacy);
+      arr.push_back(std::move(j));
+    }
     row["persons"] = std::move(arr);
     gens.push_back(std::move(row));
     frontier = std::move(next);
@@ -550,7 +585,12 @@ void person_descendants(const drogon::HttpRequestPtr& req, Callback&& cb) {
   std::function<nlohmann::json(const lineage::TreeNode&)> emit =
       [&](const lineage::TreeNode& n) -> nlohmann::json {
         nlohmann::json j;
-        j["person"] = n.person ? to_json(*n.person) : nlohmann::json(nullptr);
+        if (n.person) {
+          j["person"] = to_json(*n.person);
+          sanitize_person(j["person"], identity_of(req).raw_privacy);
+        } else {
+          j["person"] = nlohmann::json(nullptr);
+        }
         nlohmann::json kids = nlohmann::json::array();
         for (const auto& c : n.children) kids.push_back(emit(c));
         j["children"] = std::move(kids);
@@ -559,6 +599,7 @@ void person_descendants(const drogon::HttpRequestPtr& req, Callback&& cb) {
 
   nlohmann::json out;
   out["person"] = to_json(*me);
+  sanitize_person(out["person"], identity_of(req).raw_privacy);
   nlohmann::json kids = nlohmann::json::array();
   for (const auto& c : tree->children) kids.push_back(emit(c));
   out["children"] = std::move(kids);
@@ -635,7 +676,11 @@ void person_tree(const drogon::HttpRequestPtr& req, Callback&& cb) {
   nlohmann::json out;
   out["mode"] = mode;
   nlohmann::json arr = nlohmann::json::array();
-  for (const auto* p : nodes) arr.push_back(to_json(*p));
+  for (const auto* p : nodes) {
+    nlohmann::json j = to_json(*p);
+    sanitize_person(j, identity_of(req).raw_privacy);
+    arr.push_back(std::move(j));
+  }
   out["nodes"] = std::move(arr);
 
   // 边：出生边（父/母 → 子）与婚姻边（配偶之间）。
@@ -896,6 +941,7 @@ void person_names_create(const drogon::HttpRequestPtr& req, Callback&& cb) {
     return;
   }
   // 名号变更入 SSE（人物详情随名单变化）
+  audit_write(*db, req, "person_name", made->id, "insert", to_json(*made));
   GENEALOGY_PUBLISH_CHANGE("person.updated", "person", person_id, 0);
   cb(json_created(to_json(*made)));
 }
@@ -919,6 +965,8 @@ void person_name_delete(const drogon::HttpRequestPtr& req, Callback&& cb) {
     cb(error_to_response(removed.error(), req->path()));
     return;
   }
+  audit_write(*db, req, "person_name", params[1], "delete",
+              nlohmann::json::object());
   GENEALOGY_PUBLISH_CHANGE("person.updated", "person", params[0], 0);
   auto resp = drogon::HttpResponse::newHttpResponse();
   resp->setStatusCode(drogon::k204NoContent);

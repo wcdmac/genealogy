@@ -22,6 +22,9 @@ void validate_run(const drogon::HttpRequestPtr& req, Callback&& cb);
 // ---- 导入导出 ----
 void import_gedcom(const drogon::HttpRequestPtr& req, Callback&& cb);
 void export_gedcom(const drogon::HttpRequestPtr& req, Callback&& cb);
+
+// 审计查询（M8.5）：GET /audit，steward-only
+void audit_query(const drogon::HttpRequestPtr& req, Callback&& cb);
 void export_tree(const drogon::HttpRequestPtr& req, Callback&& cb);
 
 // ---- 运维 ----

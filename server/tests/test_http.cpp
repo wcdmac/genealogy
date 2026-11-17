@@ -163,6 +163,8 @@ void start_server_once(std::uint16_t* port_out) {
                         {drogon::Post});
     app.registerHandler(base + "/persons/{id}/names/{nameId}",
                         &server::person_name_delete, {drogon::Delete});
+    // 审计（M8.5）：变更史回溯
+    app.registerHandler(base + "/audit", &server::audit_query, {drogon::Get});
     // 迁徙（M5-4）：expand 测试要挂迁徙子资源，注册与 main.cpp 对齐
     app.registerHandler(base + "/migrations", &server::migrations_list,
                         {drogon::Get});
@@ -914,6 +916,164 @@ TEST_CASE_METHOD(ServerFixture, "HTTP：名号域（建档→置主互斥→expa
   const std::string names_base = "/api/v1/persons/" + pid + "/names/";
   CHECK(request(port, drogon::Delete, names_base + n1_id).status == 204);
   CHECK(request(port, drogon::Delete, names_base + n1_id).status == 404);
+}
+
+TEST_CASE_METHOD(ServerFixture, "HTTP：角色 ACL——viewer 禁写/editor 禁删/steward 全权") {
+  bind_runtime(*db, true, "s3cret");
+  auto tok = [&](server::auth::Role r) {
+    return "Bearer " + server::auth::issue_token("tester", r);
+  };
+  const std::string lid = kDefaultLineageId;
+  const std::string create_body =
+      R"({"lineage_id":")" + lid +
+      R"(","family_name":"陈","given_name":"ACL","gender":"male"})";
+
+  // viewer：GET 200、POST 403（problem+json 4001）
+  const auto v_get = request(port, drogon::Get, "/api/v1/stats", "",
+                             {{"Authorization", tok(server::auth::Role::Viewer)}});
+  CHECK(v_get.status == 200);
+  const auto v_post = request(port, drogon::Post, "/api/v1/persons",
+                              create_body,
+                              {{"Authorization", tok(server::auth::Role::Viewer)}});
+  CHECK(v_post.status == 403);
+  CHECK(v_post.body.find("4001") != std::string::npos);
+
+  // editor：POST 201、DELETE 403
+  const auto e_post = request(port, drogon::Post, "/api/v1/persons",
+                              create_body,
+                              {{"Authorization", tok(server::auth::Role::Editor)}});
+  CHECK(e_post.status == 201);
+  const std::string pid =
+      nlohmann::json::parse(e_post.body)["id"].get<std::string>();
+  const auto e_del =
+      request(port, drogon::Delete, "/api/v1/persons/" + pid, "",
+              {{"Authorization", tok(server::auth::Role::Editor)}});
+  CHECK(e_del.status == 403);
+
+  // steward：DELETE 204
+  const auto s_del =
+      request(port, drogon::Delete, "/api/v1/persons/" + pid, "",
+              {{"Authorization", tok(server::auth::Role::Steward)}});
+  CHECK(s_del.status == 204);
+
+  // require-auth 模式：/auth/token 忽略 body.role，固定 steward
+  const auto tok_resp = request(
+      port, drogon::Post, "/api/v1/auth/token",
+      R"({"username":"u","password":"s3cret","role":"viewer"})", {});
+  REQUIRE(tok_resp.status == 200);
+  CHECK(nlohmann::json::parse(tok_resp.body)["role"] == "steward");
+  bind_runtime(*db, false, "");
+}
+
+TEST_CASE_METHOD(ServerFixture, "HTTP：审计（写后可回溯 + /audit 仅 steward）") {
+  bind_runtime(*db, true, "s3cret");
+  const std::string steward =
+      "Bearer " + server::auth::issue_token("zu", server::auth::Role::Steward);
+  const std::string editor =
+      "Bearer " + server::auth::issue_token("bian", server::auth::Role::Editor);
+  const std::string lid = kDefaultLineageId;
+
+  const auto made =
+      request(port, drogon::Post, "/api/v1/persons",
+              R"({"lineage_id":")" + lid +
+                  R"(","family_name":"陈","given_name":"审计","gender":"male"})",
+              {{"Authorization", steward}});
+  REQUIRE(made.status == 201);
+  const std::string pid =
+      nlohmann::json::parse(made.body)["id"].get<std::string>();
+
+  // editor 改一笔（PATCH 带 If-Match）。字段用 note——given_name 被
+  // 领域规则禁止 PATCH（改名走名号域），正文类字段才是合法更新面
+  const int rev = nlohmann::json::parse(made.body)["rev"].get<int>();
+  const auto patched =
+      patch(port, "/api/v1/persons/" + pid, R"({"note":"审计测试备注"})",
+            {{"Authorization", editor}, {"If-Match", std::to_string(rev)}});
+  REQUIRE(patched.status == 200);
+
+  // viewer 读 /audit → 403（diff 含原始数据）
+  const auto v_audit =
+      request(port, drogon::Get, "/api/v1/audit?entity_id=" + pid, "",
+              {{"Authorization",
+                "Bearer " +
+                    server::auth::issue_token("kan",
+                                              server::auth::Role::Viewer)}});
+  CHECK(v_audit.status == 403);
+
+  // steward 回溯：insert + update 两条，diff 有 before/after
+  const auto s_audit = request(
+      port, drogon::Get,
+      "/api/v1/audit?entity_type=person&entity_id=" + pid, "",
+      {{"Authorization", steward}});
+  REQUIRE(s_audit.status == 200);
+  const auto rows = nlohmann::json::parse(s_audit.body)["data"];
+  REQUIRE(rows.size() == 2);
+  CHECK(rows[0]["action"] == "update");   // id 倒序，新变更在前
+  CHECK(rows[0]["actor"] == "bian");
+  CHECK(rows[0]["diff"].contains("note"));
+  CHECK(rows[1]["action"] == "insert");
+  CHECK(rows[1]["actor"] == "zu");
+  bind_runtime(*db, false, "");
+}
+
+TEST_CASE_METHOD(ServerFixture, "HTTP：在世者脱敏（private 全脱/kin 留年份/raw 完整）") {
+  bind_runtime(*db, true, "s3cret");
+  const std::string steward =
+      "Bearer " + server::auth::issue_token("zu", server::auth::Role::Steward);
+  const std::string viewer =
+      "Bearer " + server::auth::issue_token("kan", server::auth::Role::Viewer);
+  const std::string lid = kDefaultLineageId;
+
+  // 在世 + private：require-auth 模式响应即脱敏（隐私优先于权限）
+  const auto made =
+      request(port, drogon::Post, "/api/v1/persons",
+              R"({"lineage_id":")" + lid +
+                  R"(","family_name":"陈","given_name":"在世者","gender":"female",)"
+                  R"("is_living":true,"privacy_level":"private",)"
+                  R"("birth_date":{"gregorian":"1995-03-02"}})",
+              {{"Authorization", steward}});
+  REQUIRE(made.status == 201);
+  const std::string pid =
+      nlohmann::json::parse(made.body)["id"].get<std::string>();
+  const auto jmade = nlohmann::json::parse(made.body);
+  CHECK_FALSE(jmade.contains("birth_date"));
+
+  // viewer 读取：无生卒
+  const auto v_get = request(port, drogon::Get, "/api/v1/persons/" + pid, "",
+                             {{"Authorization", viewer}});
+  REQUIRE(v_get.status == 200);
+  const auto jv = nlohmann::json::parse(v_get.body);
+  CHECK_FALSE(jv.contains("birth_date"));
+  CHECK(jv["given_name"] == "在世者");
+
+  // kin（留年份）：改 privacy_level 为 kin，viewer 读到年份
+  const int rev = jmade["rev"].get<int>();
+  const auto patched =
+      patch(port, "/api/v1/persons/" + pid, R"({"privacy_level":"kin"})",
+            {{"Authorization", steward}, {"If-Match", std::to_string(rev)}});
+  REQUIRE(patched.status == 200);
+  const auto jpatched = nlohmann::json::parse(patched.body);
+  REQUIRE(jpatched.contains("birth_date"));
+  CHECK(jpatched["birth_date"]["gregorian"] == "1995");  // 只留年份
+
+  // 历史人物不脱敏：在世=false 且 private → 完整
+  const auto dead =
+      request(port, drogon::Post, "/api/v1/persons",
+              R"({"lineage_id":")" + lid +
+                  R"(","family_name":"陈","given_name":"故人","gender":"male",)"
+                  R"("is_living":false,"privacy_level":"private",)"
+                  R"("birth_date":{"gregorian":"1901-05-04"}})",
+              {{"Authorization", steward}});
+  REQUIRE(dead.status == 201);
+  const auto jdead = nlohmann::json::parse(dead.body);
+  CHECK(jdead["birth_date"]["gregorian"] == "1901-05-04");
+
+  // 本地 raw：免鉴权模式（raw_privacy=true）完整可见
+  bind_runtime(*db, false, "");
+  const auto raw_get = get(port, "/api/v1/persons/" + pid);
+  REQUIRE(raw_get.status == 200);
+  const auto jraw = nlohmann::json::parse(raw_get.body);
+  REQUIRE(jraw.contains("birth_date"));
+  CHECK(jraw["birth_date"]["gregorian"] == "1995-03-02");
 }
 
 TEST_CASE_METHOD(ServerFixture, "HTTP：JWT 签发可自校验") {

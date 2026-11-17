@@ -1,5 +1,7 @@
 #include <genealogy/server/routes_entities.hpp>
 
+#include <genealogy/server/audit.hpp>
+
 #include <cstdint>
 #include <functional>
 #include <optional>
@@ -141,6 +143,7 @@ void lineages_create(const drogon::HttpRequestPtr& req, Callback&& cb) {
     cb(error_to_response(made.error(), instance));
     return;
   }
+  audit_write(*db, req, "lineage", made->id, "insert", to_json(*made));
   cb(json_created(to_json(*made), made->rev));
   GENEALOGY_PUBLISH_CHANGE("lineage.created", "lineage", made->id, made->rev);
 }
@@ -212,6 +215,8 @@ void lineage_patch(const drogon::HttpRequestPtr& req, Callback&& cb) {
     return;
   }
   cb(json_ok(to_json(*saved), saved->rev));
+  audit_write(*db, req, "lineage", saved->id, "update",
+              nlohmann::json::object());
   GENEALOGY_PUBLISH_CHANGE("lineage.updated", "lineage", saved->id, saved->rev);
 }
 
@@ -232,6 +237,8 @@ void lineage_delete(const drogon::HttpRequestPtr& req, Callback&& cb) {
   auto resp = drogon::HttpResponse::newHttpResponse();
   resp->setStatusCode(drogon::k204NoContent);
   cb(resp);
+  audit_write(*db, req, "lineage", removed_id, "delete",
+              nlohmann::json::object());
   GENEALOGY_PUBLISH_CHANGE("lineage.deleted", "lineage", removed_id,
                            std::nullopt);
 }
@@ -294,6 +301,7 @@ void branches_create(const drogon::HttpRequestPtr& req, Callback&& cb) {
     cb(error_to_response(made.error(), instance));
     return;
   }
+  audit_write(*db, req, "branch", made->id, "insert", to_json(*made));
   cb(json_created(to_json(*made), made->rev));
   GENEALOGY_PUBLISH_CHANGE("branch.created", "branch", made->id, made->rev);
 }
@@ -365,6 +373,8 @@ void branch_patch(const drogon::HttpRequestPtr& req, Callback&& cb) {
     return;
   }
   cb(json_ok(to_json(*saved), saved->rev));
+  audit_write(*db, req, "branch", saved->id, "update",
+              nlohmann::json::object());
   GENEALOGY_PUBLISH_CHANGE("branch.updated", "branch", saved->id, saved->rev);
 }
 
@@ -385,6 +395,8 @@ void branch_delete(const drogon::HttpRequestPtr& req, Callback&& cb) {
   auto resp = drogon::HttpResponse::newHttpResponse();
   resp->setStatusCode(drogon::k204NoContent);
   cb(resp);
+  audit_write(*db, req, "branch", removed_id, "delete",
+              nlohmann::json::object());
   GENEALOGY_PUBLISH_CHANGE("branch.deleted", "branch", removed_id,
                            std::nullopt);
 }
@@ -509,6 +521,7 @@ void unions_create(const drogon::HttpRequestPtr& req, Callback&& cb) {
     cb(error_to_response(made.error(), instance));
     return;
   }
+  audit_write(*db, req, "union", made->id, "insert", to_json(*made));
   cb(json_created(to_json(*made), made->rev));
   GENEALOGY_PUBLISH_CHANGE("union.created", "union", made->id, made->rev);
 }
@@ -584,6 +597,8 @@ void union_patch(const drogon::HttpRequestPtr& req, Callback&& cb) {
     return;
   }
   cb(json_ok(to_json(*saved), saved->rev));
+  audit_write(*db, req, "union", saved->id, "update",
+              nlohmann::json::object());
   GENEALOGY_PUBLISH_CHANGE("union.updated", "union", saved->id, saved->rev);
 }
 
@@ -604,6 +619,8 @@ void union_delete(const drogon::HttpRequestPtr& req, Callback&& cb) {
   auto resp = drogon::HttpResponse::newHttpResponse();
   resp->setStatusCode(drogon::k204NoContent);
   cb(resp);
+  audit_write(*db, req, "union", removed_id, "delete",
+              nlohmann::json::object());
   GENEALOGY_PUBLISH_CHANGE("union.deleted", "union", removed_id,
                            std::nullopt);
 }
@@ -677,6 +694,7 @@ void events_create(const drogon::HttpRequestPtr& req, Callback&& cb) {
     return;
   }
   // event 表无 rev（追加型事实），故不设 ETag
+  audit_write(*db, req, "event", made->id, "insert", to_json(*made));
   cb(json_created(to_json(*made)));
   GENEALOGY_PUBLISH_CHANGE("event.created", "event", made->id, std::nullopt);
 }
@@ -714,6 +732,8 @@ void event_delete(const drogon::HttpRequestPtr& req, Callback&& cb) {
   auto resp = drogon::HttpResponse::newHttpResponse();
   resp->setStatusCode(drogon::k204NoContent);
   cb(resp);
+  audit_write(*db, req, "event", removed_id, "delete",
+              nlohmann::json::object());
   GENEALOGY_PUBLISH_CHANGE("event.deleted", "event", removed_id,
                            std::nullopt);
 }
@@ -775,6 +795,7 @@ void places_create(const drogon::HttpRequestPtr& req, Callback&& cb) {
     return;
   }
   // place 表无 rev，故不设 ETag
+  audit_write(*db, req, "place", made->id, "insert", to_json(*made));
   cb(json_created(to_json(*made)));
   GENEALOGY_PUBLISH_CHANGE("place.created", "place", made->id, std::nullopt);
 }
@@ -842,6 +863,8 @@ void place_patch(const drogon::HttpRequestPtr& req, Callback&& cb) {
     return;
   }
   cb(json_ok(to_json(*saved), std::nullopt));   // 无 rev，无 ETag
+  audit_write(*db, req, "place", saved->id, "update",
+              nlohmann::json::object());
   GENEALOGY_PUBLISH_CHANGE("place.updated", "place", saved->id, std::nullopt);
 }
 
@@ -862,6 +885,8 @@ void place_delete(const drogon::HttpRequestPtr& req, Callback&& cb) {
   auto resp = drogon::HttpResponse::newHttpResponse();
   resp->setStatusCode(drogon::k204NoContent);
   cb(resp);
+  audit_write(*db, req, "place", removed_id, "delete",
+              nlohmann::json::object());
   GENEALOGY_PUBLISH_CHANGE("place.deleted", "place", removed_id,
                            std::nullopt);
 }
@@ -946,6 +971,7 @@ void migrations_create(const drogon::HttpRequestPtr& req, Callback&& cb) {
     return;
   }
   // migration 表无 rev，故不设 ETag
+  audit_write(*db, req, "migration", made->id, "insert", to_json(*made));
   cb(json_created(to_json(*made)));
   GENEALOGY_PUBLISH_CHANGE("migration.created", "migration", made->id,
                            std::nullopt);

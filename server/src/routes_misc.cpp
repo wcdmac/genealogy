@@ -47,6 +47,9 @@
 #include <genealogy/server/dto.hpp>
 #include <genealogy/server/problem.hpp>
 #include <genealogy/server/runtime.hpp>
+#include <genealogy/server/auth.hpp>
+#include <genealogy/server/audit.hpp>
+#include <genealogy/server/routes_auth.hpp>
 #include <genealogy/service/person_service.hpp>
 #include <genealogy/validate/validation.hpp>
 
@@ -110,8 +113,10 @@ void search(const drogon::HttpRequestPtr& req, Callback&& cb) {
       more = true;
       got->pop_back();
     }
+    const bool viewer_raw = identity_of(req).raw_privacy;
     for (auto& p : *got) {
       nlohmann::json j = to_json(p);
+      sanitize_person(j, viewer_raw);
       if (scope == "all") j["kind"] = "person";
       items.push_back(std::move(j));
       next = p.id;  // 游标口径：最后一个命中 id（scope=all 仅人物参与翻页）
@@ -453,6 +458,10 @@ void import_gedcom(const drogon::HttpRequestPtr& req, Callback&& cb) {
     }
   }
 
+  // M8.5：导入是一次大批量写入——审计记摘要（逐实体 diff 会让
+  // audit_log 爆炸，总量在 imported 里、损失在 warnings 里可回溯）
+  audit_write(*db, req, "import", "gedcom", "insert",
+              {{"created", created}});
   nlohmann::json warnings = nlohmann::json::array();
   int skipped = 0;
   for (const auto& l : data.losses) {
@@ -466,6 +475,61 @@ void import_gedcom(const drogon::HttpRequestPtr& req, Callback&& cb) {
   out["skipped"] = skipped;
   out["warnings"] = std::move(warnings);
   cb(json_ok(out, std::nullopt));
+}
+
+// ================================================================ 审计
+
+// GET /audit?entity_type=&entity_id=&limit=&cursor= —— 变更史回溯
+// （M8.5 验收门：任一人物的变更史可回溯）。仅 steward：diff 含原始
+// 数据，viewer/editor 可读即绕过 M8.3 脱敏——审计是族尊职能。
+void audit_query(const drogon::HttpRequestPtr& req, Callback&& cb) {
+  std::string why;
+  auto* db = db_from(req, &why);
+  if (db == nullptr) {
+    cb(problem_response(500, 9001, "内部错误", why, req->path()));
+    return;
+  }
+  const std::string instance = req->path();
+  const auto identity = identity_of(req);
+  if (identity.role != auth::Role::Steward) {
+    cb(problem_response(403, 4001, "禁止访问",
+                        "审计查询仅限 steward（当前角色 " +
+                            std::string(auth::to_string(identity.role)) + "）",
+                        instance));
+    return;
+  }
+  Page page;
+  std::vector<FieldError> errors;
+  page = parse_page(req, &errors);
+  if (!errors.empty()) {
+    cb(validation_problem(instance, errors, "分页参数不合法"));
+    return;
+  }
+  AuditQuery q;
+  q.entity_type = req->getParameter("entity_type");
+  q.entity_id = req->getParameter("entity_id");
+  q.cursor = page.cursor;
+  q.limit = page.limit;
+  auto rows = audit_list(*db, q);
+  if (!rows) {
+    cb(error_to_response(rows.error(), instance));
+    return;
+  }
+  const bool more = rows->size() > static_cast<std::size_t>(page.limit);
+  if (more) rows->pop_back();
+  nlohmann::json items = nlohmann::json::array();
+  for (auto& r : *rows) {
+    items.push_back({{"id", r.id},
+                     {"entity_type", r.entity_type},
+                     {"entity_id", r.entity_id},
+                     {"action", r.action},
+                     {"actor", r.actor},
+                     {"at", r.at},
+                     {"diff", r.diff}});
+  }
+  std::string next;
+  if (more && !rows->empty()) next = rows->back().id;
+  cb(json_ok(page_envelope(std::move(items), next, more), std::nullopt));
 }
 
 // ================================================================ 导出
@@ -579,6 +643,9 @@ void export_gedcom(const drogon::HttpRequestPtr& req, Callback&& cb) {
   eo.places = &*place_rows;
   eo.sources = &*source_rows;
   eo.citations = &citation_rows;
+  // M8.3：导出同口径脱敏——raw 令牌（本地）完整导出，其余按在世者
+  // privacy_level 屏蔽（ GedCOM 导出含在世者时即视为对外披露面）
+  eo.respect_privacy = !identity_of(req).raw_privacy;
   // 导出侧损失台账：与导入同口径逐条记账（此前未传，fallback 直接
   // 丢弃——谱师看不到「库里有但没导出」的东西，与纪律相悖）。GEDCOM
   // 文本响应无结构化 losses 通道：数量走 X-Loss-Count 响应头。

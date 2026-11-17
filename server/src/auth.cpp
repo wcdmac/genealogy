@@ -315,6 +315,20 @@ std::optional<std::int64_t> json_int_field(const std::string& json,
   }
 }
 
+std::optional<bool> json_bool_field(const std::string& json,
+                                    const std::string& key) {
+  const std::string pat = "\"" + key + "\":";
+  std::size_t p = json.find(pat);
+  if (p == std::string::npos) return std::nullopt;
+  p += pat.size();
+  while (p < json.size() && std::isspace(static_cast<unsigned char>(json[p]))) {
+    ++p;
+  }
+  if (json.compare(p, 4, "true") == 0) return true;
+  if (json.compare(p, 5, "false") == 0) return false;
+  return std::nullopt;
+}
+
 }  // namespace
 
 const char* to_string(Role r) {
@@ -334,12 +348,13 @@ std::optional<Role> role_from_string(const std::string& s) {
 }
 
 std::string issue_token(const std::string& username, Role role,
-                        std::int64_t ttl_seconds) {
+                        std::int64_t ttl_seconds, bool raw_privacy) {
   const std::string header =
       base64url_encode(R"({"alg":"HS256","typ":"JWT"})");
   std::ostringstream payload;
   payload << "{\"sub\":\"" << json_escape(username) << "\",\"role\":\""
-          << to_string(role) << "\",\"iat\":" << now_seconds()
+          << to_string(role) << "\",\"raw\":" << (raw_privacy ? "true" : "false")
+          << ",\"iat\":" << now_seconds()
           << ",\"exp\":" << now_seconds() + ttl_seconds << "}";
   const std::string body = base64url_encode(payload.str());
 
@@ -412,6 +427,8 @@ bool verify_token(const std::string& token, Claims* out,
   out->username = *sub;
   out->role = *r;
   out->expires_at = *exp;
+  // raw 缺省 false：旧令牌（M8.3 之前签发的）不获豁免，行为保守
+  if (auto raw = json_bool_field(payload, "raw")) out->raw_privacy = *raw;
   return true;
 }
 
@@ -420,6 +437,7 @@ Claims local_identity() {
   c.username = "local";
   c.role = Role::Steward;
   c.expires_at = 0;   // 永不过期
+  c.raw_privacy = true;  // 本地单机开箱即用（设计「显式开关仅本地有效」）
   return c;
 }
 

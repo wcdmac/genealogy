@@ -1952,14 +1952,32 @@ std::string export_gedcom(const ExportOptions& opt) {
                    (p.gender == Gender::Male
                         ? "M"
                         : (p.gender == Gender::Female ? "F" : "U")));
+      // M8.3：在世者脱敏（respect_privacy=true 时）。private 抹日期、
+      // kin 缩年份——gedcom_date_value 输出完整值，年份串在调用侧裁。
+      const bool mask_dates =
+          opt.respect_privacy && p.is_living &&
+          p.privacy != PrivacyLevel::Public;
+      const bool year_only =
+          opt.respect_privacy && p.is_living &&
+          p.privacy == PrivacyLevel::Kin;
+      auto masked_date = [&](const GenealogyDate& d) -> std::string {
+        const std::string dv = gedcom_date_value(d);
+        if (dv.empty() || !year_only) return dv;
+        // 取公历年份前缀（"1901-05-04" → "1901"；"1901" 原样）
+        const std::string g = d.gregorian.value_or(std::string{});
+        return g.size() >= 4 ? g.substr(0, 4) : dv;
+      };
       const bool has_birth =
           p.birth_date.gregorian.has_value() || p.birth_date.lunar.has_value();
       if (has_birth) {
         w.raw(1, "BIRT");
-        const std::string dv = gedcom_date_value(p.birth_date);
-        if (!dv.empty()) w.text(2, "DATE", dv);
-        const std::string n = place_name(p.birth_place_id);
-        if (!n.empty()) w.text(2, "PLAC", n);
+        const std::string dv = masked_date(p.birth_date);
+        if (!dv.empty() && !mask_dates) w.text(2, "DATE", dv);
+        else if (year_only && !dv.empty()) w.text(2, "DATE", dv);
+        if (!mask_dates) {
+          const std::string n = place_name(p.birth_place_id);
+          if (!n.empty()) w.text(2, "PLAC", n);
+        }
         write_event_cites(2, events_of_person, p.id, EventType::Birth);
       }
       const bool has_death = p.death_date.has_value() &&
@@ -1967,10 +1985,13 @@ std::string export_gedcom(const ExportOptions& opt) {
                               p.death_date->lunar.has_value());
       if (has_death) {
         w.raw(1, "DEAT");
-        const std::string dv = gedcom_date_value(*p.death_date);
-        if (!dv.empty()) w.text(2, "DATE", dv);
-        const std::string n = place_name(p.death_place_id);
-        if (!n.empty()) w.text(2, "PLAC", n);
+        const std::string dv = masked_date(*p.death_date);
+        if (!dv.empty() && !mask_dates) w.text(2, "DATE", dv);
+        else if (year_only && !dv.empty()) w.text(2, "DATE", dv);
+        if (!mask_dates) {
+          const std::string n = place_name(p.death_place_id);
+          if (!n.empty()) w.text(2, "PLAC", n);
+        }
         write_event_cites(2, events_of_person, p.id, EventType::Death);
       } else if (p.is_living) {
         // 在世：显式 DEAT N（EVENT_Y_OR_N，N = 未发生）。此前写成
@@ -1990,7 +2011,7 @@ std::string export_gedcom(const ExportOptions& opt) {
       // 无从区分——宁可不标，也不能把大片未知误标为已故。
       // 导入侧仍认 DEAT Y（第三方文件），见 handle_fact。
       const std::string burial = place_name(p.burial_place_id);
-      if (!burial.empty()) {
+      if (!burial.empty() && !mask_dates) {
         w.raw(1, "BURI");
         w.text(2, "PLAC", burial);
         write_event_cites(2, events_of_person, p.id, EventType::Burial);
@@ -2013,7 +2034,12 @@ std::string export_gedcom(const ExportOptions& opt) {
           }
         }
       }
-      if (p.note && !p.note->empty()) w.text(1, "NOTE", *p.note);
+      // NOTE 与传记类备注同属「private 全脱」面（GEDCOM 导出会照写）
+      const bool show_notes =
+          !mask_dates || p.privacy == PrivacyLevel::Public;
+      if (show_notes && p.note && !p.note->empty()) {
+        w.text(1, "NOTE", *p.note);
+      }
       emit_facts(1, lookup_ptr(events_of_person, p.id), EventType::Birth,
                  EventType::Death);
       for (const auto& f : lookup_vec(famc_of_person, p.id)) w.raw(1, "FAMC " + f);

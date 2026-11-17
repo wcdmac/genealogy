@@ -116,6 +116,11 @@ struct ExportOptions {
   const std::vector<Citation>* citations = nullptr;
   std::string submitter_name = "genealogy";
   std::string source_version = "1.0";
+  // M8.3：在世者脱敏同口径。false（默认）= 完整导出（本地 raw 身份）；
+  // true = 在世者按 privacy_level 屏蔽（private 抹生卒/PLAC/NOTE、
+  // kin 生卒只留年份）——REST 导出按调用方令牌的 raw_privacy 设置，
+  // CLI 本地默认 false。历史人物不受影响。
+  bool respect_privacy = false;
   // 导出侧损失台账（镜像导入侧的 add_loss）：凡「库里有、GEDCOM
   // 表达不了/不在本次导出集内」的信息逐条记账——导出与导入同样
   // 不许静默丢（高阳李氏试修实证：成员缺集、亲子链断裂都曾无声）。

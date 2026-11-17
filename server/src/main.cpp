@@ -34,6 +34,7 @@
 #include <genealogy/server/routes_auth.hpp>
 #include <genealogy/server/routes_stream.hpp>
 #include <genealogy/server/runtime.hpp>
+#include <genealogy/server/audit.hpp>
 #include <genealogy/server/routes_persons.hpp>
 
 namespace {
@@ -249,6 +250,9 @@ int main(int argc, char** argv) {
   // 迁徙（M5-4）
   app.registerHandler(base + "/migrations", &migrations_list, {drogon::Get});
   app.registerHandler(base + "/migrations", &migrations_create, {drogon::Post});
+
+  // 审计（M8.5）：变更史回溯（steward-only，handler 内判）
+  app.registerHandler(base + "/audit", &audit_query, {drogon::Get});
 
   // 检索 / 统计 / 校验 / 导入导出
   app.registerHandler(base + "/search", &search, {drogon::Get});

@@ -14,11 +14,15 @@
 
 namespace genealogy::server {
 
-namespace {
 
-// 当前请求的身份。本地免鉴权模式下恒为本地 steward；
-// --require-auth 时从 Authorization: Bearer <jwt> 解出。
+// 当前请求的身份。auth_guard 验证通过后会把 Claims 写进 request
+// attributes（"identity"），这里优先读取——handler 与守卫看到同一份
+// 身份，避免二次验签。本地免鉴权模式下恒为本地 steward（raw_privacy
+// = true，M8.3 脱敏豁免）。
 auth::Claims identity_of(const drogon::HttpRequestPtr& req) {
+  // attributes 未命中时 get 返回默认 Claims（username 空）→ 走旧回退
+  const auto stored = req->attributes()->get<auth::Claims>("identity");
+  if (!stored.username.empty()) return stored;
   if (!require_auth_of(req)) return auth::local_identity();
   const std::string h = req->getHeader("authorization");
   if (h.rfind("Bearer ", 0) != 0) return {};
@@ -27,6 +31,37 @@ auth::Claims identity_of(const drogon::HttpRequestPtr& req) {
   if (!auth::verify_token(h.substr(7), &c, &err)) return {};
   return c;
 }
+
+// M8.4 角色 ACL：viewer 禁写（403）、editor 禁删、steward 全权。
+// 宏观判定放在守卫层——17 个写 handler 不必各自检查；细粒度
+// （如 /audit 仅 steward）在 handler 里用 identity_of 判。
+bool method_allowed(drogon::HttpMethod method, auth::Role role) {
+  switch (method) {
+    case drogon::Get:
+    case drogon::Head:
+      return true;  // 只读：viewer 及以上
+    case drogon::Post:
+    case drogon::Patch:
+    case drogon::Put:
+      return role == auth::Role::Steward || role == auth::Role::Editor;
+    case drogon::Delete:
+      return role == auth::Role::Steward;
+    default:
+      return true;  // Options 已在前置分支处理
+  }
+}
+
+drogon::HttpResponsePtr forbidden(const drogon::HttpRequestPtr& req,
+                                  auth::Role role, const std::string& need) {
+  auto resp = problem_response(
+      403, 4001, "禁止访问",
+      "角色 " + std::string(auth::to_string(role)) +
+          " 无权执行此操作（需要 " + need + "）",
+      req->path());
+  attach_allow_origin(req, resp);
+  return resp;
+}
+namespace {
 
 // --require-auth 模式下 401 的统一出口：problem+json + WWW-Authenticate
 // + CORS 头。CORS 头不能省：pre-routing 短路的响应不经过 postHandling
@@ -98,7 +133,12 @@ void auth_token(const drogon::HttpRequestPtr& req, Callback&& cb) {
     username = body["username"].get<std::string>();
   }
 
-  if (body.is_object() && body.contains("role") && body["role"].is_string()) {
+  // M8.4：role 自请与否分模式。require-auth 模式固定签发 steward——
+  // 单口令=族尊钥匙，若接受 body.role 自请，viewer 拿到口令就能
+  // 自封 steward 击穿 ACL（多用户表属云版用户系统）。本地模式保留
+  // body.role（测试便利；本地身份本来就是全权 steward）。
+  if (!require_auth_of(req) && body.is_object() &&
+      body.contains("role") && body["role"].is_string()) {
     auto r = auth::role_from_string(body["role"].get<std::string>());
     if (!r) {
       cb(problem_response(400, 1001, "参数校验失败",
@@ -107,7 +147,9 @@ void auth_token(const drogon::HttpRequestPtr& req, Callback&& cb) {
     }
     role = *r;
   }
-  const std::string token = auth::issue_token(username, role);
+  const std::string token =
+      auth::issue_token(username, role, 24 * 3600,
+                        /*raw_privacy=*/!require_auth_of(req));
   nlohmann::json out;
   out["access_token"] = token;
   out["token_type"] = "Bearer";
@@ -163,6 +205,14 @@ void install_auth_guard(drogon::HttpAppFramework& app) {
         if (h.rfind("Bearer ", 0) != 0 ||
             !auth::verify_token(h.substr(7), &c, &err)) {
           acb(unauthorized(req, "缺少或无效的 Bearer 令牌"));
+          return;
+        }
+        // M8.4：身份下发（handler 经 identity_of 读取）+ 角色 ACL
+        req->attributes()->insert("identity", c);
+        if (!method_allowed(req->method(), c.role)) {
+          const std::string need =
+              req->method() == drogon::Delete ? "steward" : "editor 及以上";
+          acb(forbidden(req, c.role, need));
           return;
         }
         accb();

@@ -7,6 +7,8 @@
 
 #include <genealogy/server/routes_documents.hpp>
 
+#include <genealogy/server/audit.hpp>
+
 #include <optional>
 #include <string>
 #include <vector>
@@ -156,6 +158,7 @@ void documents_create(const drogon::HttpRequestPtr& req, Callback&& cb) {
     cb(error_to_response(made.error(), instance));
     return;
   }
+  audit_write(*db, req, "document", made->id, "insert", to_json(*made));
   cb(json_created(to_json(*made)));
 }
 
@@ -246,6 +249,8 @@ void document_patch(const drogon::HttpRequestPtr& req, Callback&& cb) {
     cb(error_to_response(saved.error(), instance));
     return;
   }
+  audit_write(*db, req, "document", updated.id, "update",
+              json_diff(to_json(*current), to_json(*saved)));
   cb(json_ok(to_json(*saved), std::nullopt));
 }
 
@@ -257,11 +262,14 @@ void document_delete(const drogon::HttpRequestPtr& req, Callback&& cb) {
     return;
   }
   DocumentService svc(*db);
+  auto before = svc.get_document(path_id(req));  // 审计：删前快照（M8.5）
   auto removed = svc.remove_document(path_id(req));
   if (!removed) {
     cb(error_to_response(removed.error(), req->path()));
     return;
   }
+  audit_write(*db, req, "document", path_id(req), "delete",
+              before ? to_json(*before) : nlohmann::json::object());
   auto resp = drogon::HttpResponse::newHttpResponse();
   resp->setStatusCode(drogon::k204NoContent);
   cb(resp);

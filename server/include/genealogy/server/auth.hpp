@@ -29,11 +29,19 @@ struct Claims {
   std::string username;
   Role role = Role::Viewer;
   std::int64_t expires_at = 0;   // Unix 秒
+  // 在世者脱敏豁免（M8.3）：true = 看到完整生卒/住址/传记。豁免依据
+  // 是令牌 claim 而非查询参数——查询参数会被日志与转发记录，token
+  // 才是豁免的正确载体（云版规划既定方向）。本地单机身份恒为 true
+  //（开箱即用，对应设计「GUI 显式开关仅本地库有效」）；require-auth
+  // 签发的令牌恒为 false，云端永不签发 true。
+  bool raw_privacy = false;
 };
 
-// 签发。ttl_seconds 默认 24h。
+// 签发。ttl_seconds 默认 24h；raw_privacy 仅本地便捷通道使用，
+// require-auth 模式固定 false（云端永不签发豁免令牌）。
 std::string issue_token(const std::string& username, Role role,
-                        std::int64_t ttl_seconds = 24 * 3600);
+                        std::int64_t ttl_seconds = 24 * 3600,
+                        bool raw_privacy = false);
 
 // 校验。失败原因放在 error 里（过期 / 签名不符 / 结构损坏）。
 bool verify_token(const std::string& token, Claims* out, std::string* error);
