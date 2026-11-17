@@ -37,3 +37,6 @@ clients/web/dist/
 # OS
 .DS_Store
 Thumbs.db
+
+# gen_calendar 的本地依赖（lunar-javascript 已入 package.json 声明）
+tools/gen_calendar/node_modules/
