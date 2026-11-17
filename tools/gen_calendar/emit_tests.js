@@ -19,6 +19,58 @@ const truth = fs.existsSync(truthPath)
 
 const MON = ['', '正月', '二月', '三月', '四月', '五月', '六月', '七月',
   '八月', '九月', '十月', '十一月', '十二月'];
+
+// ---- datong 段（1368-1582 大统历史实）正月初一的儒略历标签 ----
+// 与引擎 julian_from_days 同规则：锚点 = proleptic(y,1,1) + 上一年的
+// 儒略落后天数；doy 为物理日序。仅用于生成测试期望值。
+const tdiv = (a, b) => Math.trunc(a / b);
+function daysFromCivil(y, m, d) {
+  const yy = m <= 2 ? y - 1 : y;
+  const era = tdiv(yy >= 0 ? yy : yy - 399, 400);
+  const yoe = yy - era * 400;
+  const doy = Math.floor((153 * (m + (m > 2 ? -3 : 9)) + 2) / 5) + d - 1;
+  const doe = yoe * 365 + Math.floor(yoe / 4) - Math.floor(yoe / 100) + doy;
+  return era * 146097 + doe - 719468;
+}
+function civilFromDays(z) {
+  const zz = z + 719468;
+  const era = tdiv(zz >= 0 ? zz : zz - 146096, 146097);
+  const doe = zz - era * 146097;
+  const yoe = Math.floor((doe - Math.floor(doe / 1460) +
+    Math.floor(doe / 36524) - Math.floor(doe / 146096)) / 365);
+  const y = yoe + era * 400;
+  const doy = doe - (365 * yoe + Math.floor(yoe / 4) - Math.floor(yoe / 100));
+  const mp = Math.floor((5 * doy + 2) / 153);
+  const d = doy - Math.floor((153 * mp + 2) / 5) + 1;
+  const m = mp + (mp < 10 ? 3 : -9);
+  return [m <= 2 ? y + 1 : y, m, d];
+}
+const julOff = (y) => (y <= 1582 ? Math.floor(y / 100) - Math.floor(y / 400) - 2 : 0);
+const julAnchor = (y) => daysFromCivil(y, 1, 1) + julOff(y - 1);
+function julianFromDays(z) {
+  const [yp] = civilFromDays(z);
+  const yy = z >= julAnchor(yp) ? yp : yp - 1;
+  let jdoy = z - julAnchor(yy) + 1;
+  const DIM = [31, 28, 31, 30, 31, 30, 31, 31, 30, 31, 30, 31];
+  const leap = yy % 4 === 0;   // 儒略历世纪年也闰
+  let mo = 1;
+  while (mo <= 12) {
+    const dim = DIM[mo - 1] + (mo === 2 && leap ? 1 : 0);
+    if (jdoy <= dim) break;
+    jdoy -= dim;
+    mo++;
+  }
+  return [yy, mo, jdoy];
+}
+const datongPath = path.join(__dirname, 'out', 'datong_years.json');
+const datongYears = fs.existsSync(datongPath)
+  ? JSON.parse(fs.readFileSync(datongPath, 'utf8')).years : [];
+const datongRows = datongYears.map((y) => {
+  const [jy, jm, jd] = julianFromDays(y.first_day);
+  const iso = `${jy}-${String(jm).padStart(2, '0')}-${String(jd).padStart(2, '0')}`;
+  return { year: y.year, iso, monthCount: y.month_count,
+           leapAfter: y.leap_after, lenMask: y.len_mask };
+});
 const TERMS = ['小寒','大寒','立春','雨水','惊蛰','春分','清明','谷雨',
   '立夏','小满','芒种','夏至','小暑','大暑','立秋','处暑',
   '白露','秋分','寒露','霜降','立冬','小雪','大雪','冬至'];
@@ -115,6 +167,23 @@ for (const [iso, gz] of gzRows) {
 }
 w('};');
 w(`inline constexpr int kDayGanzhiCount = ${gzRows.length};`);
+w('');
+w('// datong 段（1368-1582 大统历朔闰史实，ytliu0/ChineseCalendar GPL-3.0）：');
+w('// 正月初一的儒略历标签（儒略历史实口径）与结构字段。');
+w('struct DatongYear {');
+w('  int year;          // 农历年号（= 正月初一所在儒略历年）');
+w('  const char* iso;   // 正月初一，儒略历 yyyy-mm-dd');
+w('  int monthCount;    // 月数（12 或 13）');
+w('  int leapAfter;     // 0 = 无闰月；n = 第 n 月之后插闰 n 月');
+w('  unsigned lenMask;  // bit i = 时间序第 i 月 30 天');
+w('};');
+w('');
+w('inline constexpr DatongYear kDatongYears[] = {');
+for (const r of datongRows) {
+  w(`  {${r.year}, "${r.iso}", ${r.monthCount}, ${r.leapAfter}, ${r.lenMask}},`);
+}
+w('};');
+w(`inline constexpr int kDatongYearCount = ${datongRows.length};`);
 w('');
 w('}  // namespace genealogy::calendar::fixtures');
 

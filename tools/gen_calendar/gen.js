@@ -11,14 +11,22 @@
  *           · 逐日农历日期 46021/46021 一致
  *           · 节气时刻到「秒」一致（官方按四舍五入取分）
  *
- * ── 交付区间为什么是 1583-3000 ──────────────────────────────────────────
- * 扫描 1-3000 全部农历年并做结构体检，异常年份共 11 个且全部 ≤1582：
+ * ── 交付区间为什么是 1368-3000 ──────────────────────────────────────────
+ * 1368-1582（明代，儒略历史实口径）：大统历朔闰，取自 ytliu0/ChineseCalendar
+ * （GPL-3.0，大统历定朔推步 + 明实录历书扫描件订正，由 extract_datong.js
+ * 提取为 out/datong_years.json）。该段日期按儒略历口径读写（洪武元年正月
+ * 初一 = 儒略 1368-01-20），月长/闰月为史实而非天文推算。节气无大统历
+ * 数据，仍自 1583 年起提供（见 TERM_MIN）。
+ * 1583-3000：lunar-javascript（MIT）现代天文推算。扫描 1-3000 全部农历年
+ * 做结构体检，lunar-javascript 异常年份共 11 个且全部 ≤1582：
  *   · 1582  格里历改革删去 10 天（10-05~10-14 不存在），第 9 月算出 39 天
  *   · 100/200/300/600/700/900  世纪闰年处理错误，月长短一天（28 天）
  *   · 237/1500  月序错乱（缺月、月长 58 天）
- * 1583 年起结构全部正常，故下界取 1583。上界 3000 为生成器取值，非物理上限。
- * 另需注意史实：1645 年（清《时宪书》）以前中国官方历法用平气平朔，与现代
- * 定气定朔推算可能有 1 日级差异——这是历法史事实，不是本表的计算误差。
+ * 1583 年起结构全部正常，故 lunar-javascript 段下界取 1583，与 datong 段
+ * （1582 止）无缝衔接；上界 3000 为生成器取值，非物理上限。
+ * 另需注意史实：1645 年（清《时宪书》）以前中国官方历法用平气平朔，1583-1644
+ * 段（万历-崇祯，仍行大统历）的 lunar-javascript 推算与实历可能有 1 日级
+ * 差异——这是历法史事实，不是本表的计算误差。
  *
  * 用法：node gen.js [输出目录]
  */
@@ -29,8 +37,13 @@ const crypto = require('crypto');
 const { Solar } = require('lunar-javascript');
 
 // ---- 目标范围（查询区间两端闭合）----
-const QUERY_MIN = 1583;
+const QUERY_MIN = 1368;    // datong 段起点（明洪武元年）
 const QUERY_MAX = 3000;
+// lunar-javascript 段（现代天文推算）起点：其 1583 年前结构有缺陷，
+// 且 1368-1582 由 datong 段（大统历史实）顶替——见文件头说明。
+const LUNAR_SCAN_MIN = 1583;
+// 节气表起点：datong 段无节气数据
+const TERM_MIN = 1583;
 // 生成时需要多算一年：末月的长度要靠次年正月初一推出
 const GEN_MAX = QUERY_MAX + 1;
 
@@ -94,7 +107,7 @@ function main() {
   // ---- 1) 正向扫描：枚举区间内每个农历月初一 ----
   const starts = [];   // { dayno, L, month }  month<0 表示闰月
   const wc = new Map(); // dayno -> weekday/call error 计数
-  for (let y = QUERY_MIN; y <= GEN_MAX; y++) {
+  for (let y = LUNAR_SCAN_MIN; y <= GEN_MAX; y++) {
     for (let m = 1; m <= 12; m++) {
       const dim = DIM[m - 1] + (m === 2 && leapY(y) ? 1 : 0);
       for (let d = 1; d <= dim; d++) {
@@ -172,6 +185,45 @@ function main() {
     console.error('结构异常：', JSON.stringify(faults, null, 1));
     throw new Error(`存在 ${faults.length} 个结构异常农历年，拒绝生成`);
   }
+
+  // ---- 3.5) datong 段（1368-1582 大统历史实）合并 ----
+  const datongPath = path.join(__dirname, 'out', 'datong_years.json');
+  if (!fs.existsSync(datongPath)) {
+    throw new Error('缺少 out/datong_years.json：先运行 node extract_datong.js');
+  }
+  const datong = JSON.parse(fs.readFileSync(datongPath, 'utf8'));
+  const datongYears = datong.years.map(y => ({
+    gregorianYear: y.year,
+    lunarYear: y.year,
+    firstDay: y.first_day,
+    monthCount: y.month_count,
+    leapAfter: y.leap_after,
+    lenMask: y.len_mask,
+  }));
+  for (const y of datongYears) {
+    if (y.gregorianYear < QUERY_MIN || y.gregorianYear >= LUNAR_SCAN_MIN) {
+      throw new Error(`datong 段年份越界: ${y.gregorianYear}`);
+    }
+    if (y.monthCount !== 12 && y.monthCount !== 13) {
+      throw new Error(`datong ${y.gregorianYear}: 月数=${y.monthCount}`);
+    }
+  }
+  // 衔接自证：datong 末年（1582）正月朔 + 农历年长 = 扫描段首年（1583）正月朔。
+  // 两段数据源不同（ytliu0 vs lunar-javascript），能对上即边界无冲突。
+  const popcount = (v) => { let n = 0; while (v) { v &= v - 1; n++; } return n; };
+  const datongLast = datongYears[datongYears.length - 1];
+  const scanFirst = years[0];
+  const seam = datongLast.firstDay + 29 * datongLast.monthCount +
+               popcount(datongLast.lenMask);
+  if (seam !== scanFirst.firstDay) {
+    throw new Error(`datong→lunar-javascript 衔接断裂: 1582 段末推 ${seam}，` +
+      `1583 扫描 ${scanFirst.firstDay}（两数据源在 1583 正月朔上冲突）`);
+  }
+  console.log('datong 段合并:', datongYears.length, '年（' +
+    datongYears[0].gregorianYear + '-' + datongLast.gregorianYear + '），' +
+    '1582→1583 衔接 ✓');
+  years.unshift(...datongYears);
+
   // 索引连续性：每年恰好一条
   for (let G = QUERY_MIN; G <= QUERY_MAX; G++) {
     if (!years.some(y => y.gregorianYear === G)) {
@@ -182,7 +234,7 @@ function main() {
 
   // ---- 4) 节气表 ----
   const termYears = [];
-  for (let G = QUERY_MIN; G <= QUERY_MAX; G++) {
+  for (let G = TERM_MIN; G <= QUERY_MAX; G++) {
     const found = new Map();   // date -> [rec]
     // 采样点覆盖跨年边界：上一年年末取岁首，次年年初取冬至
     const samples = [[G - 1, 12, 15], [G, 1, 15], [G, 3, 15], [G, 6, 15],
@@ -267,6 +319,7 @@ function main() {
   let ruleChecked = 0;
   for (const yr of years) {
     const G = yr.gregorianYear;
+    if (G < TERM_MIN) continue;   // datong 段（明代）无节气数据，规则不适用
     const nextYr = yearByG.get(G + 1);
     if (!nextYr) continue;
     // 各月首（含次年首月，用于求末月长度）
@@ -336,12 +389,19 @@ function main() {
       epoch: 'days since 1970-01-01',
       timeZone: 'Asia/Shanghai (UTC+8)',
       termsOrder: TERMS,
+      // 明代段（1368-1582）：大统历朔闰史实，儒略历口径
+      mingSegment: {
+        source: datong.source,
+        calendar: '儒略历史实口径（日期按儒略历读写，洪武元年正月初一=儒略 1368-01-20）',
+        range: [datongYears[0].gregorianYear, datongLast.gregorianYear],
+      },
       // 现代定气推算与官修历书有差异的年份（仅记录，不影响数据可用性）
       legacyRuleDeviations: ruleFaults.map(f => ({ year: f.G, rule: f.rule })),
       caveats: [
         '1900-2025 经紫金山天文台官方表逐日核验（46021/46021 一致）',
-        '1645 年（清《时宪书》）以前中国官方历法用平气平朔，本表为现代定气定朔推算，与当时实历可能有 1 日级差异',
-        '1583 年以前不提供：所用生成器在该区间存在数据缺陷（格里历改革断层、世纪闰年、月序错乱）',
+        '1645 年（清《时宪书》）以前中国官方历法用平气平朔，1583-1644（万历-崇祯，仍行大统历）的现代天文推算与实历可能有 1 日级差异',
+        '1368-1582 为大统历朔闰史实段（儒略历口径，ytliu0/ChineseCalendar 提取）；1368 年以前不提供',
+        '节气数据自 1583 年起提供（大统历段无节气数据）',
       ],
     },
     lunarYears: years,

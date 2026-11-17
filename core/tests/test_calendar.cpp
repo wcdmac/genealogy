@@ -1,10 +1,14 @@
 // M1.4 历法引擎测试。
 //
-// 断言基准不是「泓儿觉得对」，而是中国科学院紫金山天文台《1900-2025年日历》：
-//   · 1559 个农历月初一（含闰月）+ 3024 条节气时刻 + 3024 条纪日干支抽样，
-//     全部由 PDF 逐页解析而来（见 tools/gen_calendar 与 calendar_fixtures.hpp）。
-//   · 1900-2025 的每一天（46021 日）都过一遍农历月/日，不只是月初一。
-// 数据表覆盖 1583-3000 共 1418 个农历年，区间内逐年自洽性也一并体检。
+// 断言基准不是「泓儿觉得对」，而是两套可查证的来源：
+//   · 中国科学院紫金山天文台《1900-2025年日历》：1559 个农历月初一（含闰月）
+//     + 3024 条节气时刻 + 3024 条纪日干支抽样，全部由 PDF 逐页解析而来
+//     （见 tools/gen_calendar 与 calendar_fixtures.hpp）。
+//     1900-2025 的每一天（46021 天）都过一遍农历月/日，不只是月初一。
+//   · ytliu0/ChineseCalendar（GPL-3.0）的大统历朔闰史实：1368-1582 全部
+//     215 个农历年的正月初一（儒略历标签）与月长/闰月结构，逐月逐日
+//     往返断言（M9.2 儒略历史实口径）。
+// 数据表覆盖 1368-3000 共 1633 个农历年。
 
 #include <catch2/catch_test_macros.hpp>
 
@@ -25,8 +29,9 @@ using namespace genealogy::calendar;
 
 namespace {
 
-constexpr int kFirst = 1583;   // 数据表下界（格里历改革次年）
-constexpr int kLast = 3000;    // 数据表上界
+constexpr int kFirst = 1368;      // 数据表下界（明洪武元年，儒略历史实段）
+constexpr int kGregFirst = 1583;  // 格里历段起点（节气数据也自此起）
+constexpr int kLast = 3000;       // 数据表上界
 
 bool is_leap(int y) noexcept { return (y % 4 == 0 && y % 100 != 0) || y % 400 == 0; }
 int days_in_month(int y, int m) noexcept {
@@ -93,9 +98,9 @@ std::vector<OfficialDay> build_official_days(int* out_first_z) {
 }  // namespace
 
 TEST_CASE("历法：日期序号换算全区间往返一致") {
-  // 1583-3000 逐日往返；同时抽查 1900 年前后的负序号（1970 以前）
+  // 1583-3000 逐日往返（proleptic-Gregorian 工具函数）；同时抽查 1900 年前后的负序号
   long long checked = 0;
-  for (int y = kFirst; y <= kLast; ++y) {
+  for (int y = kGregFirst; y <= kLast; ++y) {
     for (int m = 1; m <= 12; ++m) {
       const int dim = days_in_month(y, m);
       for (int d = 1; d <= dim; ++d) {
@@ -113,8 +118,8 @@ TEST_CASE("历法：日期序号换算全区间往返一致") {
   REQUIRE(checked == 517914);   // 1583-3000 的实际天数，防止循环被改窄
 
   // 连续性：相邻日序号 +1，跨年跨月不跳
-  int prev = days_from_civil(kFirst, 1, 1);
-  for (int y = kFirst; y <= kLast; ++y) {
+  int prev = days_from_civil(kGregFirst, 1, 1);
+  for (int y = kGregFirst; y <= kLast; ++y) {
     for (int m = 1; m <= 12; ++m) {
       for (int d = 1; d <= days_in_month(y, m); ++d) {
         const int z = days_from_civil(y, m, d);
@@ -239,12 +244,14 @@ TEST_CASE("历法：年干支、生肖、月干支") {
   REQUIRE(year_ganzhi(1984) == "甲子");
   REQUIRE(year_ganzhi(2024) == "甲辰");
   REQUIRE(year_ganzhi(2025) == "乙巳");
-  REQUIRE(year_ganzhi(kFirst) == "癸未");   // 1583
+  REQUIRE(year_ganzhi(kGregFirst) == "癸未");   // 1583
+  REQUIRE(year_ganzhi(1368) == "戊申");          // 洪武元年
 
   REQUIRE(zodiac(1900) == "鼠");
   REQUIRE(zodiac(2024) == "龙");
   REQUIRE(zodiac(2025) == "蛇");
-  REQUIRE(zodiac(kFirst) == "羊");
+  REQUIRE(zodiac(kGregFirst) == "羊");
+  REQUIRE(zodiac(1368) == "猴");
 
   // 五虎遁：甲己之年丙作首（2024 甲辰 → 正月丙寅）；乙庚之岁戊为头（1900 庚子 → 戊寅）
   REQUIRE(month_ganzhi(2024, 1) == "丙寅");
@@ -281,18 +288,29 @@ TEST_CASE("历法：区间与越界行为") {
   REQUIRE(!supports(kFirst - 1));
   REQUIRE(!supports(kLast + 1));
 
-  const auto a = to_chinese(gd(1582, 12, 31));
+  // 下界之外：1367 年（元至正二十八年）不提供；1368 岁首前一日属上年亦不提供
+  const auto a = to_chinese(gd(1367, 12, 1));
   REQUIRE(!a.has_value());
   REQUIRE(a.error().code() == ErrorCode::CalendarOutOfRange);
-  const auto b = to_gregorian(ChineseDate{3001, 1, 1});
+  const auto b = to_gregorian(ChineseDate{1367, 1, 1});
   REQUIRE(!b.has_value());
   REQUIRE(b.error().code() == ErrorCode::CalendarOutOfRange);
-  const auto c = solar_term(1582, 0);
+  const auto c = to_chinese(gd(1368, 1, 19));   // 儒略 01-19 < 正月初一
   REQUIRE(!c.has_value());
   REQUIRE(c.error().code() == ErrorCode::CalendarOutOfRange);
-  const auto d = solar_term(2020, 24);
+  const auto d = to_gregorian(ChineseDate{3001, 1, 1});
   REQUIRE(!d.has_value());
-  REQUIRE(d.error().code() == ErrorCode::InvalidArgument);
+  REQUIRE(d.error().code() == ErrorCode::CalendarOutOfRange);
+  // 节气表与农历年表独立：明代段有朔闰、无节气
+  const auto e = solar_term(1582, 0);
+  REQUIRE(!e.has_value());
+  REQUIRE(e.error().code() == ErrorCode::CalendarOutOfRange);
+  const auto f = solar_term(1368, 0);
+  REQUIRE(!f.has_value());
+  REQUIRE(f.error().code() == ErrorCode::CalendarOutOfRange);
+  const auto g2 = solar_term(2020, 24);
+  REQUIRE(!g2.has_value());
+  REQUIRE(g2.error().code() == ErrorCode::InvalidArgument);
 }
 
 TEST_CASE("历法：闰月与月长的边界") {
@@ -325,8 +343,8 @@ TEST_CASE("历法：闰月与月长的边界") {
 
 TEST_CASE("历法：全区间逐年自洽（1583-3000）") {
   // 每年：正月起点单调、24 节气时刻严格递增、冬至落在十一月
-  int prev_first = days_from_civil(kFirst - 1, 1, 1);
-  for (int y = kFirst; y <= kLast; ++y) {
+  int prev_first = days_from_civil(kGregFirst - 1, 1, 1);
+  for (int y = kGregFirst; y <= kLast; ++y) {
     // 24 节气齐全且严格递增（1583 年的分钟数是负的大数，初值不能取 0 或 -1）
     long long prev_min = std::numeric_limits<long long>::min();
     for (int i = 0; i < 24; ++i) {
@@ -362,4 +380,126 @@ TEST_CASE("历法：冬至落在农历十一月（GB/T 33661-2017 置闰基础�
     ++checked;
   }
   REQUIRE(checked == 126);
+}
+
+TEST_CASE("历法：明代大统历段 1368-1582 全量往返（儒略历史实口径）") {
+  // 夹具来自 ytliu0/ChineseCalendar（大统历朔闰 + 明实录订正），215 年全量：
+  // 每年正月初一的儒略历标签逐条对上；每月逐日双向往返；
+  // 月长逐月对上 len_mask；闰月编码与月数一致。
+  REQUIRE(fixtures::kDatongYearCount == 215);
+  REQUIRE(fixtures::kDatongYears[0].year == 1368);
+  REQUIRE(fixtures::kDatongYears[fixtures::kDatongYearCount - 1].year == 1582);
+
+  int prev_y = 0, prev_m = 0, prev_d = 0;
+  for (int i = 0; i < fixtures::kDatongYearCount; ++i) {
+    const auto& r = fixtures::kDatongYears[i];
+    REQUIRE((r.leapAfter != 0) == (r.monthCount == 13));
+
+    // 正月初一：儒略历标签 → 农历 → 回标签
+    const std::string iso = r.iso;
+    const int iy = std::stoi(iso.substr(0, 4));
+    const int im = std::stoi(iso.substr(5, 2));
+    const int id = std::stoi(iso.substr(8, 2));
+    const auto g = to_gregorian(ChineseDate{r.year, 1, 1});
+    REQUIRE(g.has_value());
+    if (g->year != iy || g->month != im || g->day != id) {
+      FAIL("农历 " << r.year << " 年正月初一应为儒略历 " << iso << "，实得 "
+                   << g->year << "-" << g->month << "-" << g->day);
+    }
+    const auto c = to_chinese(gd(iy, im, id));
+    REQUIRE(c.has_value());
+    REQUIRE(c->year == r.year);
+    REQUIRE(c->month == 1);
+    REQUIRE(c->day == 1);
+    // 正月标签逐年严格递增（datong 段标签全部为儒略历）
+    if (i > 0) {
+      REQUIRE((iy > prev_y ||
+               (iy == prev_y && (im > prev_m || (im == prev_m && id > prev_d)))));
+    }
+    prev_y = iy;
+    prev_m = im;
+    prev_d = id;
+
+    // 月号序列（闰月记负），逐月逐日往返
+    std::vector<int> nums;
+    for (int n = 1; n <= 12; ++n) {
+      nums.push_back(n);
+      if (r.leapAfter == n) nums.push_back(-n);
+    }
+    REQUIRE(static_cast<int>(nums.size()) == r.monthCount);
+    for (int k = 0; k < r.monthCount; ++k) {
+      const int len = ((r.lenMask >> k) & 1u) ? 30 : 29;
+      for (int day = 1; day <= len; ++day) {
+        const auto gm = to_gregorian(ChineseDate{r.year, nums[k], day});
+        REQUIRE(gm.has_value());
+        const auto cm = to_chinese(gd(gm->year, gm->month, gm->day));
+        REQUIRE(cm.has_value());
+        if (cm->year != r.year || cm->month != nums[k] || cm->day != day) {
+          FAIL("农历 " << r.year << "年" << nums[k] << "月" << day << "日 往返得 "
+                       << cm->year << "年" << cm->month << "月" << cm->day << "日");
+        }
+      }
+      // 月长 +1 越界必须报错
+      const auto over = to_gregorian(ChineseDate{r.year, nums[k], len + 1});
+      REQUIRE(!over.has_value());
+      REQUIRE(over.error().code() == ErrorCode::InvalidArgument);
+    }
+  }
+}
+
+TEST_CASE("历法：儒略历史实口径的锚点与边界") {
+  // 史实锚点：朱元璋于洪武元年正月初四即皇帝位（儒略 1368-01-23）
+  const auto c = to_chinese(gd(1368, 1, 23));
+  REQUIRE(c.has_value());
+  REQUIRE(c->year == 1368);
+  REQUIRE(c->month == 1);
+  REQUIRE(c->day == 4);
+  // 洪武元年闰七月存在（ytliu0 结构）
+  REQUIRE(to_gregorian(ChineseDate{1368, -7, 1}).has_value());
+
+  // 万历十年（1582）改革期：
+  //   儒略 10-04 = 改革前最后一个儒略历标签日；格里 10-15 = 改革后首日；
+  //   10-05~14 被删去，不是合法民用日期
+  const auto lastJulian = to_chinese(gd(1582, 10, 4));
+  REQUIRE(lastJulian.has_value());
+  REQUIRE(lastJulian->year == 1582);
+  REQUIRE(lastJulian->month == 9);
+  const auto firstGreg = to_chinese(gd(1582, 10, 15));
+  REQUIRE(firstGreg.has_value());
+  REQUIRE(firstGreg->year == 1582);
+  REQUIRE(firstGreg->month == 9);
+  const auto gap = to_chinese(gd(1582, 10, 5));
+  REQUIRE(!gap.has_value());
+  REQUIRE(gap.error().code() == ErrorCode::InvalidArgument);
+  const auto gap2 = to_chinese(gd(1582, 10, 14));
+  REQUIRE(!gap2.has_value());
+  REQUIRE(gap2.error().code() == ErrorCode::InvalidArgument);
+
+  // 改革后日期按格里历标签输出：万历十年十二月朔（儒略历史实格里标签）
+  const auto g1 = to_gregorian(ChineseDate{1582, 12, 1});
+  REQUIRE(g1.has_value());
+  REQUIRE(g1->year == 1582);
+  REQUIRE(g1->month == 12);
+  REQUIRE(g1->day == 25);
+  // 改革前日期按儒略历标签输出：万历十年九月十八（最后一个儒略标签日的前奏，
+  // 儒略 10-04 当天仍在九月内；次日格里 10-15 即改革首日）
+  const auto g2 = to_gregorian(ChineseDate{1582, 9, 18});
+  REQUIRE(g2.has_value());
+  REQUIRE(g2->year == 1582);
+  REQUIRE(g2->month == 10);
+  REQUIRE(g2->day == 4);
+
+  // 跨改革边界：格里 1583 年 1 月上旬仍属万历十年腊月（上一农历年）
+  const auto seam = to_chinese(gd(1583, 1, 10));
+  REQUIRE(seam.has_value());
+  REQUIRE(seam->year == 1582);
+  REQUIRE(seam->month == 12);
+  const auto seamBack = to_gregorian(ChineseDate{seam->year, seam->month, seam->day});
+  REQUIRE(seamBack.has_value());
+  REQUIRE(seamBack->year == 1583);
+  REQUIRE(seamBack->month == 1);
+  REQUIRE(seamBack->day == 10);
+
+  // 纪日干支在明代段可用（连续性归入 60 甲子循环的既有测试；干支两字 UTF-8 共 6 字节）
+  REQUIRE(day_ganzhi(gd(1368, 1, 23)).size() == 6);
 }

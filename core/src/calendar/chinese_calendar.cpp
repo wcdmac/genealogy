@@ -48,6 +48,81 @@ int mod60(long long v) noexcept {
   const long long r = v % 60;
   return static_cast<int>(r < 0 ? r + 60 : r);
 }
+
+// ---- 儒略历史实口径（M9.2）--------------------------------------------
+// 1582-10-15（格里历改革首日）之前的民用日期按儒略历读写，之后按格里历；
+// 1582-10-05~14 在改革中被删去，不是合法民用日期。
+constexpr int kReformYear = 1582, kReformMonth = 10, kReformFirstDay = 15;
+
+// 改革首日的物理日序（最后一个儒略历标签日的次日）
+const int kReformDayno =
+    days_from_civil_impl(kReformYear, kReformMonth, kReformFirstDay);
+
+// 该民用日期是否在改革首日之前（按儒略历解读）
+bool before_reform(int y, int m, int d) noexcept {
+  if (y != kReformYear) return y < kReformYear;
+  if (m != kReformMonth) return m < kReformMonth;
+  return d < kReformFirstDay;
+}
+
+// 改革中被删去的 10 天（该「日期」不存在）
+bool in_reform_gap(int y, int m, int d) noexcept {
+  return y == kReformYear && m == kReformMonth && d >= 5 && d <= 14;
+}
+
+// 儒略历落后格里历的天数（时代值）
+int julian_offset(int y) noexcept {
+  return y <= kReformYear ? y / 100 - y / 400 - 2 : 0;
+}
+
+// 儒略 y-01-01 的物理日序 = proleptic-Gregorian(y,1,1) + 上一年的时代值。
+// 世纪闰年（1400/1500：儒略有 2-29 而格里历没有）的落后要到 3-01 才 +1，
+// 故 1 月锚点取 y-1 的时代值；doy 是「从 1 月 1 日起的物理日数」，
+// 锚定后逐日计数不再涉及 offset。
+int julian_anchor(int y) noexcept {
+  return days_from_civil_impl(y, 1, 1) + julian_offset(y - 1);
+}
+
+// 儒略历闰年：能被 4 整除即闰（世纪年也闰——1400/1500 都是 366 天）
+bool julian_leap(int y) noexcept { return y % 4 == 0; }
+
+int days_from_julian(int y, int m, int d) noexcept {
+  static constexpr int kDim[] = {31, 28, 31, 30, 31, 30, 31, 31, 30, 31, 30, 31};
+  int doy = d;
+  for (int i = 1; i < m; ++i) {
+    doy += kDim[i - 1] + (i == 2 && julian_leap(y) ? 1 : 0);
+  }
+  return julian_anchor(y) + doy - 1;
+}
+
+// 物理日序 → 儒略历日期。只对改革前的物理日调用（z ≤ 1582-10-04），
+// 儒略年可能延伸到格里次年年初，故候选年查 proleptic 年及其前一年。
+void julian_from_days(int z, int* y, int* m, int* d) noexcept {
+  static constexpr int kDim[] = {31, 28, 31, 30, 31, 30, 31, 31, 30, 31, 30, 31};
+  int yp = 0;
+  unsigned mp = 0, dp = 0;
+  civil_from_days_impl(z, &yp, &mp, &dp);
+  const int yy = z >= julian_anchor(yp) ? yp : yp - 1;
+  int jdoy = z - julian_anchor(yy) + 1;
+  const bool leap = julian_leap(yy);
+  int mo = 1;
+  while (mo <= 12) {
+    const int dim = kDim[mo - 1] + (mo == 2 && leap ? 1 : 0);
+    if (jdoy <= dim) break;
+    jdoy -= dim;
+    ++mo;
+  }
+  *y = yy;
+  *m = mo;
+  *d = jdoy;
+}
+
+// 民用日期（儒略历史实口径）→ 物理日序
+int dayno_of_civil(int y, int m, int d) noexcept {
+  return before_reform(y, m, d) ? days_from_julian(y, m, d)
+                                : days_from_civil_impl(y, static_cast<unsigned>(m),
+                                                       static_cast<unsigned>(d));
+}
 int mod10(long long v) noexcept {
   const long long r = v % 10;
   return static_cast<int>(r < 0 ? r + 10 : r);
@@ -104,7 +179,11 @@ bool supports(int gregorian_year) noexcept {
 // ---------------------------------------------------------------- 互转
 
 Result<ChineseDate> to_chinese(const GregorianDate& date) {
-  const int z = days_from_civil(date.year, date.month, date.day);
+  if (in_reform_gap(date.year, date.month, date.day)) {
+    return Error{ErrorCode::InvalidArgument,
+                 "1582-10-05 至 10-14 在格里历改革中被删去，不是合法民用日期"};
+  }
+  const int z = dayno_of_civil(date.year, date.month, date.day);
   int g = date.year;
   const LunarYearRecord* rec = record_of(g);
   if (rec == nullptr) {
@@ -150,8 +229,14 @@ Result<GregorianDate> to_gregorian(const ChineseDate& date) {
                      "该农历月只有 " + std::to_string(len) + " 天，给定 " +
                          std::to_string(date.day)};
       }
+      const int z = start + date.day - 1;
       GregorianDate out;
-      civil_from_days(start + date.day - 1, &out.year, &out.month, &out.day);
+      // 改革首日之前的物理日按儒略历标签输出
+      if (z < kReformDayno) {
+        julian_from_days(z, &out.year, &out.month, &out.day);
+      } else {
+        civil_from_days(z, &out.year, &out.month, &out.day);
+      }
       return out;
     }
     start += len;
@@ -205,7 +290,8 @@ std::string month_ganzhi(int lunar_year, int month) {
 
 std::string day_ganzhi(const GregorianDate& date) {
   // 儒略日 JDN = 日序号 + 2440588；日干支 = (JDN + 49) mod 60
-  const int z = days_from_civil(date.year, date.month, date.day);
+  // 输入按儒略历史实口径解读（改革前儒略历、后格里历）
+  const int z = dayno_of_civil(date.year, date.month, date.day);
   return ganzhi_name(mod60(static_cast<long long>(z) + 2440588 + 49));
 }
 
@@ -220,12 +306,14 @@ Result<SolarTermMoment> solar_term(int year, int index) {
   if (index < 0 || index >= 24) {
     return Error{ErrorCode::InvalidArgument, "节气索引须在 0..23"};
   }
-  if (!supports(year)) {
+  if (year < term_first_year() || year > last_year()) {
     return Error{ErrorCode::CalendarOutOfRange,
-                 "历法数据不覆盖该年份: " + std::to_string(year)};
+                 "节气数据不覆盖该年份（自 " +
+                     std::to_string(term_first_year()) + " 年起提供）: " +
+                     std::to_string(year)};
   }
   const std::size_t off =
-      static_cast<std::size_t>(year - first_year()) * 24 + index;
+      static_cast<std::size_t>(year - term_first_year()) * 24 + index;
   SolarTermMoment out;
   out.index = index;
   out.name = term_names()[index];
@@ -237,11 +325,11 @@ Result<SolarTermMoment> solar_term(int year, int index) {
 }
 
 std::optional<int> solar_term_on(const GregorianDate& date) {
-  const int z = days_from_civil(date.year, date.month, date.day);
+  const int z = dayno_of_civil(date.year, date.month, date.day);
   // 本年与上年都查一遍：年初的节气可能归属上一年份的节气表
   for (int y = date.year - 1; y <= date.year; ++y) {
-    if (!supports(y)) continue;
-    const std::size_t base = static_cast<std::size_t>(y - first_year()) * 24;
+    if (y < term_first_year() || y > last_year()) continue;
+    const std::size_t base = static_cast<std::size_t>(y - term_first_year()) * 24;
     for (int i = 0; i < 24; ++i) {
       const int tz = days_from_civil(y, 1, 1) + term_day_of_year()[base + i] - 1;
       if (tz == z) return i;

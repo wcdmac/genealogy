@@ -29,6 +29,8 @@ const std::uint16_t* term_day_of_year() noexcept;
 const std::uint16_t* term_minute_of_day() noexcept;
 int first_year() noexcept;
 int last_year() noexcept;
+// 节气表起始年（与 first_year() 独立：明代段无节气数据，自 1583 年起提供）
+int term_first_year() noexcept;
 const char* const* term_names() noexcept;
 
 }  // namespace genealogy::calendar

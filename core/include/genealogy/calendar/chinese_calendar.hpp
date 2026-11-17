@@ -7,6 +7,12 @@
 //   · 十一月含冬至，无中气之月为闰月（GB/T 33661-2017）；
 //   · 干支纪日连续不断，日序号 → 60 甲子 的换算常数已与官方表逐日核对。
 //
+// 儒略历史实口径（M9.2）：1582-10-15（格里历改革首日）之前的民用日期按
+// 儒略历读写，之后按格里历——即「当时行使的民用历」，与明代老谱所记
+// 日期一致（洪武元年正月初一 = 儒略 1368-01-20）。1582-10-05~14 在改革
+// 中被删去，不是合法民用日期，输入即报 InvalidArgument。农历年 1368-1582
+// 为大统历朔闰史实段；节气数据自 1583 年起提供。
+//
 // 区间：first_supported_year() .. last_supported_year()（生成数据表覆盖范围）。
 // 区间外一律返回 CalendarOutOfRange，不做外推——宁可说「不支持」，也不给不确定的数。
 
@@ -49,9 +55,10 @@ int first_supported_year() noexcept;
 int last_supported_year() noexcept;
 bool supports(int gregorian_year) noexcept;
 
-// 公历 → 农历
+// 公历（民用历：1582-10-15 前儒略历、后格里历）→ 农历
 Result<ChineseDate> to_chinese(const GregorianDate& date);
-// 农历 → 公历（闰月须以负数给出；日期超出该月实际长度返回 InvalidArgument）
+// 农历 → 公历（民用历标签，同上儒略历史实口径；闰月须以负数给出；
+// 日期超出该月实际长度返回 InvalidArgument）
 Result<GregorianDate> to_gregorian(const ChineseDate& date);
 
 // 名称

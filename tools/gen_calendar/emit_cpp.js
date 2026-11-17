@@ -19,9 +19,14 @@ const w = (s) => L.push(s);
 w('// 本文件由 tools/gen_calendar/gen.js + emit_cpp.js 自动生成，请勿手工编辑。');
 w('//');
 w('// 数据溯源：中国科学院紫金山天文台《1900-2025年日历》（逐日农历/干支、节气时刻）；');
-w('//           1900-2025 之外由 lunar-javascript（MIT）按同一天文模型推算。');
-w('// 核验：1900-2025 逐日 46021/46021 一致，节气 3024/3024 一致（北京时间，到分）。');
-w('// 覆盖区间：' + minG + ' - ' + maxG + ' 年（含首尾）。');
+w('//           1900-2025 之外由 lunar-javascript（MIT）按同一天文模型推算；');
+w('//           ' + minG + '-' + json.meta.mingSegment.range[1] +
+  ' 为大统历朔闰史实（ytliu0/ChineseCalendar GPL-3.0 提取，');
+w('//           儒略历史实口径：日期按儒略历读写，与明代老谱一致）。');
+w('// 核验：1900-2025 逐日 46021/46021 一致，节气 3024/3024 一致（北京时间，到分）；');
+w('//       datong 段与 lunar-javascript 段在 1583 正月朔上无缝衔接。');
+w('// 覆盖区间：' + minG + ' - ' + maxG + ' 年（含首尾）；节气自 ' +
+  terms[0].year + ' 年起（大统历段无节气数据）。');
 w('');
 w('#include <genealogy/calendar/calendar_tables.hpp>');
 w('');
@@ -68,6 +73,7 @@ w('const std::uint16_t* term_day_of_year() noexcept { return kTermDayOfYear; }')
 w('const std::uint16_t* term_minute_of_day() noexcept { return kTermMinuteOfDay; }');
 w('int first_year() noexcept { return ' + minG + '; }');
 w('int last_year() noexcept { return ' + maxG + '; }');
+w('int term_first_year() noexcept { return ' + terms[0].year + '; }');
 w('const char* const* term_names() noexcept { return kTermNames; }');
 w('');
 w('}  // namespace genealogy::calendar');
