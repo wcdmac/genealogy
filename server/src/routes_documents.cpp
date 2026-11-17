@@ -8,6 +8,7 @@
 #include <genealogy/server/routes_documents.hpp>
 
 #include <genealogy/server/audit.hpp>
+#include <genealogy/server/idempotency.hpp>
 
 #include <optional>
 #include <string>
@@ -106,6 +107,11 @@ void documents_create(const drogon::HttpRequestPtr& req, Callback&& cb) {
     cb(problem_response(500, 9001, "内部错误", why, req->path()));
     return;
   }
+  const std::string idem_key = req->getHeader("Idempotency-Key");
+  if (auto idem_hit = idempotency_replay(*db, idem_key)) {
+    cb(idem_hit->response);
+    return;
+  }
   const std::string instance = req->path();
   nlohmann::json body;
   try {
@@ -159,7 +165,12 @@ void documents_create(const drogon::HttpRequestPtr& req, Callback&& cb) {
     return;
   }
   audit_write(*db, req, "document", made->id, "insert", to_json(*made));
-  cb(json_created(to_json(*made)));
+  {
+    nlohmann::json j = to_json(*made);
+    const std::string jbody = j.dump();
+    idempotency_store(*db, idem_key, 201, jbody);
+    cb(json_created(std::move(j)));
+  }
 }
 
 void document_get(const drogon::HttpRequestPtr& req, Callback&& cb) {

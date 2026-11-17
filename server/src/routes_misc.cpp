@@ -49,6 +49,7 @@
 #include <genealogy/server/runtime.hpp>
 #include <genealogy/server/auth.hpp>
 #include <genealogy/server/audit.hpp>
+#include <genealogy/server/idempotency.hpp>
 #include <genealogy/server/routes_auth.hpp>
 #include <genealogy/service/person_service.hpp>
 #include <genealogy/validate/validation.hpp>
@@ -326,7 +327,6 @@ void import_gedcom(const drogon::HttpRequestPtr& req, Callback&& cb) {
     return;
   }
   const std::string instance = req->path();
-
   // 规范：multipart/form-data，字段 file（二进制）+ lineage_id。
   // Drogon 的 MultiPartParser 只在 content-type 确实是 multipart 时有用；
   // 这里同时接受 application/json 的 {content, lineage_id} 形式，
@@ -381,6 +381,11 @@ void import_gedcom(const drogon::HttpRequestPtr& req, Callback&& cb) {
 
   if (lineage_id.empty()) {
     cb(problem_response(400, 1001, "参数校验失败", "缺少 lineage_id", instance));
+    return;
+  }
+  const std::string idem_key = req->getHeader("Idempotency-Key");
+  if (auto idem_hit = idempotency_replay(*db, idem_key)) {
+    cb(idem_hit->response);
     return;
   }
 
@@ -474,6 +479,7 @@ void import_gedcom(const drogon::HttpRequestPtr& req, Callback&& cb) {
   out["imported"] = created;
   out["skipped"] = skipped;
   out["warnings"] = std::move(warnings);
+  idempotency_store(*db, idem_key, 200, out.dump());
   cb(json_ok(out, std::nullopt));
 }
 

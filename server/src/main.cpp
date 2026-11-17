@@ -34,6 +34,7 @@
 #include <genealogy/server/routes_auth.hpp>
 #include <genealogy/server/routes_stream.hpp>
 #include <genealogy/server/runtime.hpp>
+#include <genealogy/server/rate_limit.hpp>
 #include <genealogy/server/audit.hpp>
 #include <genealogy/server/routes_persons.hpp>
 
@@ -305,6 +306,9 @@ int main(int argc, char** argv) {
   // 鉴权守卫必须装在 CORS 之后（预检 OPTIONS 由 CORS 短路，
   // 业务请求才轮到 401 判断）。
   install_auth_guard(app);
+  // 限流（M8.2）装在鉴权之后：无令牌的 401 不占配额，认证后的请求
+  // 才进桶；容量 env GENEALOGY_RATE_LIMIT（默认 60 req/min）。
+  install_rate_limit(app);
   // 请求体上限：GEDCOM 导入走 multipart，万条人物约几十 MB，
   // 用 Drogon 默认上限会直接 413。上限放到 512 MB——
   // 再大的导入应走 CLI 的 io import（流式），HTTP 边界不做流式。

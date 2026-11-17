@@ -40,6 +40,8 @@
 #include <genealogy/server/routes_persons.hpp>
 #include <genealogy/server/routes_persons.hpp>
 #include <genealogy/server/routes_auth.hpp>
+#include <genealogy/server/rate_limit.hpp>
+#include <genealogy/server/idempotency.hpp>
 #include <genealogy/server/runtime.hpp>
 
 using namespace genealogy;
@@ -165,6 +167,8 @@ void start_server_once(std::uint16_t* port_out) {
                         &server::person_name_delete, {drogon::Delete});
     // 审计（M8.5）：变更史回溯
     app.registerHandler(base + "/audit", &server::audit_query, {drogon::Get});
+    // 限流（M8.2）：测试容量放大到 10000，限流用例内自设 3 再还原
+    server::install_rate_limit(app, 10000);
     // 迁徙（M5-4）：expand 测试要挂迁徙子资源，注册与 main.cpp 对齐
     app.registerHandler(base + "/migrations", &server::migrations_list,
                         {drogon::Get});
@@ -271,6 +275,11 @@ struct Reply {
   std::string etag;
   std::string content_type;
   std::string acao;   // Access-Control-Allow-Origin（CORS 断言用）
+  std::map<std::string, std::string> headers;  // 全量响应头（小写键）
+  std::string header(const std::string& k) const {
+    auto it = headers.find(k);
+    return it == headers.end() ? std::string{} : it->second;
+  }
 };
 
 Reply request(std::uint16_t port, drogon::HttpMethod method,
@@ -292,6 +301,13 @@ Reply request(std::uint16_t port, drogon::HttpMethod method,
   // 不能在 client 自己的事件循环线程里调，会死锁——测试线程满足这一点。
   const auto result = client->sendRequest(req, 10);
   out.code = static_cast<int>(result.first);
+  if (result.second) {
+    for (const auto& [k, v] : result.second->headers()) {
+      std::string lk;
+      for (const char c : k) lk += static_cast<char>(std::tolower(c));
+      out.headers[lk] = v;
+    }
+  }
   if (result.first != drogon::ReqResult::Ok || result.second == nullptr) {
     out.status = -1;   // 让调用方的 REQUIRE 报出来，比静默返回 0 好排查
     return out;
@@ -1074,6 +1090,65 @@ TEST_CASE_METHOD(ServerFixture, "HTTP：在世者脱敏（private 全脱/kin 留
   const auto jraw = nlohmann::json::parse(raw_get.body);
   REQUIRE(jraw.contains("birth_date"));
   CHECK(jraw["birth_date"]["gregorian"] == "1995-03-02");
+}
+
+TEST_CASE_METHOD(ServerFixture, "HTTP：Idempotency-Key——同 key 重放返回首次结果") {
+  const std::string lid = kDefaultLineageId;
+  const std::string body =
+      R"({"lineage_id":")" + lid +
+      R"(","family_name":"陈","given_name":"幂等","gender":"male"})";
+
+  // 第一次：201 建档
+  const auto first = request(port, drogon::Post, "/api/v1/persons", body,
+                             {{"Idempotency-Key", "idem-test-1"}});
+  REQUIRE(first.status == 201);
+  const std::string pid =
+      nlohmann::json::parse(first.body)["id"].get<std::string>();
+  CHECK(first.body.find("Idempotency-Replayed") == std::string::npos);
+
+  // 同 key 重放：201 同 id、带 Replayed 头、不重复建档
+  const auto replay = request(port, drogon::Post, "/api/v1/persons", body,
+                              {{"Idempotency-Key", "idem-test-1"}});
+  REQUIRE(replay.status == 201);
+  CHECK(nlohmann::json::parse(replay.body)["id"] == pid);
+  CHECK(replay.header("idempotency-replayed") == "true");
+
+  // 不同 key：新建第二条
+  const auto second = request(port, drogon::Post, "/api/v1/persons", body,
+                              {{"Idempotency-Key", "idem-test-2"}});
+  REQUIRE(second.status == 201);
+  CHECK(nlohmann::json::parse(second.body)["id"] != pid);
+
+  // 无 key：默认新建（头可选）
+  const auto nokey = post(port, "/api/v1/persons", body);
+  CHECK(nokey.status == 201);
+}
+
+TEST_CASE_METHOD(ServerFixture, "HTTP：限流——打满桶 429 + 头齐全") {
+  server::reset_rate_limiters();
+  // 临时调小容量（测试钩子；用例结束还原）
+  server::install_rate_limit(drogon::app(), 3);
+  // 前 3 个请求过（含本用例此前已发的请求——reset 后重新计数）
+  int got_429 = 0;
+  int got_200 = 0;
+  for (int i = 0; i < 5; ++i) {
+    const auto r = get(port, "/api/v1/stats");
+    if (r.status == 429) {
+      ++got_429;
+      CHECK(r.body.find("42901") != std::string::npos);
+      CHECK(!r.header("retry-after").empty());
+      CHECK(!r.header("x-ratelimit-limit").empty());
+      CHECK(!r.header("x-ratelimit-remaining").empty());
+      CHECK(!r.header("x-ratelimit-reset").empty());
+    } else if (r.status == 200) {
+      ++got_200;
+    }
+  }
+  CHECK(got_200 == 3);
+  CHECK(got_429 == 2);
+  // 还原大容量并清桶（后续用例不受限流影响）
+  server::install_rate_limit(drogon::app(), 10000);
+  server::reset_rate_limiters();
 }
 
 TEST_CASE_METHOD(ServerFixture, "HTTP：JWT 签发可自校验") {

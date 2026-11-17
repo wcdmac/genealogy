@@ -1,6 +1,7 @@
 #include <genealogy/server/routes_entities.hpp>
 
 #include <genealogy/server/audit.hpp>
+#include <genealogy/server/idempotency.hpp>
 
 #include <cstdint>
 #include <functional>
@@ -127,6 +128,11 @@ void lineages_create(const drogon::HttpRequestPtr& req, Callback&& cb) {
     cb(problem_response(500, 9001, "内部错误", why, req->path()));
     return;
   }
+  const std::string idem_key = req->getHeader("Idempotency-Key");
+  if (auto idem_hit = idempotency_replay(*db, idem_key)) {
+    cb(idem_hit->response);
+    return;
+  }
   const std::string instance = req->path();
   bool ok = false;
   const auto body = parse_body(req, instance, &ok, cb);
@@ -144,7 +150,12 @@ void lineages_create(const drogon::HttpRequestPtr& req, Callback&& cb) {
     return;
   }
   audit_write(*db, req, "lineage", made->id, "insert", to_json(*made));
-  cb(json_created(to_json(*made), made->rev));
+  {
+    nlohmann::json j = to_json(*made);
+    const std::string jbody = j.dump();
+    idempotency_store(*db, idem_key, 201, jbody);
+    cb(json_created(std::move(j), made->rev));
+  }
   GENEALOGY_PUBLISH_CHANGE("lineage.created", "lineage", made->id, made->rev);
 }
 
@@ -285,6 +296,11 @@ void branches_create(const drogon::HttpRequestPtr& req, Callback&& cb) {
     cb(problem_response(500, 9001, "内部错误", why, req->path()));
     return;
   }
+  const std::string idem_key = req->getHeader("Idempotency-Key");
+  if (auto idem_hit = idempotency_replay(*db, idem_key)) {
+    cb(idem_hit->response);
+    return;
+  }
   const std::string instance = req->path();
   bool ok = false;
   const auto body = parse_body(req, instance, &ok, cb);
@@ -302,7 +318,12 @@ void branches_create(const drogon::HttpRequestPtr& req, Callback&& cb) {
     return;
   }
   audit_write(*db, req, "branch", made->id, "insert", to_json(*made));
-  cb(json_created(to_json(*made), made->rev));
+  {
+    nlohmann::json j = to_json(*made);
+    const std::string jbody = j.dump();
+    idempotency_store(*db, idem_key, 201, jbody);
+    cb(json_created(std::move(j), made->rev));
+  }
   GENEALOGY_PUBLISH_CHANGE("branch.created", "branch", made->id, made->rev);
 }
 
@@ -505,6 +526,11 @@ void unions_create(const drogon::HttpRequestPtr& req, Callback&& cb) {
     cb(problem_response(500, 9001, "内部错误", why, req->path()));
     return;
   }
+  const std::string idem_key = req->getHeader("Idempotency-Key");
+  if (auto idem_hit = idempotency_replay(*db, idem_key)) {
+    cb(idem_hit->response);
+    return;
+  }
   const std::string instance = req->path();
   bool ok = false;
   const auto body = parse_body(req, instance, &ok, cb);
@@ -522,7 +548,12 @@ void unions_create(const drogon::HttpRequestPtr& req, Callback&& cb) {
     return;
   }
   audit_write(*db, req, "union", made->id, "insert", to_json(*made));
-  cb(json_created(to_json(*made), made->rev));
+  {
+    nlohmann::json j = to_json(*made);
+    const std::string jbody = j.dump();
+    idempotency_store(*db, idem_key, 201, jbody);
+    cb(json_created(std::move(j), made->rev));
+  }
   GENEALOGY_PUBLISH_CHANGE("union.created", "union", made->id, made->rev);
 }
 
@@ -677,6 +708,11 @@ void events_create(const drogon::HttpRequestPtr& req, Callback&& cb) {
     cb(problem_response(500, 9001, "内部错误", why, req->path()));
     return;
   }
+  const std::string idem_key = req->getHeader("Idempotency-Key");
+  if (auto idem_hit = idempotency_replay(*db, idem_key)) {
+    cb(idem_hit->response);
+    return;
+  }
   const std::string instance = req->path();
   bool ok = false;
   const auto body = parse_body(req, instance, &ok, cb);
@@ -695,7 +731,12 @@ void events_create(const drogon::HttpRequestPtr& req, Callback&& cb) {
   }
   // event 表无 rev（追加型事实），故不设 ETag
   audit_write(*db, req, "event", made->id, "insert", to_json(*made));
-  cb(json_created(to_json(*made)));
+  {
+    nlohmann::json j = to_json(*made);
+    const std::string jbody = j.dump();
+    idempotency_store(*db, idem_key, 201, jbody);
+    cb(json_created(std::move(j)));
+  }
   GENEALOGY_PUBLISH_CHANGE("event.created", "event", made->id, std::nullopt);
 }
 
@@ -778,6 +819,11 @@ void places_create(const drogon::HttpRequestPtr& req, Callback&& cb) {
     cb(problem_response(500, 9001, "内部错误", why, req->path()));
     return;
   }
+  const std::string idem_key = req->getHeader("Idempotency-Key");
+  if (auto idem_hit = idempotency_replay(*db, idem_key)) {
+    cb(idem_hit->response);
+    return;
+  }
   const std::string instance = req->path();
   bool ok = false;
   const auto body = parse_body(req, instance, &ok, cb);
@@ -796,7 +842,12 @@ void places_create(const drogon::HttpRequestPtr& req, Callback&& cb) {
   }
   // place 表无 rev，故不设 ETag
   audit_write(*db, req, "place", made->id, "insert", to_json(*made));
-  cb(json_created(to_json(*made)));
+  {
+    nlohmann::json j = to_json(*made);
+    const std::string jbody = j.dump();
+    idempotency_store(*db, idem_key, 201, jbody);
+    cb(json_created(std::move(j)));
+  }
   GENEALOGY_PUBLISH_CHANGE("place.created", "place", made->id, std::nullopt);
 }
 
@@ -953,6 +1004,11 @@ void migrations_create(const drogon::HttpRequestPtr& req, Callback&& cb) {
     cb(problem_response(500, 9001, "内部错误", why, req->path()));
     return;
   }
+  const std::string idem_key = req->getHeader("Idempotency-Key");
+  if (auto idem_hit = idempotency_replay(*db, idem_key)) {
+    cb(idem_hit->response);
+    return;
+  }
   const std::string instance = req->path();
   bool ok = false;
   const auto body = parse_body(req, instance, &ok, cb);
@@ -972,7 +1028,12 @@ void migrations_create(const drogon::HttpRequestPtr& req, Callback&& cb) {
   }
   // migration 表无 rev，故不设 ETag
   audit_write(*db, req, "migration", made->id, "insert", to_json(*made));
-  cb(json_created(to_json(*made)));
+  {
+    nlohmann::json j = to_json(*made);
+    const std::string jbody = j.dump();
+    idempotency_store(*db, idem_key, 201, jbody);
+    cb(json_created(std::move(j)));
+  }
   GENEALOGY_PUBLISH_CHANGE("migration.created", "migration", made->id,
                            std::nullopt);
 }

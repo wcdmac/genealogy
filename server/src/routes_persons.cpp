@@ -1,6 +1,7 @@
 #include <genealogy/server/routes_persons.hpp>
 
 #include <genealogy/server/audit.hpp>
+#include <genealogy/server/idempotency.hpp>
 #include <genealogy/server/routes_auth.hpp>
 
 #include <algorithm>
@@ -217,6 +218,11 @@ void persons_create(const drogon::HttpRequestPtr& req, Callback&& cb) {
     cb(problem_response(500, 9001, "内部错误", why, req->path()));
     return;
   }
+  const std::string idem_key = req->getHeader("Idempotency-Key");
+  if (auto idem_hit = idempotency_replay(*db, idem_key)) {
+    cb(idem_hit->response);
+    return;
+  }
   const std::string instance = req->path();
 
   nlohmann::json body;
@@ -244,6 +250,8 @@ void persons_create(const drogon::HttpRequestPtr& req, Callback&& cb) {
   audit_write(*db, req, "person", made->id, "insert", to_json(*made));
   {
     nlohmann::json j = to_json(*made);
+    const std::string jbody = j.dump();
+    idempotency_store(*db, idem_key, 201, jbody);
     sanitize_person(j, identity_of(req).raw_privacy);
     cb(json_created(std::move(j), made->rev));
   }
@@ -868,6 +876,11 @@ void person_names_create(const drogon::HttpRequestPtr& req, Callback&& cb) {
   }
   const std::string instance = req->path();
   const std::string person_id = path_id(req);
+  const std::string idem_key = req->getHeader("Idempotency-Key");
+  if (auto idem_hit = idempotency_replay(*db, idem_key)) {
+    cb(idem_hit->response);
+    return;
+  }
   nlohmann::json body;
   try {
     body = nlohmann::json::parse(req->body());
@@ -942,8 +955,13 @@ void person_names_create(const drogon::HttpRequestPtr& req, Callback&& cb) {
   }
   // 名号变更入 SSE（人物详情随名单变化）
   audit_write(*db, req, "person_name", made->id, "insert", to_json(*made));
+  {
+    nlohmann::json j = to_json(*made);
+    const std::string jbody = j.dump();
+    idempotency_store(*db, idem_key, 201, jbody);
+    cb(json_created(std::move(j)));
+  }
   GENEALOGY_PUBLISH_CHANGE("person.updated", "person", person_id, 0);
-  cb(json_created(to_json(*made)));
 }
 
 void person_name_delete(const drogon::HttpRequestPtr& req, Callback&& cb) {

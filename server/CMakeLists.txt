@@ -32,6 +32,8 @@ add_library(genealogy-server-lib STATIC
   src/routes_sources.cpp
   src/routes_documents.cpp
   src/audit.cpp
+  src/idempotency.cpp
+  src/rate_limit.cpp
 )
 
 target_include_directories(genealogy-server-lib

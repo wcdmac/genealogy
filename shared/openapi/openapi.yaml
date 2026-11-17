@@ -13,8 +13,16 @@ info:
     - 列表端点使用游标分页（limit + cursor）。
     - PATCH 写操作必须带 If-Match 乐观并发：缺失返回 428，版本不符返回
       409（地点表无 rev，PATCH /places/{id} 豁免；POST/DELETE 不带
-      If-Match）。（Idempotency-Key 属路线图项（M8.1），当前未实现——
-      头在 CORS 允许列表中保留，但服务端不消费。声明不得超前于实现。）
+      If-Match）。
+    - POST 写端点支持可选 Idempotency-Key 头（M8.1）：24h 内同 key 重放
+      返回首次结果（响应带 Idempotency-Replayed: true），不重复建档；
+      仅 2xx 入缓存，失败响应可修正后重试。key 缺失直接执行。
+    - 限流（M8.2）：每客户端 60 req/min 令牌桶（env
+      GENEALOGY_RATE_LIMIT 覆盖；/health 与 OPTIONS 豁免）。超限返回
+      429 + Retry-After + X-RateLimit-Limit/Remaining/Reset；正常响应
+      亦带 X-RateLimit-* 头。
+    - 写操作全部入审计（M8.5）：actor/action/at/diff 可经 GET /audit
+      按实体回溯（仅 steward——diff 含原始数据）。
     - 错误使用 application/problem+json（RFC 9457）。
   license:
     name: MIT
@@ -1161,6 +1169,38 @@ paths:
                       warning: { type: integer }
                       info: { type: integer }
 
+  /audit:
+    get:
+      tags: [search-stats]
+      summary: 变更史回溯（M8.5；仅 steward——diff 含原始数据）
+      operationId: queryAudit
+      parameters:
+        - name: entity_type
+          in: query
+          schema: { type: string }
+        - name: entity_id
+          in: query
+          schema: { type: string }
+        - $ref: "#/components/parameters/Limit"
+        - $ref: "#/components/parameters/Cursor"
+      responses:
+        "200":
+          description: 成功（id 倒序，新变更在前）
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  data:
+                    type: array
+                    items: { $ref: "#/components/schemas/AuditEntry" }
+                  page:
+                    type: object
+                    properties:
+                      next_cursor: { type: [string, "null"] }
+                      has_more: { type: boolean }
+        "403": { $ref: "#/components/responses/Forbidden" }
+
   /imports/gedcom:
     post:
       tags: [import-export]
@@ -1316,6 +1356,11 @@ components:
       content:
         application/problem+json:
           schema: { $ref: "#/components/schemas/Problem" }
+    Forbidden:
+      description: 角色无权执行此操作（需要更高角色）
+      content:
+        application/json:
+          schema: { $ref: "#/components/schemas/Problem" }
     Conflict:
       description: 版本冲突（code 2009）
       content:
@@ -1458,6 +1503,17 @@ components:
         end_date: { $ref: "#/components/schemas/GenealogyDate" }
         is_primary: { type: boolean }
         note: { type: string }
+
+    AuditEntry:
+      type: object
+      properties:
+        id: { type: string }
+        entity_type: { type: string }
+        entity_id: { type: string }
+        action: { enum: [insert, update, delete] }
+        actor: { type: string }
+        at: { type: string }
+        diff: { type: object }
 
     Person:
       type: object

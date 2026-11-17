@@ -39,7 +39,10 @@
   校验 R16 无证据事实清单 / R17 引用冲突裁定（confidence=disputed 出口）+
   Document 域（谱序/凡例/族规家训/艺文/契约；正文 trigram FTS 检索，中文子串可命中）+
   GEDCOM SOUR 双向映射（0 SOUR 记录 + INDI/FAM/事实级引用 + QUAY↔置信度，往返零损失）+
-  名号变更史（person_name：谱名/乳名/学名/改后名/身后名，起止 + 主名全人唯一）
+  名号变更史（person_name：谱名/乳名/学名/改后名/身后名，起止 + 主名全人唯一）+
+  M8 安全与隐私：角色 ACL（viewer 禁写/editor 禁删/steward 全权）+ Idempotency-Key
+  24h 重放 + 限流（60 req/min，env GENEALOGY_RATE_LIMIT）+ 在世者按级别脱敏
+  （豁免走令牌 claim）+ audit_log 全写操作接线（GET /audit 仅 steward）
 - [x] Catch2 测试（core 786187 断言 / 105 用例 + server HTTP 集成 + GUI 数据层）+
   三平台 CI（构建/测试/打包/规范校验/TS 客户端/UI 冒烟/备份演练）+ 许可证白名单卡点
 
