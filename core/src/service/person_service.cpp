@@ -112,12 +112,13 @@ Result<void> PersonService::remove_person(const std::string& id) {
   auto refs = repo_.count_relation_references(id);
   if (!refs) return refs.error();
   if (refs->parent_child_links > 0 || refs->union_memberships > 0 ||
-      refs->founded_branches > 0) {
+      refs->founded_branches > 0 || refs->child_refs > 0) {
     return conflict("人物仍有未解除的关系（亲子 " +
                     std::to_string(refs->parent_child_links) + " 条、结合成员 " +
                     std::to_string(refs->union_memberships) + " 条、创建支派 " +
-                    std::to_string(refs->founded_branches) +
-                    " 个），先解除关系再删除");
+                    std::to_string(refs->founded_branches) + " 个、子女列引用 " +
+                    std::to_string(refs->child_refs) +
+                    " 条），先解除关系再删除");
   }
 
   // 三个删除必须同一事务：union_member.person_id 对 person 有外键，

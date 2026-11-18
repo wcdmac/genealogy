@@ -49,6 +49,9 @@ class PersonRepository {
     int parent_child_links = 0;   // parent_child：为父或为子
     int union_memberships = 0;    // union_member
     int founded_branches = 0;     // branch.founder_person_id
+    int child_refs = 0;           // 子女的 father_id/mother_id 列指向本人
+                                  // （转录库亲子走列不走表——漏查曾致
+                                  // 删父撞 FK 落 500，2026-11-19 实测）
   };
   Result<RelationRefs> count_relation_references(const std::string& id) const;
   // 清掉本人名号行（person_name.person_id 外键指向 person），随删除同事务

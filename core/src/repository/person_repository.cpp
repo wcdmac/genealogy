@@ -323,6 +323,12 @@ Result<PersonRepository::RelationRefs> PersonRepository::count_relation_referenc
       !r) {
     return r.error();
   }
+  if (auto r = count_one(
+          "SELECT COUNT(*) FROM person WHERE father_id = ?1 OR mother_id = ?1",
+          &out.child_refs);
+      !r) {
+    return r.error();
+  }
   return out;
 }
 
