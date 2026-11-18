@@ -199,9 +199,15 @@ jobs:
           # --break-system-packages：macOS 的 Homebrew Python 是 PEP 668
           # externally-managed（八跑实测拒装）；ubuntu 镜像已预设同名
           # env，windows 无感。CI 环境一次性，安全。
-          $PY -m pip install --break-system-packages pyyaml openapi-spec-validator 2>&1 | tee "$GITHUB_WORKSPACE/openapi.log" \
+          # 固定版本（2026-11 静态审查 L6：浮动版本让 CI 一步从可复现
+          # 退化为碰运气）
+          $PY -m pip install --break-system-packages \
+            "pyyaml==6.0.2" "openapi-spec-validator==0.7.2" \
+            2>&1 | tee "$GITHUB_WORKSPACE/openapi.log"
+          # 成功标记在真正校验之后写入——此前标记先行，校验失败时失败
+          # 诊断步骤会跳过 openapi.log 的回传（2026-11 静态审查 L6）
+          $PY tools/validate_openapi.py 2>&1 | tee -a "$GITHUB_WORKSPACE/openapi.log" \
             && echo openapi >> "$GITHUB_WORKSPACE/_ok.txt"
-          $PY tools/validate_openapi.py 2>&1 | tee -a "$GITHUB_WORKSPACE/openapi.log"
 
       # M2 验收硬指标：「TS 客户端由生成器产出并可跑通读写」。
       # 只在 Windows 跑（server 二进制与 vcpkg DLL 路径都已就绪；
@@ -215,6 +221,10 @@ jobs:
           cd clients/web
           npm ci 2>&1 | tee "$GITHUB_WORKSPACE/ts.log"
           npm run generate 2>&1 | tee -a "$GITHUB_WORKSPACE/ts.log"
+          # 生成物入库即契约：generate 后 types.ts 必须无 diff，否则
+          # spec 与类型已漂移（2026-11 静态审查 L6）
+          git diff --exit-code -- src/api/types.ts \
+            || { echo "src/api/types.ts 与 openapi.yaml 漂移——运行 npm run generate 后提交" | tee -a "$GITHUB_WORKSPACE/ts.log"; exit 1; }
           npm run typecheck 2>&1 | tee -a "$GITHUB_WORKSPACE/ts.log"
           # manifest 模式的依赖装在 build/vcpkg_installed/（不是 vcpkg 根的
           # installed/，那里从没人填过）；DLL 上 PATH，smoke 自拉的 server

@@ -374,6 +374,7 @@ paths:
             application/json:
               schema: { $ref: "#/components/schemas/Person" }
         "400": { $ref: "#/components/responses/BadRequest" }
+        "404": { $ref: "#/components/responses/NotFound" }
 
   /persons/{id}:
     parameters:
@@ -432,6 +433,8 @@ paths:
       operationId: deletePerson
       responses:
         "204": { description: 已删除 }
+        "404": { $ref: "#/components/responses/NotFound" }
+        "409": { $ref: "#/components/responses/Conflict" }
 
   /persons/{id}/ancestors:
     parameters:
@@ -1212,7 +1215,7 @@ paths:
           multipart/form-data:
             schema:
               type: object
-              required: [file]
+              required: [file, lineage_id]
               properties:
                 file: { type: string, format: binary }
                 lineage_id: { type: string }

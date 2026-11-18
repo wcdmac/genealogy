@@ -633,6 +633,23 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/audit": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** 变更史回溯（M8.5；仅 steward——diff 含原始数据） */
+        get: operations["queryAudit"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/imports/gedcom": {
         parameters: {
             query?: never;
@@ -844,6 +861,16 @@ export interface components {
             end_date?: components["schemas"]["GenealogyDate"];
             is_primary?: boolean;
             note?: string;
+        };
+        AuditEntry: {
+            id?: string;
+            entity_type?: string;
+            entity_id?: string;
+            /** @enum {unknown} */
+            action?: "insert" | "update" | "delete";
+            actor?: string;
+            at?: string;
+            diff?: Record<string, never>;
         };
         Person: {
             id?: string;
@@ -1208,6 +1235,15 @@ export interface components {
             };
             content: {
                 "application/problem+json": components["schemas"]["Problem"];
+            };
+        };
+        /** @description 角色无权执行此操作（需要更高角色） */
+        Forbidden: {
+            headers: {
+                [name: string]: unknown;
+            };
+            content: {
+                "application/json": components["schemas"]["Problem"];
             };
         };
         /** @description 版本冲突（code 2009） */
@@ -1652,6 +1688,7 @@ export interface operations {
                 };
             };
             400: components["responses"]["BadRequest"];
+            404: components["responses"]["NotFound"];
         };
     };
     getPerson: {
@@ -1699,6 +1736,8 @@ export interface operations {
                 };
                 content?: never;
             };
+            404: components["responses"]["NotFound"];
+            409: components["responses"]["Conflict"];
         };
     };
     updatePerson: {
@@ -2767,6 +2806,38 @@ export interface operations {
             };
         };
     };
+    queryAudit: {
+        parameters: {
+            query?: {
+                entity_type?: string;
+                entity_id?: string;
+                limit?: components["parameters"]["Limit"];
+                cursor?: components["parameters"]["Cursor"];
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description 成功（id 倒序，新变更在前） */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        data?: components["schemas"]["AuditEntry"][];
+                        page?: {
+                            next_cursor?: string | null;
+                            has_more?: boolean;
+                        };
+                    };
+                };
+            };
+            403: components["responses"]["Forbidden"];
+        };
+    };
     importGedcom: {
         parameters: {
             query?: never;
@@ -2779,7 +2850,7 @@ export interface operations {
                 "multipart/form-data": {
                     /** Format: binary */
                     file: string;
-                    lineage_id?: string;
+                    lineage_id: string;
                 };
             };
         };
