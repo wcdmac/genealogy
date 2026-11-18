@@ -100,8 +100,13 @@ check_has "convert 1864-05-09 甲子年"      "$($GENE date convert 1864-05-09 2
 check_has "era 同治三年 = 1864"           "$($GENE date era 同治三年 2>&1)" "1864"
 check_has "lunar 闰六月二十 = 2025-08-13"  "$($GENE date lunar --year 2025 --month 6 --day 20 --leap 2>&1)" "2025-08-13"
 INFO=$($GENE date info 2>&1)
-check_has "date info 下界 1583" "$INFO" "1583"
+check_has "date info 下界 1368（明洪武元年，M9.2）" "$INFO" "1368"
 check_has "date info 上界 3000" "$INFO" "3000"
+# 儒略历史实口径（M9.2）：明实录卷29「乙亥，即皇帝位」= 儒略 1368-01-23 = 正月初四
+check_has "convert 1368-01-23 即位日=正月初四" "$($GENE date convert 1368-01-23 2>&1)" "正月初四"
+check_has "convert 1368-01-23 日干支乙亥"      "$($GENE date convert 1368-01-23 2>&1)" "乙亥"
+# 改革缺口：1582-10-05~14 非合法民用日期
+$GENE date convert 1582-10-05 >/dev/null 2>&1 && check_eq "convert 1582-10-05 应报错" "fail" "pass" || check_eq "convert 1582-10-05 应报错" "pass" "pass"
 
 echo "== 11. 字辈引擎 =="
 # 派语与谱中辈字名对齐：德明(1世,德)→文远/文达(2世,文)→承嗣(3世,承)→世昌(4世,世)
