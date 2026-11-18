@@ -10,19 +10,16 @@
 #include <genealogy/util/time.hpp>
 
 namespace {
-// 复合缓存键：身份 + 端点 + 客户端 key。
- 做分隔（key 本身可能含
+// 复合缓存键：身份 + 端点 + 客户端 key。换行符做分隔（key 本身可能含
 // 任意字符，用控制字符保证不产生歧义拼接）。
 std::string composite_key(const drogon::HttpRequestPtr& req,
                           const std::string& key) {
   const auto identity = identity_of(req);
   std::string out = identity.username.empty() ? std::string("local")
                                               : identity.username;
-  out.push_back('
-');
+  out.push_back('\n');
   out += req->path();
-  out.push_back('
-');
+  out.push_back('\n');
   out += key;
   return out;
 }

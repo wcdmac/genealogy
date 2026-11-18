@@ -330,7 +330,7 @@ int main(int argc, char** argv) {
                           opt.host == "::1";
     const char* override_env = std::getenv("GENEALOGY_ALLOW_UNAUTHENTICATED_BIND");
     if (!loopback && !opt.require_auth &&
-        (override_env == nullptr || *override_env == ' ')) {
+        (override_env == nullptr || *override_env == '\0')) {
       std::cerr << "拒绝启动: --host " << opt.host
                 << " 是非回环地址，但未开 --require-auth。
 "
