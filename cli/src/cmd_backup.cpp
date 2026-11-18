@@ -177,26 +177,13 @@ int cmd_db_restore(const std::vector<std::string>& args,
   }
   const bool force = r.count("force") > 0 && r["force"].as<bool>();
 
-  // 目标已存在且未 force：拒绝。拿备份盖活库 = 用昨天盖今天，
-  // 这种事故必须让人显式确认。
   std::error_code ec;
-  if (fs::exists(db_path, ec) && !force) {
-    print_error(Error{ErrorCode::Conflict,
-                      "目标库已存在: " + db_path +
-                          "（确认要覆盖请加 --force，旧库会移开为 .bak）"});
-    return 4;
-  }
-  if (fs::exists(db_path, ec) && force) {
-    const fs::path moved = fs::path(db_path).string() + ".bak-" + timestamp_now();
-    fs::rename(db_path, moved, ec);
-    if (ec) {
-      print_error(Error{ErrorCode::IoError, "移开旧库失败: " + ec.message()});
-      return 1;
-    }
-    std::cout << "旧库已移开: " << moved.string() << "\n";
-  }
-
   const fs::path from(from_dir);
+
+  // 顺序纪律（2026-11 静态审查 H2/H3）：先验证备份目录与快照、再动
+  // 活库——此前 --force 先把活库移开成 .bak、打印成功，然后才发现
+  // --from 写错，旧库已被搬走、新库没落地。恢复 = 破坏性操作，
+  // 所有前置校验必须先行。
   if (!fs::is_directory(from, ec)) {
     print_error(Error{ErrorCode::InvalidArgument, "备份目录不存在: " + from_dir});
     return 2;
@@ -227,13 +214,64 @@ int cmd_db_restore(const std::vector<std::string>& args,
     return 2;
   }
 
-  // 恢复 = 快照拷回目标路径。目标已存在时拒绝覆盖——
-  // 覆盖一个活库是「用备份盖掉新数据」的事故，必须显式 --force。
-  // （本函数由调用方保证 force 分支已把旧库移开。）
+  // 目标已存在且未 force：拒绝。拿备份盖活库 = 用昨天盖今天，
+  // 这种事故必须让人显式确认。
+  if (fs::exists(db_path, ec) && !force) {
+    print_error(Error{ErrorCode::Conflict,
+                      "目标库已存在: " + db_path +
+                          "（确认要覆盖请加 --force，旧库会移开为 .bak）"});
+    return 4;
+  }
+
+  // --force：旧库连同 -wal/-shm 旁车一起移开（H3——只搬主文件的话，
+  // 残留的旧 WAL 会在新库首次打开时被重放，恢复出的数据被旧事务污染）。
+  fs::path moved_main, moved_wal, moved_shm;
+  bool moved = false;
+  if (fs::exists(db_path, ec)) {
+    const std::string stamp = ".bak-" + timestamp_now();
+    moved_main = fs::path(db_path).string() + stamp;
+    moved_wal = fs::path(db_path).string() + "-wal" + stamp;
+    moved_shm = fs::path(db_path).string() + "-shm" + stamp;
+    fs::rename(db_path, moved_main, ec);
+    if (ec) {
+      print_error(Error{ErrorCode::IoError, "移开旧库失败: " + ec.message()});
+      return 1;
+    }
+    moved = true;
+    for (const auto& [src, dst] :
+         {std::pair{fs::path(db_path).string() + "-wal", moved_wal},
+          {fs::path(db_path).string() + "-shm", moved_shm}}) {
+      std::error_code ec2;
+      if (fs::exists(src, ec2)) {
+        fs::rename(src, dst, ec2);
+        if (ec2) {
+          print_error(Error{ErrorCode::IoError,
+                            "移开旧库旁车文件失败: " + ec2.message()});
+          return 1;
+        }
+      }
+    }
+    std::cout << "旧库已移开: " << moved_main.string() << "\n";
+  }
+
   fs::copy_file(snapshot, db_path, fs::copy_options::overwrite_existing, ec);
   if (ec) {
     print_error(Error{ErrorCode::IoError,
                       "恢复失败: " + ec.message() + "（目标: " + db_path + "）"});
+    if (moved) {
+      // 补偿：新库没落地，把旧库移回原位——恢复失败不留两头都空的最坏态
+      std::error_code ec3;
+      fs::rename(moved_main, db_path, ec3);
+      for (const auto& [src, dst] :
+           {std::pair{moved_wal, fs::path(db_path).string() + "-wal"},
+            {moved_shm, fs::path(db_path).string() + "-shm"}}) {
+        std::error_code ec4;
+        if (fs::exists(src, ec4)) fs::rename(src, dst, ec4);
+      }
+      if (!ec3) {
+        std::cout << "已回滚: 旧库从 " << moved_main.string() << " 移回原位\n";
+      }
+    }
     return 1;
   }
 

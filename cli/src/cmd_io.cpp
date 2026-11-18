@@ -30,6 +30,7 @@
 #include <genealogy/calendar/era.hpp>
 #include <genealogy/error.hpp>
 #include <genealogy/io/gedcom.hpp>
+#include <genealogy/ulid.hpp>
 #include <genealogy/io/synthetic.hpp>
 #include <genealogy/io/tree_render.hpp>
 #include <genealogy/lineage/graph.hpp>
@@ -673,7 +674,12 @@ int cmd_db_seed(const std::vector<std::string>& args, const std::string& db_path
   so.founder_year = r["founder-year"].as<int>();
 
   const auto t0 = std::chrono::steady_clock::now();
-  const io::SyntheticData data = io::generate_synthetic(so);
+  auto synth = io::generate_synthetic(so);
+  if (!synth) {
+    print_error(synth.error());
+    return exit_code_for(synth.error());
+  }
+  const io::SyntheticData& data = *synth;
   const auto t1 = std::chrono::steady_clock::now();
 
   BulkLoader loader(*db);
@@ -784,6 +790,14 @@ void print_rows(const std::vector<BenchRow>& rows, const std::string& format) {
 
 int cmd_bench(const std::vector<std::string>& args, const std::string& db_path,
               const std::string& format) {
+  // 基准库一律用系统临时目录的专属文件，绝不碰 --db（db_path 参数仅为
+  // 主分派签名统一而保留）。曾直接在 --db（默认 genealogy.db）上灌基准
+  // 并跑完整库删除——对已有数据的库执行 bench 会先污染再毁库，不可恢复
+  // （2026-11 静态审查 F1，致命级）。
+  const std::string bench_db =
+      (std::filesystem::temp_directory_path() /
+       ("genealogy-bench-" + genealogy::generate_ulid() + ".db"))
+          .string();
   cxxopts::Options opts("genea bench", "性能验收基准（M1.6）");
   opts.add_options()
       ("persons", "灌库人物数", cxxopts::value<std::size_t>()->default_value("100000"))
@@ -798,6 +812,8 @@ int cmd_bench(const std::vector<std::string>& args, const std::string& db_path,
       ("keep", "保留基准用的临时库（默认跑完删掉）",
        cxxopts::value<bool>()->default_value("false")->implicit_value("true"));
   const auto r = parse_args(opts, args);
+  std::cout << "基准库: " << bench_db
+            << "（临时文件，不触碰 --db 指定的业务库）\n";
 
   const std::size_t persons = r["persons"].as<std::size_t>();
   const int depth = r["depth"].as<int>();
@@ -805,7 +821,7 @@ int cmd_bench(const std::vector<std::string>& args, const std::string& db_path,
   std::vector<BenchRow> rows;
 
   // ---- 1. 灌库 ----
-  auto db = open_db(db_path);
+  auto db = open_db(bench_db);
   if (!db) {
     print_error(db.error());
     return exit_code_for(db.error());
@@ -825,7 +841,12 @@ int cmd_bench(const std::vector<std::string>& args, const std::string& db_path,
   so.surname = "陈";
   so.persons = persons;
   so.generations = depth + 4;
-  const io::SyntheticData data = io::generate_synthetic(so);
+  auto synth = io::generate_synthetic(so);
+  if (!synth) {
+    print_error(synth.error());
+    return exit_code_for(synth.error());
+  }
+  const io::SyntheticData& data = *synth;
 
   const auto g0 = std::chrono::steady_clock::now();
   {
@@ -919,7 +940,12 @@ int cmd_bench(const std::vector<std::string>& args, const std::string& db_path,
     go.surname = "陈";
     go.persons = static_cast<std::size_t>(want);
     go.generations = 12;
-    const io::SyntheticData gdata = io::generate_synthetic(go);
+    auto gsynth = io::generate_synthetic(go);
+    if (!gsynth) {
+      print_error(gsynth.error());
+      return exit_code_for(gsynth.error());
+    }
+    const io::SyntheticData& gdata = *gsynth;
 
     // 用导出器造输入，保证与真实文件的形态一致；导出本身也是一项指标——
     // 它曾经是 O(结合×人物) 的，1 万人物要跑 57 秒
@@ -1055,9 +1081,9 @@ int cmd_bench(const std::vector<std::string>& args, const std::string& db_path,
   }
   if (!r["keep"].as<bool>()) {
     std::error_code ec;
-    std::filesystem::remove(db_path, ec);
-    std::filesystem::remove(db_path + "-wal", ec);
-    std::filesystem::remove(db_path + "-shm", ec);
+    std::filesystem::remove(bench_db, ec);
+    std::filesystem::remove(bench_db + "-wal", ec);
+    std::filesystem::remove(bench_db + "-shm", ec);
   }
   return all_pass ? 0 : 1;
 }

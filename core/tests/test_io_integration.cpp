@@ -242,7 +242,9 @@ TEST_CASE("GEDCOM 集成：2000 条规模往返（性能回归哨兵）") {
   so.persons = kN;
   so.generations = 12;
   so.lineage_id = kDefaultLineageId;
-  const io::SyntheticData data = io::generate_synthetic(so);
+  auto synth = io::generate_synthetic(so);
+  REQUIRE(synth.has_value());
+  const io::SyntheticData& data = *synth;
   REQUIRE(data.persons.size() >= kN * 9 / 10);
 
   // 导出（这一步曾经是 O(n^2)）

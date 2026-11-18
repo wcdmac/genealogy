@@ -17,6 +17,7 @@
 #include <string>
 #include <vector>
 
+#include <genealogy/error.hpp>
 #include <genealogy/model/event.hpp>
 #include <genealogy/model/person.hpp>
 #include <genealogy/model/place.hpp>
@@ -30,7 +31,7 @@ struct SyntheticOptions {
   std::uint64_t seed = 20261013;  // 固定种子 → 可复现
   std::string lineage_id;         // 必填
   std::string surname = "陈";     // 主姓
-  int founder_year = 1500;        // 始祖生年
+  int founder_year = 1500;        // 始祖生年（合法域 40..2000，见 generate_synthetic）
 };
 
 struct SyntheticData {
@@ -41,7 +42,8 @@ struct SyntheticData {
   std::string founder_id;   // 始祖 id（十代树的起点）
 };
 
-// 生成一批自洽的合成谱数据。
-SyntheticData generate_synthetic(const SyntheticOptions& opt);
+// 生成一批自洽的合成谱数据。参数非法（lineage_id 空、founder_year/
+// generations 越界——派生年会撞 from_iso 合法域）返回 InvalidArgument。
+Result<SyntheticData> generate_synthetic(const SyntheticOptions& opt);
 
 }  // namespace genealogy::io

@@ -1,6 +1,7 @@
 #include <genealogy/io/synthetic.hpp>
 
 #include <deque>
+#include <unordered_map>
 
 #include <genealogy/calendar/era.hpp>
 #include <genealogy/ulid.hpp>
@@ -42,9 +43,22 @@ constexpr std::size_t kPlaceCount = sizeof(kPlaceNames) / sizeof(kPlaceNames[0])
 
 }  // namespace
 
-SyntheticData generate_synthetic(const SyntheticOptions& opt) {
+Result<SyntheticData> generate_synthetic(const SyntheticOptions& opt) {
+  // 入口护栏（2026-11 静态审查 M6）：派生年（配偶 = 户主生年 ±4、卒年 =
+  // 生年 + 55±20、葬年 = 卒年 + 3）必须落在 from_iso 的合法域内，否则
+  // 下游 .value() 会以 bad_optional_access 崩溃；founder_year ≥ 40 保证
+  // 最小的派生年 ≥ 36，上限 2000 + 世代推 60 代 ≈ 5600 也安全。
+  // 此前参数无校验，from_iso(...).value() 直接把非法参数变成未捕获异常。
+  if (opt.lineage_id.empty()) {
+    return invalid_argument("合成谱需要 lineage_id");
+  }
+  if (opt.founder_year < 40 || opt.founder_year > 2000) {
+    return invalid_argument("founder_year 应在 40..2000（派生年推算域）");
+  }
+  if (opt.generations < 1 || opt.generations > 60) {
+    return invalid_argument("generations 应在 1..60");
+  }
   SyntheticData out;
-  if (opt.lineage_id.empty()) return out;
 
   Lcg rng(opt.seed);
   const std::string now = utc_now_iso();
@@ -68,6 +82,9 @@ SyntheticData generate_synthetic(const SyntheticOptions& opt) {
     int mother_year;
   };
   std::deque<PendingBirth> queue;
+  // id → out.persons 下标（户主 O(1) 查找；存下标而非指针——vector
+  // 扩容会搬移元素，指针会全部悬空）
+  std::unordered_map<std::string, std::size_t> person_index;
 
   auto make_person = [&](Gender gender, int birth_year, int generation,
                          int birth_order, const std::string& father_id,
@@ -135,6 +152,7 @@ SyntheticData generate_synthetic(const SyntheticOptions& opt) {
   out.founder_id = founder.id;
   emit_facts(founder, opt.founder_year, founder_death);
   out.persons.push_back(founder);
+  person_index.emplace(founder.id, out.persons.size() - 1);
   queue.push_back({founder.id, "", 2, opt.founder_year, 0});
 
   int safety = 0;
@@ -146,9 +164,11 @@ SyntheticData generate_synthetic(const SyntheticOptions& opt) {
     if (head.generation > opt.generations) continue;
 
     // 户主本体（第一代已在库，这里补卒年并取出性别）
+    // 户主按 id 索引取（曾线性扫全部已生成人物，10 万规模 O(N²)）
     Person* householder = nullptr;
-    for (auto& p : out.persons) {
-      if (p.id == head.father_id) householder = &p;
+    if (const auto it = person_index.find(head.father_id);
+        it != person_index.end()) {
+      householder = &out.persons[it->second];
     }
     if (householder != nullptr && !householder->death_date) {
       const int fy = householder->birth_date.gregorian_year().value_or(
@@ -174,6 +194,7 @@ SyntheticData generate_synthetic(const SyntheticOptions& opt) {
         GenealogyDate::from_iso(std::to_string(spouse_death)).value();
     emit_facts(spouse, spouse_year, spouse_death);
     out.persons.push_back(spouse);
+    person_index.emplace(spouse.id, out.persons.size() - 1);
 
     Union u;
     u.id = generate_ulid();
@@ -224,9 +245,12 @@ SyntheticData generate_synthetic(const SyntheticOptions& opt) {
         child.death_date = GenealogyDate::from_iso(std::to_string(d)).value();
         emit_facts(child, child_year, d);
         out.persons.push_back(child);
+      person_index.emplace(child.id, out.persons.size() - 1);
+        person_index.emplace(child.id, out.persons.size() - 1);
         continue;
       }
       out.persons.push_back(child);
+      person_index.emplace(child.id, out.persons.size() - 1);
       // 子女都入队立户：儿子娶妻、女儿招婿，世系树因此覆盖全族而不
       // 只有男系。十代子孙树的节点数（8 千 vs 7 万）全系于此——
       // 只钻男系会让这项指标失去压力。
