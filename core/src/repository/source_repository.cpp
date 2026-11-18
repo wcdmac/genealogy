@@ -84,7 +84,7 @@ Result<std::vector<Source>> SourceRepository::list(
   const std::string sql = std::string("SELECT ").append(kCols) +
                           " FROM source"
                           " WHERE (?1 IS NULL OR type = ?1)"
-                          "   AND (?2 IS NULL OR title LIKE '%' || like_escape(?2) || '%' ESCAPE '\\')"
+                          "   AND (?2 IS NULL OR title LIKE '%' || ?2 || '%' ESCAPE '\\')"
                           "   AND (?3 IS NULL OR id > ?3)"
                           " ORDER BY id LIMIT ?4";
   Stmt st(db_.raw(), sql.c_str());
@@ -98,7 +98,17 @@ Result<std::vector<Source>> SourceRepository::list(
   } else {
     sqlite3_bind_null(st.get(), 1);
   }
-  bind_opt_text(st.get(), 2, filter.title_contains);
+  // 转义在 C++ 侧先做（like_escape 是宿主函数不是 SQLite 函数），
+  // 配 SQL 里的 ESCAPE '\' 生效——此前直接拼 ?2，搜 "100%"、"a_b"
+  // 会误匹配（2026-11 静态审查 L2）
+  if (filter.title_contains) {
+    const std::string escaped_title = like_escape(*filter.title_contains);
+    sqlite3_bind_text(st.get(), 2, escaped_title.c_str(),
+                      static_cast<int>(escaped_title.size()),
+                      SQLITE_TRANSIENT);
+  } else {
+    sqlite3_bind_null(st.get(), 2);
+  }
   bind_opt_text(st.get(), 3, filter.cursor);
   sqlite3_bind_int(st.get(), 4, filter.limit > 0 ? filter.limit : 50);
 
