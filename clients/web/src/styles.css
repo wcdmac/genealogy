@@ -37,7 +37,14 @@ body {
   border-bottom: 1px solid var(--line);
 }
 .brand { font-weight: 600; font-size: 16px; }
-.connection { display: flex; align-items: center; gap: 8px; }
+.connection {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  /* 凭据输入加入后（H10），窄视口一行装不下——允许换行，否则连接按钮
+     被容器裁出可视区，点击被拦截（uismoke 375px 实测踩中） */
+  flex-wrap: wrap;
+}
 
 .badge {
   display: inline-block;
@@ -514,5 +521,8 @@ code { font-family: var(--mono); background: #f3eee3; padding: 1px 4px; border-r
   .topbar {
     flex-wrap: wrap;
     gap: 6px;
+  }
+  .connection input {
+    max-width: 100%;
   }
 }
