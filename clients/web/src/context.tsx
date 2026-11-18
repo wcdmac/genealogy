@@ -27,7 +27,11 @@ interface ClientContextValue {
   client: GenealogyClient;
   connection: ConnectionState;
   /** 连接（登录 + /me 探活）；失败时把原因写进 connection.error。 */
-  connect: (baseUrl: string) => Promise<boolean>;
+  connect: (
+    baseUrl: string,
+    username?: string,
+    password?: string,
+  ) => Promise<boolean>;
   disconnect: () => void;
 }
 
@@ -42,10 +46,16 @@ export function ClientProvider({ children }: { children: ReactNode }) {
     connected: false,
   });
 
-  const connect = useCallback(async (baseUrl: string) => {
+  const connect = useCallback(
+  async (baseUrl: string, username = "web", password = "web") => {
     const client = new GenealogyClient(baseUrl);
+    // 401 → 置断连态提示重登（M13；server --require-auth 下凭据
+    // 可从 UI 输入轮换，不再硬编码 web/web——2026-11 静态审查 H10）
+    client.onUnauthorized = () => {
+      setConnection({ baseUrl, connected: false, error: "登录已过期，请重新连接" });
+    };
     try {
-      const role = await client.login("web", "web");
+      const role = await client.login(username, password);
       await client.me();
       clientRef.current = client;
       setConnection({ baseUrl, connected: true, role });
@@ -58,7 +68,8 @@ export function ClientProvider({ children }: { children: ReactNode }) {
       setConnection({ baseUrl, connected: false, error: message });
       return false;
     }
-  }, []);
+  },
+  []);
 
   const disconnect = useCallback(() => {
     clientRef.current = new GenealogyClient(DEFAULT_BASE);

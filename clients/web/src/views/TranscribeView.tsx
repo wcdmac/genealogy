@@ -124,6 +124,15 @@ export function TranscribeView() {
   const [wives, setWives] = useState<WifeRow[]>([]);
   const [sons, setSons] = useState<SonRow[]>([]);
   const [staged, setStaged] = useState<Staged[]>([]);
+  // 欧式连书链（2026-11 静态审查 H9）：formKeyRef = 当前表单人入库时
+  // 将使用的 key（「生子」要在此人暂存前引用它）；formFather = 表单人
+  // 的父亲（key + 名，用于暂存时挂 fatherKey）。此前暂存路径 fatherKey
+  // 恒为 null、「生子」按钮传伪 key "local"——父子关系整条断链。
+  const formKeyRef = useRef(nextKey());
+  const [formFather, setFormFather] = useState<{
+    key: string | null;
+    name: string;
+  }>({ key: null, name: "" });
 
   // ---- 提交 / 校验
   const [committing, setCommitting] = useState(false);
@@ -341,16 +350,24 @@ export function TranscribeView() {
       setFormError("先选择宗族");
       return;
     }
+    const stagedKey = formKeyRef.current;
+    // 父亲解析：表单父亲名与链上父亲一致 → 用链上 key；手动改过名字
+    // （自由跳录）→ 置 null，提交时按名回查
+    const fatherName = form.fatherName.trim();
+    const fatherKey =
+      fatherName !== "" && formFather.name === fatherName
+        ? formFather.key
+        : null;
     const entry: Staged = {
-      key: nextKey(),
+      key: stagedKey,
       generation_no: form.generation_no,
       given_name: form.given_name.trim(),
       courtesy: form.courtesy.trim(),
       art: form.art.trim(),
       birth_lunar: form.birth_lunar.trim(),
       death_lunar: form.death_lunar.trim(),
-      fatherKey: null,
-      fatherName: form.fatherName.trim(),
+      fatherKey,
+      fatherName,
       page: currentPage(),
       doubtful: form.doubtful,
       chuSi: form.chuSi,
@@ -360,7 +377,10 @@ export function TranscribeView() {
       status: "staged",
     };
     setStaged((prev) => [...prev, entry]);
-    // 欧式连书：默认以本条第一条「生子」续录
+    // 欧式连书：默认以本条第一条「生子」续录——表单钥匙换新、父亲
+    // 指向刚暂存的这条
+    formKeyRef.current = nextKey();
+    setFormFather({ key: stagedKey, name: entry.given_name });
     const firstSon = entry.sons[0];
     setForm((f) => ({
       ...f,
@@ -409,18 +429,30 @@ export function TranscribeView() {
     setCommitting(true);
     setFormError(null);
     try {
-      const pending = staged.filter((e) => e.status === "staged");
+      // 父条目必须先入库（欧式连书）：按世代号升序提交——「生子」在
+      // 其父暂存前生成，插入序不能保证父子先后
+      const pending = staged
+        .filter((e) => e.status === "staged")
+        .map((e, i) => ({ e, i }))
+        .sort((a, b) => a.e.generation_no - b.e.generation_no || a.i - b.i)
+        .map((x) => x.e);
+      const failedKeys = new Set<string>();
       for (const entry of pending) {
-        // 父条目必须先入库（欧式连书顺序）
+        // 父条目尚未入库：标记失败并跳过（不再中断整批）——前序失败
+        // 的子孙同样跳过，绝不造孤儿（2026-11 静态审查 H9）
         if (entry.fatherKey && !committedIds.get(entry.fatherKey)) {
+          const reason = failedKeys.has(entry.fatherKey)
+            ? "父条目未入库（前序失败），跳过"
+            : "父条目尚未入库";
+          failedKeys.add(entry.key);
           setStaged((prev) =>
             prev.map((e) =>
               e.key === entry.key
-                ? { ...e, status: "failed", message: "父条目尚未入库" }
+                ? { ...e, status: "failed", message: reason }
                 : e,
             ),
           );
-          break;
+          continue;
         }
         // 重复名预警（同宗族同名）：不阻断，附在条目消息里
         let dupWarn = "";
@@ -506,6 +538,7 @@ export function TranscribeView() {
           );
         } catch (e) {
           const message = e instanceof Error ? e.message : String(e);
+          failedKeys.add(entry.key);
           setStaged((prev) =>
             prev.map((e) =>
               e.key === entry.key
@@ -513,7 +546,8 @@ export function TranscribeView() {
                 : e,
             ),
           );
-          break;  // 顺序提交：失败即停，保持队列顺序
+          // 失败跳过不中断：后续无依赖条目照常入库，依赖它的子孙由
+          // failedKeys 守卫拦下（此前 break 会丢弃整批后半段）
         }
       }
     } finally {
@@ -851,7 +885,7 @@ export function TranscribeView() {
                   if (!s.name.trim()) return;
                   spawnSon(
                     {
-                      key: "local",
+                      key: formKeyRef.current,
                       generation_no: form.generation_no,
                       given_name: form.given_name,
                       page: currentPage(),

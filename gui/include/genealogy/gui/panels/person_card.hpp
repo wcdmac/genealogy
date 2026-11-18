@@ -25,6 +25,11 @@ class PersonCardPanel : public Panel {
   bool load(DbSession& session);
   // 数据层：保存编辑缓冲。成功返回 true，失败把原因写进 state 状态栏。
   bool save(DbSession& session);
+  void on_database_closed() override {
+    loaded_id_.clear();
+    loaded_rev_ = 0;
+    dirty_ = false;
+  }
 
   AppState& state_;
   std::string loaded_id_;      // 编辑缓冲对应的人物 id

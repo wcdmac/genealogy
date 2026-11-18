@@ -155,6 +155,10 @@ bool PersonCardPanel::save(DbSession& session) {
     return false;
   }
   Person p = *cur;   // 以库中当前值为底，只覆写编辑缓冲覆盖的字段
+  // rev 用「载入时读到的值」——此前取当前库值，乐观锁形同虚设：
+  // 多端并发编辑会静默互相覆盖（2026-11 静态审查 H11）。旧值会撞
+  // 409 冲突，由用户重载后再改——家谱数据不可再生，宁拦勿盖。
+  p.rev = loaded_rev_;
 
   p.family_name = buf_family_;
   p.given_name = buf_given_;

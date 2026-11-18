@@ -27,6 +27,10 @@ class Panel {
   // 每帧调用：读会话数据 + 绘制。open 为 false 时 app 不调用。
   virtual void draw(DbSession& session) = 0;
 
+  // 关闭数据库时清面板缓存（2026-11 静态审查 L4：换库后曾展示
+  // 旧库的树/编辑缓冲）。持缓存的面板各自覆写。
+  virtual void on_database_closed() {}
+
   // 面板开关（菜单 / 快捷键控制）。
   bool open = true;
 };

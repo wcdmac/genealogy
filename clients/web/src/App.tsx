@@ -35,9 +35,13 @@ export function App() {
   const { connection, connect, disconnect } = useClient();
   const [view, setView] = useState<ViewKey>("persons");
   const [serverInput, setServerInput] = useState(connection.baseUrl);
+  // 凭据可输入（2026-11 静态审查 H10：曾硬编码 web/web，--require-auth
+  // 部署下无法登录也无法轮换凭据）
+  const [userInput, setUserInput] = useState("web");
+  const [passInput, setPassInput] = useState("web");
 
   async function onConnect() {
-    await connect(serverInput.trim() || "/api/v1");
+    await connect(serverInput.trim() || "/api/v1", userInput.trim(), passInput);
   }
 
   return (
@@ -51,6 +55,19 @@ export function App() {
             onChange={(event) => setServerInput(event.target.value)}
             placeholder="/api/v1"
             size={28}
+          />
+          <input
+            aria-label="用户名"
+            value={userInput}
+            onChange={(event) => setUserInput(event.target.value)}
+            size={10}
+          />
+          <input
+            aria-label="口令"
+            type="password"
+            value={passInput}
+            onChange={(event) => setPassInput(event.target.value)}
+            size={10}
           />
           {connection.connected ? (
             <>

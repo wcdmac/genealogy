@@ -80,6 +80,7 @@ void GenealogyApp::draw_menu_bar() {
     if (ImGui::MenuItem("关闭数据库")) {
       session_.close();
       state_.selected_person_id.clear();
+      for (auto& p : panels_) p->on_database_closed();
       state_.set_status("数据库已关闭");
     }
     ImGui::Separator();
@@ -108,6 +109,9 @@ void GenealogyApp::draw_menu_bar() {
     ImGui::Separator();
     ImGui::MenuItem("高对比度", nullptr, &options_.high_contrast);
     ImGui::EndMenu();
+    // 主题每帧应用（ImGui 样式本就逐帧设置）：只翻 bool 不调用
+    // apply_theme 曾让高对比度开关毫无视觉效果（2026-11 静态审查 L4）
+    apply_theme(options_.high_contrast);
   }
   ImGui::EndMainMenuBar();
 

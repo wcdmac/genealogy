@@ -91,6 +91,8 @@ export interface RequestOptions {
 
 export class GenealogyClient {
   private readonly baseUrl: string;
+  /** 401 时回调（context 用来置断连态）；令牌已在此前被清空。 */
+  onUnauthorized: (() => void) | null = null;
   private token: string | null = null;
 
   constructor(baseUrl: string, token?: string) {
@@ -152,6 +154,13 @@ export class GenealogyClient {
     });
 
     if (!response.ok) {
+      // 401 = 令牌失效/过期：清令牌并通知宿主（context 置断连态，
+      // 提示重新登录）——此前过期后 UI 仍显示在线，请求全部 401
+      // 空转（2026-11 静态审查 M13）。
+      if (response.status === 401) {
+        this.token = null;
+        this.onUnauthorized?.();
+      }
       // 错误体一律 problem+json（server 连默认 404 都走它）；
       // 解析失败时退化成裸状态码，不吞原始信息。
       let problem: Problem | undefined;
@@ -193,6 +202,10 @@ export class GenealogyClient {
       body: options.body === undefined ? undefined : JSON.stringify(options.body),
     });
     if (!response.ok) {
+      if (response.status === 401) {
+        this.token = null;
+        this.onUnauthorized?.();
+      }
       let problem: Problem | undefined;
       try {
         problem = (await response.json()) as Problem;

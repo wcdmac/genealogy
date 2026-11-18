@@ -24,6 +24,13 @@ class TreePanel : public Panel {
 
   const char* title() const override { return "世系树"; }
   void draw(DbSession& session) override;
+  void on_database_closed() override {
+    loaded_root_.clear();
+    error_.clear();
+    has_tree_ = false;
+    graph_.reset();
+    tree_.reset();
+  }
 
  private:
   // 递归绘制 core 的 TreeNode。root_label 为空表示是顶层根。

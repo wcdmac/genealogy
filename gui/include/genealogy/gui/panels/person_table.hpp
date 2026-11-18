@@ -46,6 +46,13 @@ class PersonTablePanel : public Panel {
   char name_filter_[128] = {};   // 姓名子串筛选
   int sort_col_ = 0;
   bool sort_asc_ = true;
+
+ public:
+  void on_database_closed() override {
+    rows_.clear();
+    loaded_lineage_.clear();
+    loaded_ = false;
+  }
 };
 
 }  // namespace genealogy::gui
