@@ -14,7 +14,7 @@ namespace {
 // 任意字符，用控制字符保证不产生歧义拼接）。
 std::string composite_key(const drogon::HttpRequestPtr& req,
                           const std::string& key) {
-  const auto identity = identity_of(req);
+  const auto identity = genealogy::server::identity_of(req);
   std::string out = identity.username.empty() ? std::string("local")
                                               : identity.username;
   out.push_back('\n');

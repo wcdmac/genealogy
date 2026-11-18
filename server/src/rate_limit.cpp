@@ -75,6 +75,7 @@ void install_rate_limit(drogon::HttpAppFramework& app,
         bool allowed = false;
         int remaining = 0;
         std::int64_t reset_at = 0;
+        double to_full_seconds = 0.0;   // 429 时算 Retry-After 用（锁内算好带出）
         {
           std::lock_guard<std::mutex> lk(st2.mu);
           const auto now = std::chrono::steady_clock::now();
@@ -115,6 +116,7 @@ void install_rate_limit(drogon::HttpAppFramework& app,
                   std::chrono::system_clock::now().time_since_epoch())
                   .count() +
               to_full.count());
+          to_full_seconds = to_full.count();
         }
         if (!allowed) {
           // Retry-After 按回填速率动态算（恒 1 曾误导重试节奏——
@@ -122,9 +124,9 @@ void install_rate_limit(drogon::HttpAppFramework& app,
           auto resp = problem_response(429, 42901, "请求过于频繁",
                                        "限流窗口内请求过多，请稍后重试",
                                        req->path());
-          const int retry_after = to_full.count() < 1.0
+          const int retry_after = to_full_seconds < 1.0
                                       ? 1
-                                      : static_cast<int>(to_full.count()) + 1;
+                                      : static_cast<int>(to_full_seconds) + 1;
           resp->addHeader("Retry-After", std::to_string(retry_after));
           resp->addHeader("X-RateLimit-Limit",
                           std::to_string(static_cast<int>(state().capacity)));
