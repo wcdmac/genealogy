@@ -332,11 +332,9 @@ int main(int argc, char** argv) {
     if (!loopback && !opt.require_auth &&
         (override_env == nullptr || *override_env == '\0')) {
       std::cerr << "拒绝启动: --host " << opt.host
-                << " 是非回环地址，但未开 --require-auth。
-"
+                << " 是非回环地址，但未开 --require-auth。\n"
                    "对外服务的免鉴权部署请显式设置 "
-                   "GENEALOGY_ALLOW_UNAUTHENTICATED_BIND=1（自负风险）。
-";
+                   "GENEALOGY_ALLOW_UNAUTHENTICATED_BIND=1（自负风险）。\n";
       return 2;
     }
   }
