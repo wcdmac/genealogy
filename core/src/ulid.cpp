@@ -2,6 +2,7 @@
 
 #include <chrono>
 #include <cstdint>
+#include <cstring>
 #include <functional>
 #include <random>
 #include <thread>
@@ -44,6 +45,22 @@ std::string generate_ulid() {
   return std::string(buf, 26);
 }
 
+// 128 位值 +1（Crockford 字母表升序 = 字典序，从右向左进位）。
+// 随机段全满才会进位到时间戳段（2^-80 量级，实际不可达）。
+std::string bump_ulid(const std::string& id) {
+  std::string out = id;
+  for (int i = 25; i >= 0; --i) {
+    const char* pos = std::strchr(kCrockford, out[i]);
+    const int v = pos != nullptr ? static_cast<int>(pos - kCrockford) : 0;
+    if (v + 1 < 32) {
+      out[i] = kCrockford[v + 1];
+      return out;
+    }
+    out[i] = kCrockford[0];
+  }
+  return out;
+}
+
 bool is_valid_ulid(std::string_view s) noexcept {
   if (s.size() != 26) return false;
   for (const char c : s) {
@@ -53,6 +70,14 @@ bool is_valid_ulid(std::string_view s) noexcept {
     if (c == 'I' || c == 'L' || c == 'O' || c == 'U') return false;
   }
   return true;
+}
+
+std::string MonotonicUlid::next() {
+  std::lock_guard<std::mutex> lk(mu_);
+  std::string id = generate_ulid();
+  if (!last_.empty() && id <= last_) id = bump_ulid(last_);
+  last_ = id;
+  return id;
 }
 
 }  // namespace genealogy

@@ -32,6 +32,14 @@ class Stmt {
   sqlite3_stmt* st_ = nullptr;
 };
 
+// audit_log 的列表语义是「新变更在前」（id DESC）——id 必须随写入单调，
+// 同毫秒两条审计的随机尾乱序会让它变成概率性的（macOS runner 实测
+// 撞过：insert/update 同毫秒落库，位置断言偶发翻转）。
+MonotonicUlid& audit_ulid() {
+  static MonotonicUlid g;
+  return g;
+}
+
 }  // namespace
 
 nlohmann::json json_diff(const nlohmann::json& before,
@@ -67,7 +75,7 @@ void audit_write(Database& db, const drogon::HttpRequestPtr& req,
     Stmt st(db.raw(), sql.c_str());
     if (!st.ok()) throw std::runtime_error("准备失败");
     int i = 1;
-    sqlite3_bind_text(st.get(), i++, generate_ulid().c_str(), -1,
+    sqlite3_bind_text(st.get(), i++, audit_ulid().next().c_str(), -1,
                       SQLITE_TRANSIENT);
     sqlite3_bind_text(st.get(), i++, entity_type.c_str(), -1,
                       SQLITE_TRANSIENT);
