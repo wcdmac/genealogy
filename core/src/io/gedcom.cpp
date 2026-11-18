@@ -225,8 +225,14 @@ bool split_line(std::string_view line, FlatLine* out) {
   return true;
 }
 
+// 嵌套深度上限（2026-11 静态审查 H6）：无界递归在畸形深嵌套文件上
+// 会栈溢出压垮导入进程。GEDCOM 真实嵌套 ≤6 层，64 已是 10 倍余量。
+constexpr std::size_t kMaxParseDepth = 64;
+constexpr std::size_t kDepthSentinel = static_cast<std::size_t>(-1);
+
 std::size_t build_subtree(const std::vector<FlatLine>& f, std::size_t i,
-                          GedcomNode* out) {
+                          GedcomNode* out, std::size_t depth = 0) {
+  if (depth > kMaxParseDepth) return kDepthSentinel;
   out->level = f[i].level;
   out->xref = f[i].xref;
   out->tag = f[i].tag;
@@ -235,7 +241,8 @@ std::size_t build_subtree(const std::vector<FlatLine>& f, std::size_t i,
   // 跳级（level 不连续）按「上一级的子节点」容忍处理，不让整份文件报废
   while (j < f.size() && f[j].level > f[i].level) {
     GedcomNode child;
-    j = build_subtree(f, j, &child);
+    j = build_subtree(f, j, &child, depth + 1);
+    if (j == kDepthSentinel) return kDepthSentinel;
     out->children.push_back(std::move(child));
   }
   return j;
@@ -354,6 +361,13 @@ Result<GedcomDocument> parse_gedcom(std::string_view bytes) {
   for (std::size_t i = 0; i < flat.size();) {
     GedcomNode rec;
     i = build_subtree(flat, i, &rec);
+    if (i == kDepthSentinel) {
+      return Error{ErrorCode::IoError,
+                   "GEDCOM 嵌套超过 " +
+                       std::to_string(kMaxParseDepth) +
+                       " 层，疑似畸形或恶意构造的文件，拒绝导入"};
+    }
+    // 树深已被上限封顶，merge_continuations 的递归深度同样有界
     merge_continuations(&rec);
     doc.records.push_back(std::move(rec));
   }

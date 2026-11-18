@@ -94,7 +94,15 @@ Result<MourningDegree> compute_mourning_degree(const PersonGraph& g,
     if (!ok) {
       return internal("规则表条目指向未知服等: " + rule->grade);
     }
-    const auto& info = rules::mourning_grades().at(rule->grade);
+    // find() 而非 .at()：grade_from_id 走硬编码枚举表、服等表来自
+    // JSON——双源可漂移，漂移时 .at() 会在请求线程抛 out_of_range
+    // （2026-11 静态审查 H14）
+    const auto& grades = rules::mourning_grades();
+    const auto grade_it = grades.find(rule->grade);
+    if (grade_it == grades.end()) {
+      return internal("规则表条目缺少服等定义: " + rule->grade);
+    }
+    const auto& info = grade_it->second;
     MourningDegree deg;
     deg.grade = grade;
     deg.garment_name = info.name;

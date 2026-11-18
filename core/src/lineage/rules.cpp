@@ -4,6 +4,7 @@
 #include "lineage/rules.hpp"
 
 #include <algorithm>
+#include <cstdio>
 
 #include <genealogy/lineage/rules_data.hpp>
 
@@ -68,7 +69,13 @@ const std::unordered_map<std::string, GradeInfo>& mourning_grades() {
     std::unordered_map<std::string, GradeInfo> out;
     const auto j = nlohmann::json::parse(rules_data::kMourningMingQingJson,
                                          nullptr, false);
-    if (j.is_discarded() || !j.is_object()) return out;
+    if (j.is_discarded() || !j.is_object()) {
+      // 静默空表曾让五服全量降级成兜底（2026-11 静态审查 H14）——
+      // 嵌入数据损坏必须让运维看见
+      std::fputs("[rules] 五服规则表解析失败：服等表为空，匹配将全部落空\n",
+                 stderr);
+      return out;
+    }
     for (const auto& g : j.value("grades", nlohmann::json::array())) {
       GradeInfo info;
       info.name = g.value("name", std::string());
@@ -86,7 +93,11 @@ const std::vector<MourningRule>& mourning_rules() {
     std::vector<MourningRule> out;
     const auto j = nlohmann::json::parse(rules_data::kMourningMingQingJson,
                                          nullptr, false);
-    if (j.is_discarded() || !j.is_object()) return out;
+    if (j.is_discarded() || !j.is_object()) {
+      std::fputs("[rules] 五服规则表解析失败：规则表为空，匹配将全部落空\n",
+                 stderr);
+      return out;
+    }
     for (const auto& r : j.value("rules", nlohmann::json::array())) {
       MourningRule rule;
       rule.path = r.value("path", std::string());

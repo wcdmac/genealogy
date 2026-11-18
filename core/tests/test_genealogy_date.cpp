@@ -54,7 +54,7 @@ TEST_CASE("GenealogyDate：JSON 往返", "[date]") {
   auto d = GenealogyDate::from_iso("2024-03-10");
   REQUIRE(d);
   REQUIRE(d->year_ganzhi().value() == "甲辰");  // 2024 = 甲辰年
-  d->era = Era{"甲辰", 0};
+  d->era = Era{"民国", 113};   // 2024 = 民国 113（年号名须在年号表中存在）
   d->lunar = "二月初一";
 
   const auto j = d->to_json();
@@ -63,7 +63,7 @@ TEST_CASE("GenealogyDate：JSON 往返", "[date]") {
   REQUIRE(back->gregorian.value() == "2024-03-10");
   REQUIRE(back->precision == DatePrecision::Day);
   REQUIRE(back->era.has_value());
-  REQUIRE(back->era->name == "甲辰");
+  REQUIRE(back->era->name == "民国");
   REQUIRE(back->lunar.value() == "二月初一");
   REQUIRE(back->year_ganzhi().value() == "甲辰");
 

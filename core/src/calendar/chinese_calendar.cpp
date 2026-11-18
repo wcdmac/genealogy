@@ -179,6 +179,27 @@ bool supports(int gregorian_year) noexcept {
 // ---------------------------------------------------------------- 互转
 
 Result<ChineseDate> to_chinese(const GregorianDate& date) {
+  // 严格校验民用日期（2026-11 静态审查 M2）：算术归一化语义不该泄漏
+  // 为公开 API——{2000,2,30} 会被静默算成 3 月 1 日
+  if (date.month < 1 || date.month > 12 || date.day < 1) {
+    return Error{ErrorCode::InvalidArgument,
+                 "月日超出民用历范围: " + std::to_string(date.year) + "-" +
+                     std::to_string(date.month) + "-" +
+                     std::to_string(date.day)};
+  }
+  static constexpr int kDim[] = {31, 28, 31, 30, 31, 30, 31, 31, 30, 31, 30, 31};
+  const bool leap = before_reform(date.year, date.month, date.day)
+                        ? julian_leap(date.year)
+                        : (date.year % 4 == 0 && date.year % 100 != 0) ||
+                              date.year % 400 == 0;
+  const int dim = kDim[date.month - 1] + (date.month == 2 && leap ? 1 : 0);
+  if (date.day > dim) {
+    return Error{ErrorCode::InvalidArgument,
+                 "该月只有 " + std::to_string(dim) + " 天: " +
+                     std::to_string(date.year) + "-" +
+                     std::to_string(date.month) + "-" +
+                     std::to_string(date.day)};
+  }
   if (in_reform_gap(date.year, date.month, date.day)) {
     return Error{ErrorCode::InvalidArgument,
                  "1582-10-05 至 10-14 在格里历改革中被删去，不是合法民用日期"};

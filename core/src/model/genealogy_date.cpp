@@ -206,18 +206,35 @@ Result<GenealogyDate> GenealogyDate::from_json(const nlohmann::json& j) {
       }
     }
     if (const auto it = j.find("gregorian"); it != j.end() && !it->is_null()) {
-      d.gregorian = it->get<std::string>();
+      // 复用 from_iso 的格式与范围校验（2026-11 静态审查 M1）——此前
+      // 原样落库，"9999-99-99" 会破坏排序键与干支推算
+      const std::string g = it->get<std::string>();
+      if (!g.empty()) {
+        auto chk = from_iso(g);
+        if (!chk) return chk.error();
+      }
+      d.gregorian = g;
     }
     if (const auto it = j.find("lunar"); it != j.end() && !it->is_null()) {
+      // lunar 是谱面原文（from_raw 口径，自由文本），不做过强校验
       d.lunar = it->get<std::string>();
     }
-    if (const auto it = j.find("ganzhi"); it != j.end() && !it->is_null()) {
-      d.ganzhi = it->get<std::string>();
-    }
+    // ganzhi 不收客户端值：ganzhi 由公历日期推导（下方），信任客户端
+    // 回传的干支会污染纪日一致性
     if (const auto it = j.find("era"); it != j.end() && !it->is_null()) {
       Era era;
       era.name = it->at("name").get<std::string>();
       era.year = it->at("year").get<int>();
+      // 年号合法性：名称须在年号表中存在、年份在现实域（1..300——
+      // 最长在位超过 60 年的只有康熙/乾隆，300 已是 5 倍余量）
+      const auto found = calendar::find_era(era.name);
+      if (found.empty()) {
+        return invalid_argument("未知年号: " + era.name);
+      }
+      if (era.year < 1 || era.year > 300) {
+        return invalid_argument("年号年份应在 1..300: " +
+                                std::to_string(era.year));
+      }
       d.era = era;
     }
     if (const auto it = j.find("precision"); it != j.end() && !it->is_null()) {
@@ -235,6 +252,10 @@ Result<GenealogyDate> GenealogyDate::from_json(const nlohmann::json& j) {
       } else {
         return invalid_argument("未知 precision: " + s);
       }
+    }
+    // 干支按公历重算（不信任客户端回传）
+    if (d.gregorian && !d.gregorian->empty()) {
+      d.ganzhi = d.year_ganzhi();
     }
     if (const auto it = j.find("qualifier"); it != j.end() && !it->is_null()) {
       d.qualifier = it->get<std::string>();

@@ -105,6 +105,9 @@ std::string chinese_number(int n) {
   static const char* const kDigits[] = {"",    "一", "二", "三", "四", "五",
                                         "六", "七", "八", "九"};
   if (n <= 0) return {};
+  // ≥100 的年号现实中不存在（民国纪年止于 38、康熙 61）——阿拉伯
+  // 数字兜底，不做 kDigits[tens] 的越界读（2026-11 静态审查 M4）
+  if (n > 99) return std::to_string(n);
   if (n < 10) return kDigits[n];
   if (n == 10) return "十";
   if (n < 20) return "十" + std::string(kDigits[n % 10]);
