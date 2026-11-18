@@ -78,6 +78,20 @@ void install_rate_limit(drogon::HttpAppFramework& app,
         {
           std::lock_guard<std::mutex> lk(st2.mu);
           const auto now = std::chrono::steady_clock::now();
+          // 惰性清扫：每 60s 一次，清掉 10 分钟未触达的桶（键控池
+          // 无淘汰会随客户端 IP 数无界增长——2026-11 静态审查 L3）
+          static std::chrono::steady_clock::time_point last_sweep{};
+          if (last_sweep.time_since_epoch().count() == 0 ||
+              now - last_sweep > std::chrono::seconds(60)) {
+            last_sweep = now;
+            for (auto it = st2.buckets.begin(); it != st2.buckets.end();) {
+              if (now - it->second.last > std::chrono::seconds(600)) {
+                it = st2.buckets.erase(it);
+              } else {
+                ++it;
+              }
+            }
+          }
           Bucket& b = st2.buckets[key];
           const double rate = st2.capacity / 60.0;  // 每秒回填
           if (b.last.time_since_epoch().count() == 0) {
@@ -103,10 +117,15 @@ void install_rate_limit(drogon::HttpAppFramework& app,
               to_full.count());
         }
         if (!allowed) {
+          // Retry-After 按回填速率动态算（恒 1 曾误导重试节奏——
+          // 桶空时要等约 capacity/60 秒才有一颗令牌）。
           auto resp = problem_response(429, 42901, "请求过于频繁",
                                        "限流窗口内请求过多，请稍后重试",
                                        req->path());
-          resp->addHeader("Retry-After", "1");
+          const int retry_after = to_full.count() < 1.0
+                                      ? 1
+                                      : static_cast<int>(to_full.count()) + 1;
+          resp->addHeader("Retry-After", std::to_string(retry_after));
           resp->addHeader("X-RateLimit-Limit",
                           std::to_string(static_cast<int>(state().capacity)));
           resp->addHeader("X-RateLimit-Remaining", "0");

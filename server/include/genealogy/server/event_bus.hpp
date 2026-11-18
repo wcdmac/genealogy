@@ -30,6 +30,14 @@ namespace genealogy::server {
 
 class EventBus {
  public:
+  // 订阅上限：SSE 流无预算上限会让慢连接长期滞留（broadcast 每 15s
+  // 逐一 send）。超限直接 503，客户端按重连间隔退避。锁内同步 send
+  // 保留——drogon ResponseStream 不可并发 send，锁正是串行化点，
+  // 「锁外发送」会引入数据竞态（2026-11 静态审查 M12 的建议方案
+  // 需要改造为按 loop 投递才安全，现阶段不采）。
+  static constexpr std::size_t kMaxStreams = 64;
+
+ public:
   static EventBus& instance();
 
   // 安装全局 ping 定时器（15s 一条注释帧，防代理/浏览器断空闲连接）

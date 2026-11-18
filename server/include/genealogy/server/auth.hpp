@@ -39,6 +39,10 @@ struct Claims {
 
 // 签发。ttl_seconds 默认 24h；raw_privacy 仅本地便捷通道使用，
 // require-auth 模式固定 false（云端永不签发豁免令牌）。
+// 常量时间比较（逐位 OR 累积差异，不提前退出）——口令比对与 JWT
+// 签名同纪律；长度不等直接 false（长度不作为秘密保护，哈希后定长）。
+bool constant_time_equals(const std::string& a, const std::string& b);
+
 std::string issue_token(const std::string& username, Role role,
                         std::int64_t ttl_seconds = 24 * 3600,
                         bool raw_privacy = false);

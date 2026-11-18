@@ -120,10 +120,10 @@ void auth_token(const drogon::HttpRequestPtr& req, Callback&& cb) {
       return;
     }
     const std::string& expect = auth_password_config();
-    // 口令比对用 ==：口令是启动时注入的单值环境变量，面向本机/局域网
-    // 场景；时序侧信道在此威胁模型下不成立（真上云换 M3 用户表时
-    // 应换成慢哈希 + 常量时间比较）。
-    if (expect.empty() || password != expect) {
+    // 口令比对用常量时间（2026-11 静态审查 M11）：口令仍是启动时注入
+    // 的单值环境变量（用户表/慢哈希属云版 M3），但写法不该分场景。
+    if (expect.empty() ||
+        !auth::constant_time_equals(password, expect)) {
       cb(unauthorized(req, "用户名或口令不正确"));
       return;
     }

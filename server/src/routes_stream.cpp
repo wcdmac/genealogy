@@ -4,11 +4,17 @@
 #include <string>
 
 #include <genealogy/server/event_bus.hpp>
+#include <genealogy/server/problem.hpp>
 
 namespace genealogy::server {
 
 void stream_events(const drogon::HttpRequestPtr& req, Callback&& cb) {
-  (void)req;
+  // 订阅上限（2026-11 静态审查 M12）：超限拒绝，不无限堆积
+  if (EventBus::instance().connection_count() >= EventBus::kMaxStreams) {
+    cb(problem_response(503, 9002, "订阅数已达上限",
+                        "SSE 订阅数已达上限，请稍后重试", req->path()));
+    return;
+  }
   // 异步流式响应：回调拿到 ResponseStream 的所有权（unique_ptr），
   // 转交 EventBus 持强引用保活；断开由总线发送失败时清理。
   // 为什么不用同步版 newStreamResponse：那个的 callback 是

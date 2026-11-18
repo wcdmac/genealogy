@@ -347,6 +347,15 @@ std::optional<Role> role_from_string(const std::string& s) {
   return std::nullopt;
 }
 
+bool constant_time_equals(const std::string& a, const std::string& b) {
+  if (a.size() != b.size()) return false;
+  unsigned char diff = 0;
+  for (std::size_t i = 0; i < a.size(); ++i) {
+    diff |= static_cast<unsigned char>(a[i] ^ b[i]);
+  }
+  return diff == 0;
+}
+
 std::string issue_token(const std::string& username, Role role,
                         std::int64_t ttl_seconds, bool raw_privacy) {
   const std::string header =

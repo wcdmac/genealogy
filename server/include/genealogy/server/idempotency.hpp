@@ -1,5 +1,8 @@
 #pragma once
 
+#include <drogon/drogon.h>
+
+
 // Idempotency-Key 重放（M8.1，设计文档 5.2.1：POST 24h 内重放返回
 // 首次结果）。库表持久化：重启后重放仍正确。
 //
@@ -26,9 +29,14 @@ struct IdempotentReplay {
   drogon::HttpResponsePtr response;
 };
 
+// key 是客户端自填的 Idempotency-Key，必须与身份+端点复合后才入缓存：
+// 全局单列曾让启用鉴权后不同用户命中彼此的缓存响应、同一 key 跨端点
+// 错误复用（2026-11 静态审查 H5）。
 std::optional<IdempotentReplay> idempotency_replay(Database& db,
+                                                   const drogon::HttpRequestPtr& req,
                                                    const std::string& key);
-void idempotency_store(Database& db, const std::string& key, int status,
+void idempotency_store(Database& db, const drogon::HttpRequestPtr& req,
+                       const std::string& key, int status,
                        const std::string& body);
 
 }  // namespace genealogy::server

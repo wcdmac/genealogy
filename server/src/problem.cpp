@@ -1,5 +1,7 @@
 #include <genealogy/server/problem.hpp>
 
+#include <cstdio>
+
 #include <string>
 
 namespace genealogy::server {
@@ -73,6 +75,19 @@ const char* problem_type_for(ErrorCode code) {
 
 drogon::HttpResponsePtr problem_response(const Error& err,
                                         const std::string& instance) {
+  // Internal 的 detail 不回显原文——sqlite errmsg 会带出表/列/约束名，
+  // 客户端可据此探测 schema（2026-11 静态审查 M10）；原文走服务端日志。
+  if (err.code() == ErrorCode::Internal) {
+    std::fputs((std::string("[internal] ") + instance + ": " +
+                err.message() + std::string(1, static_cast<char>(10)))
+                   .c_str(),
+               stderr);
+    const int icode = static_cast<int>(ErrorCode::Internal);
+    return problem_response(status_for_code(icode), icode,
+                            title_for_code(icode),
+                            "内部错误（详情见服务端日志）", instance,
+                            problem_type_for(ErrorCode::Internal));
+  }
   const int code = static_cast<int>(err.code());
   const int status = status_for_code(code);
   nlohmann::json j;

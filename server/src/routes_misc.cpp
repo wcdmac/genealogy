@@ -384,7 +384,7 @@ void import_gedcom(const drogon::HttpRequestPtr& req, Callback&& cb) {
     return;
   }
   const std::string idem_key = req->getHeader("Idempotency-Key");
-  if (auto idem_hit = idempotency_replay(*db, idem_key)) {
+  if (auto idem_hit = idempotency_replay(*db, req, idem_key)) {
     cb(idem_hit->response);
     return;
   }
@@ -479,7 +479,7 @@ void import_gedcom(const drogon::HttpRequestPtr& req, Callback&& cb) {
   out["imported"] = created;
   out["skipped"] = skipped;
   out["warnings"] = std::move(warnings);
-  idempotency_store(*db, idem_key, 200, out.dump());
+  idempotency_store(*db, req, idem_key, 200, out.dump());
   cb(json_ok(out, std::nullopt));
 }
 

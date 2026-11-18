@@ -310,9 +310,11 @@ int main(int argc, char** argv) {
   // 才进桶；容量 env GENEALOGY_RATE_LIMIT（默认 60 req/min）。
   install_rate_limit(app);
   // 请求体上限：GEDCOM 导入走 multipart，万条人物约几十 MB，
-  // 用 Drogon 默认上限会直接 413。上限放到 512 MB——
+  // 用 Drogon 默认上限会直接 413。64 MB 对合法导入仍有 2-4 倍余量，
   // 再大的导入应走 CLI 的 io import（流式），HTTP 边界不做流式。
-  app.setClientMaxBodySize(512ULL * 1024 * 1024);
+  // 512 MB 全内存持有（multipart + content 拷贝是两份）曾给匿名写
+  // 端点留出单请求 GB 级内存的 DoS 面（2026-11 静态审查 H13）。
+  app.setClientMaxBodySize(64ULL * 1024 * 1024);
   // 不开静态文件服务：/openapi.yaml 由 openapi_doc 处理器按
   // 「可执行文件目录 → cwd → 仓库相对路径」的顺序从磁盘读，
   // 比把 document root 绑死在 ./ 更稳（换工作目录不会 500）。
@@ -320,6 +322,24 @@ int main(int argc, char** argv) {
   std::cout << "genealogy-server " << kVersion << " 监听 http://" << opt.host
             << ":" << opt.port << base << "（库: " << opt.db_path
             << "，鉴权: " << (opt.require_auth ? "开启" : "本地免鉴权") << "）\n";
+  // 非回环绑定强制鉴权（2026-11 静态审查 H4）：误配对外部署时
+  // 全库匿名读写（local_identity 全权 steward + raw_privacy）。
+  // 确有局域网免鉴权需求的场合用环境变量显式越过——留痕，不静默。
+  {
+    const bool loopback = opt.host == "127.0.0.1" || opt.host == "localhost" ||
+                          opt.host == "::1";
+    const char* override_env = std::getenv("GENEALOGY_ALLOW_UNAUTHENTICATED_BIND");
+    if (!loopback && !opt.require_auth &&
+        (override_env == nullptr || *override_env == ' ')) {
+      std::cerr << "拒绝启动: --host " << opt.host
+                << " 是非回环地址，但未开 --require-auth。
+"
+                   "对外服务的免鉴权部署请显式设置 "
+                   "GENEALOGY_ALLOW_UNAUTHENTICATED_BIND=1（自负风险）。
+";
+      return 2;
+    }
+  }
   app.run();
   return 0;
 }

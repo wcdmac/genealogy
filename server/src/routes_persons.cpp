@@ -219,7 +219,7 @@ void persons_create(const drogon::HttpRequestPtr& req, Callback&& cb) {
     return;
   }
   const std::string idem_key = req->getHeader("Idempotency-Key");
-  if (auto idem_hit = idempotency_replay(*db, idem_key)) {
+  if (auto idem_hit = idempotency_replay(*db, req, idem_key)) {
     cb(idem_hit->response);
     return;
   }
@@ -251,7 +251,7 @@ void persons_create(const drogon::HttpRequestPtr& req, Callback&& cb) {
   {
     nlohmann::json j = to_json(*made);
     const std::string jbody = j.dump();
-    idempotency_store(*db, idem_key, 201, jbody);
+    idempotency_store(*db, req, idem_key, 201, jbody);
     sanitize_person(j, identity_of(req).raw_privacy);
     cb(json_created(std::move(j), made->rev));
   }
@@ -877,7 +877,7 @@ void person_names_create(const drogon::HttpRequestPtr& req, Callback&& cb) {
   const std::string instance = req->path();
   const std::string person_id = path_id(req);
   const std::string idem_key = req->getHeader("Idempotency-Key");
-  if (auto idem_hit = idempotency_replay(*db, idem_key)) {
+  if (auto idem_hit = idempotency_replay(*db, req, idem_key)) {
     cb(idem_hit->response);
     return;
   }
@@ -958,7 +958,7 @@ void person_names_create(const drogon::HttpRequestPtr& req, Callback&& cb) {
   {
     nlohmann::json j = to_json(*made);
     const std::string jbody = j.dump();
-    idempotency_store(*db, idem_key, 201, jbody);
+    idempotency_store(*db, req, idem_key, 201, jbody);
     cb(json_created(std::move(j)));
   }
   GENEALOGY_PUBLISH_CHANGE("person.updated", "person", person_id, 0);

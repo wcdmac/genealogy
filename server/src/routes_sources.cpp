@@ -117,7 +117,7 @@ void sources_create(const drogon::HttpRequestPtr& req, Callback&& cb) {
     return;
   }
   const std::string idem_key = req->getHeader("Idempotency-Key");
-  if (auto idem_hit = idempotency_replay(*db, idem_key)) {
+  if (auto idem_hit = idempotency_replay(*db, req, idem_key)) {
     cb(idem_hit->response);
     return;
   }
@@ -171,7 +171,7 @@ void sources_create(const drogon::HttpRequestPtr& req, Callback&& cb) {
   {
     nlohmann::json j = to_json(*made);
     const std::string jbody = j.dump();
-    idempotency_store(*db, idem_key, 201, jbody);
+    idempotency_store(*db, req, idem_key, 201, jbody);
     cb(json_created(std::move(j)));
   }
 }
@@ -325,7 +325,7 @@ void citations_create(const drogon::HttpRequestPtr& req, Callback&& cb) {
     return;
   }
   const std::string idem_key = req->getHeader("Idempotency-Key");
-  if (auto idem_hit = idempotency_replay(*db, idem_key)) {
+  if (auto idem_hit = idempotency_replay(*db, req, idem_key)) {
     cb(idem_hit->response);
     return;
   }
@@ -392,7 +392,7 @@ void citations_create(const drogon::HttpRequestPtr& req, Callback&& cb) {
   {
     nlohmann::json j = to_json(*made);
     const std::string jbody = j.dump();
-    idempotency_store(*db, idem_key, 201, jbody);
+    idempotency_store(*db, req, idem_key, 201, jbody);
     cb(json_created(std::move(j)));
   }
 }

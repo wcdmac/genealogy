@@ -70,12 +70,28 @@ void install_body_guard(drogon::HttpAppFramework& app) {
         for (char& c : ctype) {
           if (c >= 'A' && c <= 'Z') c = static_cast<char>(c - 'A' + 'a');
         }
-        if (ctype.find("application/json") == std::string::npos) {
+        const auto body = req->body();
+        if (body.empty()) {
           accb();
           return;
         }
-        const auto body = req->body();
-        if (!body.empty() && !is_valid_utf8(body.data(), body.size())) {
+        if (ctype.find("application/json") == std::string::npos) {
+          // multipart 是 GEDCOM 导入的合法载体（文件自带字符集检测，
+          // 不能按 UTF-8 强校验）；其余带体请求的媒体类型 API 一律不
+          // 消费——统一 415。此前非 JSON 头直接放行，改个请求头就能
+          // 带着非法字节绕过本守卫直达 json::parse（2026-11 静态审查
+          // H1 记录的绕过路径）。
+          if (ctype.find("multipart/") != std::string::npos) {
+            accb();
+            return;
+          }
+          acb(problem_response(415, 1002, "不支持的媒体类型",
+                               "API 只接受 application/json 或 "
+                               "multipart/form-data 请求体",
+                               req->path()));
+          return;
+        }
+        if (!is_valid_utf8(body.data(), body.size())) {
           auto resp = problem_response(
               400, 1001, "参数校验失败",
               "请求体不是合法 UTF-8（JSON 交换文本按 RFC 8259 必须 UTF-8）",

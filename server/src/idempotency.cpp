@@ -5,7 +5,28 @@
 #include <iostream>
 #include <string>
 
+#include <genealogy/server/auth.hpp>
+#include <genealogy/server/routes_auth.hpp>
 #include <genealogy/util/time.hpp>
+
+namespace {
+// 复合缓存键：身份 + 端点 + 客户端 key。
+ 做分隔（key 本身可能含
+// 任意字符，用控制字符保证不产生歧义拼接）。
+std::string composite_key(const drogon::HttpRequestPtr& req,
+                          const std::string& key) {
+  const auto identity = identity_of(req);
+  std::string out = identity.username.empty() ? std::string("local")
+                                              : identity.username;
+  out.push_back('
+');
+  out += req->path();
+  out.push_back('
+');
+  out += key;
+  return out;
+}
+}  // namespace
 
 namespace genealogy::server {
 
@@ -34,14 +55,15 @@ static std::int64_t unix_now() {
           .count());
 }
 
-std::optional<IdempotentReplay> idempotency_replay(Database& db,
-                                                   const std::string& key) {
+std::optional<IdempotentReplay> idempotency_replay(
+    Database& db, const drogon::HttpRequestPtr& req, const std::string& key) {
   if (key.empty()) return std::nullopt;
+  const std::string composite = composite_key(req, key);
   Stmt st(db.raw(),
           "SELECT status, body FROM idempotency_cache"
           " WHERE key = ?1 AND created_at >= ?2");
   if (!st.ok()) return std::nullopt;
-  sqlite3_bind_text(st.get(), 1, key.c_str(), -1, SQLITE_TRANSIENT);
+  sqlite3_bind_text(st.get(), 1, composite.c_str(), -1, SQLITE_TRANSIENT);
   // 24h 窗口：Unix 秒数值比较（created_at 存秒）
   sqlite3_bind_int64(st.get(), 2, unix_now() - 24 * 3600);
   if (sqlite3_step(st.get()) == SQLITE_ROW) {
@@ -60,9 +82,11 @@ std::optional<IdempotentReplay> idempotency_replay(Database& db,
   return std::nullopt;
 }
 
-void idempotency_store(Database& db, const std::string& key, int status,
+void idempotency_store(Database& db, const drogon::HttpRequestPtr& req,
+                       const std::string& key, int status,
                        const std::string& body) {
   if (key.empty()) return;
+  const std::string composite = composite_key(req, key);
   if (status < 200 || status >= 300) return;  // 只缓存 2xx
   try {
     {
@@ -76,7 +100,7 @@ void idempotency_store(Database& db, const std::string& key, int status,
              "INSERT OR REPLACE INTO idempotency_cache"
              " (key, status, body, created_at) VALUES (?1, ?2, ?3, ?4)");
     if (!ins.ok()) throw std::runtime_error("准备失败");
-    sqlite3_bind_text(ins.get(), 1, key.c_str(), -1, SQLITE_TRANSIENT);
+    sqlite3_bind_text(ins.get(), 1, composite.c_str(), -1, SQLITE_TRANSIENT);
     sqlite3_bind_text(ins.get(), 2, std::to_string(status).c_str(), -1,
                       SQLITE_TRANSIENT);
     sqlite3_bind_text(ins.get(), 3, body.c_str(), -1, SQLITE_TRANSIENT);
