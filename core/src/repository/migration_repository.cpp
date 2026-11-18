@@ -59,7 +59,8 @@ MigrationRepository::MigrationRepository(Database& db) : db_(db) {}
 
 Result<std::vector<Migration>> MigrationRepository::list(
     const MigrationFilter& filter) const {
-  // subject_id 与 branch_id 是或的关系。branch_id 由子查询原生解析
+  // subject_id 与 branch_id 是或的关系（2026-11 静态审查 M9：此前两条件
+  // 用 AND 相连，组合过滤变交集，与注释语义相反）。branch_id 由子查询原生解析
   // （支派自身 + branch_id 命中该支派的所有成员）——此前由 REST 层
   // 展开成员 ID 后逐成员查询合并：既 N+1，合并后的游标口径也是错的
   // （每成员只取一页，超过一页的成员其余记录静默丢失），两条一并修。
@@ -67,9 +68,10 @@ Result<std::vector<Migration>> MigrationRepository::list(
   const std::string sql = std::string("SELECT ").append(kCols) +
                           " FROM migration"
                           " WHERE (?1 IS NULL OR subject_type = ?1)"
-                          "   AND (?2 IS NULL OR subject_id = ?2)"
-                          "   AND (?4 IS NULL OR subject_id = ?4 OR subject_id IN"
-                          "         (SELECT id FROM person WHERE branch_id = ?4))"
+                          "   AND ((?2 IS NULL AND ?4 IS NULL)"
+                          "        OR (?2 IS NOT NULL AND subject_id = ?2)"
+                          "        OR (?4 IS NOT NULL AND (subject_id = ?4 OR subject_id IN"
+                          "              (SELECT id FROM person WHERE branch_id = ?4))))"
                           "   AND (?3 IS NULL OR id > ?3)"
                           " ORDER BY id LIMIT ?5";
   Stmt st(db_.raw(), sql.c_str());
@@ -109,7 +111,11 @@ Result<Migration> MigrationRepository::get(const std::string& id) const {
                  std::string("准备查询失败: ") + sqlite3_errmsg(db_.raw())};
   }
   sqlite3_bind_text(st.get(), 1, id.c_str(), -1, SQLITE_TRANSIENT);
-  if (sqlite3_step(st.get()) == SQLITE_ROW) return row_to_migration(st.get());
+  const int rc = sqlite3_step(st.get());
+  if (rc == SQLITE_ROW) return row_to_migration(st.get());
+  if (rc != SQLITE_DONE) {
+    return internal(std::string("查询执行失败: ") + sqlite3_errmsg(db_.raw()));
+  }
   return not_found("迁徙记录不存在: " + id);
 }
 

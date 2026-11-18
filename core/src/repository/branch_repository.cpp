@@ -99,7 +99,11 @@ Result<Branch> BranchRepository::get(const std::string& id) const {
                  std::string("准备查询失败: ") + sqlite3_errmsg(db_.raw())};
   }
   sqlite3_bind_text(st.get(), 1, id.c_str(), -1, SQLITE_TRANSIENT);
-  if (sqlite3_step(st.get()) == SQLITE_ROW) return row_to_branch(st.get());
+  const int rc = sqlite3_step(st.get());
+  if (rc == SQLITE_ROW) return row_to_branch(st.get());
+  if (rc != SQLITE_DONE) {
+    return internal(std::string("查询执行失败: ") + sqlite3_errmsg(db_.raw()));
+  }
   return not_found("支派不存在: " + id);
 }
 

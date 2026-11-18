@@ -158,7 +158,11 @@ Result<Person> PersonRepository::get(const std::string& id) const {
   Stmt st(db_.raw(), sql.c_str());
   if (!st.ok()) return internal("准备查询失败");
   sqlite3_bind_text(st.get(), 1, id.c_str(), -1, SQLITE_TRANSIENT);
-  if (sqlite3_step(st.get()) == SQLITE_ROW) return row_to_person(st.get());
+  const int rc = sqlite3_step(st.get());
+  if (rc == SQLITE_ROW) return row_to_person(st.get());
+  if (rc != SQLITE_DONE) {
+    return internal(std::string("查询执行失败: ") + sqlite3_errmsg(db_.raw()));
+  }
   return not_found("人物不存在: " + id);
 }
 
@@ -282,6 +286,54 @@ Result<Person> PersonRepository::update(const Person& p) {
   updated.rev = p.rev + 1;
   updated.updated_at = now;
   return updated;
+}
+
+Result<PersonRepository::RelationRefs> PersonRepository::count_relation_references(
+    const std::string& id) const {
+  RelationRefs out;
+  auto count_one = [&](const char* sql, int* dest) -> Result<void> {
+    Stmt st(db_.raw(), sql);
+    if (!st.ok()) {
+      return internal(std::string("引用清查准备失败: ") +
+                      sqlite3_errmsg(db_.raw()));
+    }
+    sqlite3_bind_text(st.get(), 1, id.c_str(), -1, SQLITE_TRANSIENT);
+    const int rc = sqlite3_step(st.get());
+    if (rc != SQLITE_ROW) {
+      return internal(std::string("引用清查失败: ") +
+                      sqlite3_errmsg(db_.raw()));
+    }
+    *dest = sqlite3_column_int(st.get(), 0);
+    return {};
+  };
+  if (auto r = count_one(
+          "SELECT COUNT(*) FROM parent_child WHERE parent_id = ?1 OR child_id = ?1",
+          &out.parent_child_links);
+      !r) {
+    return r.error();
+  }
+  if (auto r = count_one("SELECT COUNT(*) FROM union_member WHERE person_id = ?1",
+                         &out.union_memberships);
+      !r) {
+    return r.error();
+  }
+  if (auto r = count_one(
+          "SELECT COUNT(*) FROM branch WHERE founder_person_id = ?1",
+          &out.founded_branches);
+      !r) {
+    return r.error();
+  }
+  return out;
+}
+
+Result<void> PersonRepository::remove_names(const std::string& id) {
+  Stmt st(db_.raw(), "DELETE FROM person_name WHERE person_id = ?1");
+  if (!st.ok()) return internal("名号清理准备失败");
+  sqlite3_bind_text(st.get(), 1, id.c_str(), -1, SQLITE_TRANSIENT);
+  if (sqlite3_step(st.get()) != SQLITE_DONE) {
+    return internal(std::string("名号清理失败: ") + sqlite3_errmsg(db_.raw()));
+  }
+  return {};
 }
 
 Result<void> PersonRepository::remove(const std::string& id) {

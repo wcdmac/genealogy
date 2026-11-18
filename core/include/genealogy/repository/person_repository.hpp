@@ -42,6 +42,18 @@ class PersonRepository {
 
   Result<void> remove(const std::string& id);
 
+  // 删除前的引用清查（2026-11 静态审查 H12）：人物仍被亲属/结合/支派
+  // 引用时，FK 会让 DELETE 报错——先查出来给调用方干净的 409，
+  // 而不是让约束错误落到 500。
+  struct RelationRefs {
+    int parent_child_links = 0;   // parent_child：为父或为子
+    int union_memberships = 0;    // union_member
+    int founded_branches = 0;     // branch.founder_person_id
+  };
+  Result<RelationRefs> count_relation_references(const std::string& id) const;
+  // 清掉本人名号行（person_name.person_id 外键指向 person），随删除同事务
+  Result<void> remove_names(const std::string& id);
+
  private:
   Database& db_;
 };

@@ -35,7 +35,9 @@ Result<void> SourceService::remove_source(const std::string& id) {
   // 来源被 citation 引用时拒绝删除：证据锚点不许悬空
   // （citation.source_id 外键也会拦，这里先给出人话 Conflict）。
   CitationRepository citations(*db_);
-  const int n = citations.count_for_source(id);
+  auto cn = citations.count_for_source(id);
+  if (!cn) return cn.error();
+  const int n = *cn;
   if (n > 0) {
     return conflict("来源被 " + std::to_string(n) +
                     " 条证据引用，先删除引用再删除来源");

@@ -92,13 +92,32 @@ Result<void> PersonService::remove_person(const std::string& id) {
   if (!scope_events) return scope_events.error();
 
   CitationRepository citations(*db_);
-  long cited = citations.count_for_subject(CitationSubjectType::Person, id);
+  auto person_cited =
+      citations.count_for_subject(CitationSubjectType::Person, id);
+  if (!person_cited) return person_cited.error();
+  long cited = *person_cited;
   for (const auto& e : *scope_events) {
-    cited += citations.count_for_subject(CitationSubjectType::Event, e.id);
+    auto event_cited =
+        citations.count_for_subject(CitationSubjectType::Event, e.id);
+    if (!event_cited) return event_cited.error();
+    cited += *event_cited;
   }
   if (cited > 0) {
     return conflict("人物（含其事件）被 " + std::to_string(cited) +
                     " 条证据引用，先解除引用再删除");
+  }
+
+  // 亲属/结合/支派引用必须先解除（2026-11 静态审查 H12）：否则最后
+  // 一步 DELETE 撞外键返回 500——这里给出人话 409 和逐项计数。
+  auto refs = repo_.count_relation_references(id);
+  if (!refs) return refs.error();
+  if (refs->parent_child_links > 0 || refs->union_memberships > 0 ||
+      refs->founded_branches > 0) {
+    return conflict("人物仍有未解除的关系（亲子 " +
+                    std::to_string(refs->parent_child_links) + " 条、结合成员 " +
+                    std::to_string(refs->union_memberships) + " 条、创建支派 " +
+                    std::to_string(refs->founded_branches) +
+                    " 个），先解除关系再删除");
   }
 
   // 三个删除必须同一事务：union_member.person_id 对 person 有外键，
@@ -141,6 +160,8 @@ Result<void> PersonService::remove_person(const std::string& id) {
     }
     mg_cursor = mgrs->back().id;
   }
+  // 名号行随人删除（person_name.person_id 外键指向 person）
+  if (auto rn = repo_.remove_names(id); !rn) return rn;
   auto removed = repo_.remove(id);
   if (!removed) return removed.error();
   if (auto c = tx.commit(); !c) return c;

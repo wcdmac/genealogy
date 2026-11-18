@@ -28,10 +28,12 @@ class CitationRepository {
   Result<Citation> update(const Citation& citation);
   Result<void> remove(const std::string& id);
 
-  // 删除保护计数（ROADMAP M7.2：删除被引事实时 409）。
-  int count_for_subject(CitationSubjectType type,
-                        const std::string& subject_id) const;
-  int count_for_source(const std::string& source_id) const;
+  // 删除保护计数（ROADMAP M7.2：删除被引事实时 409）。失败返回
+  // Internal 而非折叠成 0：查询错误折叠成「无引用」会让删除保护
+  // 静默失效（2026-11 静态审查 H8）。
+  Result<int> count_for_subject(CitationSubjectType type,
+                                const std::string& subject_id) const;
+  Result<int> count_for_source(const std::string& source_id) const;
 
   // 无证据主体数（ROADMAP M7.3：/stats 的 uncited_facts）——该类型主体
   // 表里 citation 一条都没挂的行数。目前主体表只有 person/event 两类

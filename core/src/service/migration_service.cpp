@@ -36,7 +36,9 @@ Result<void> MigrationService::remove_migration(const std::string& id) {
   // ROADMAP M7.2：删除被引事实时 409——迁徙被证据引用则拒绝，
   // 引用解除（删 citation）后即可删除。
   CitationRepository citations(*db_);
-  const int n = citations.count_for_subject(CitationSubjectType::Migration, id);
+  auto cn = citations.count_for_subject(CitationSubjectType::Migration, id);
+  if (!cn) return cn.error();
+  const int n = *cn;
   if (n > 0) {
     return conflict("迁徙被 " + std::to_string(n) +
                    " 条证据引用，先解除引用再删除");

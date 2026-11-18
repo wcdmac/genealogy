@@ -82,7 +82,11 @@ Result<PersonName> PersonNameRepository::get(const std::string& id) const {
   Stmt st(db_.raw(), sql.c_str());
   if (!st.ok()) return internal("准备查询失败");
   sqlite3_bind_text(st.get(), 1, id.c_str(), -1, SQLITE_TRANSIENT);
-  if (sqlite3_step(st.get()) == SQLITE_ROW) return row_to_person_name(st.get());
+  const int rc = sqlite3_step(st.get());
+  if (rc == SQLITE_ROW) return row_to_person_name(st.get());
+  if (rc != SQLITE_DONE) {
+    return internal(std::string("查询执行失败: ") + sqlite3_errmsg(db_.raw()));
+  }
   return not_found("名号不存在: " + id);
 }
 

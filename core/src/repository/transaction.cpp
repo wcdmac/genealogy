@@ -17,11 +17,15 @@ namespace genealogy {
 // （搭车语义在同一线程内原样保留）；跨线程则串行。
 
 Transaction::Transaction(Database& db) : db_(db) {
-  // 已经在外层事务里：搭车，不重复开，也不负责提交。
-  // 搭车只在同一线程发生（外层持着递归锁），跨线程会在此排队等锁。
-  if (sqlite3_get_autocommit(db_.raw()) == 0) return;
+  // 先拿锁、后判 autocommit——顺序不能反。autocommit 是连接的全局状态，
+  // 不是线程局部的：若在锁外判定，线程 A 开着事务时线程 B 会读到
+  // autocommit==0 而直接「搭车」（B 的 commit 只置标志），A 回滚即静默
+  // 丢掉 B 的写入（2026-11 静态审查 F2，macOS 实测路径成立）。先取递归
+  // 锁：同线程重入立即成功（真正的搭车，外层事务在持锁中）；跨线程
+  // 则阻塞到 A 收尾，此后 autocommit==1，B 开自己的事务。
   db_.write_mutex().lock();
   locked_ = true;
+  if (sqlite3_get_autocommit(db_.raw()) == 0) return;   // 同线程搭车（locked_ 已置位，析构/commit 配对释放）
   if (auto r = repo_internal::begin_immediate(db_.raw()); r) {
     owns_ = true;
   } else {
@@ -50,7 +54,10 @@ Result<void> Transaction::commit() {
   }
   if (!owns_) {
     // 搭车的那一段：最外层会提交，这里只宣告本段写完了
+    // （同线程递归锁配对：本段持有一份计数，此处释放）
     done_ = true;
+    if (locked_) db_.write_mutex().unlock();
+    locked_ = false;
     return {};
   }
   if (auto r = repo_internal::commit(db_.raw()); !r) {

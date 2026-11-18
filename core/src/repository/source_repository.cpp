@@ -65,6 +65,18 @@ void bind_source(sqlite3_stmt* st, const Source& src) {
 
 }  // namespace
 
+// LIKE 模式转义：与 document_repository 同纪律（2026-11 静态审查 L2——
+// 搜 "100%"、"a_b" 曾误匹配）。\ % _ 全部转义，配 ESCAPE '\' 使用。
+std::string like_escape(std::string_view s) {
+  std::string out;
+  out.reserve(s.size() * 2);
+  for (const char c : s) {
+    if (c == '\\' || c == '%' || c == '_') out.push_back('\\');
+    out.push_back(c);
+  }
+  return out;
+}
+
 SourceRepository::SourceRepository(Database& db) : db_(db) {}
 
 Result<std::vector<Source>> SourceRepository::list(
@@ -72,7 +84,7 @@ Result<std::vector<Source>> SourceRepository::list(
   const std::string sql = std::string("SELECT ").append(kCols) +
                           " FROM source"
                           " WHERE (?1 IS NULL OR type = ?1)"
-                          "   AND (?2 IS NULL OR title LIKE '%' || ?2 || '%')"
+                          "   AND (?2 IS NULL OR title LIKE '%' || like_escape(?2) || '%' ESCAPE '\\')"
                           "   AND (?3 IS NULL OR id > ?3)"
                           " ORDER BY id LIMIT ?4";
   Stmt st(db_.raw(), sql.c_str());
@@ -108,7 +120,11 @@ Result<Source> SourceRepository::get(const std::string& id) const {
   Stmt st(db_.raw(), sql.c_str());
   if (!st.ok()) return internal("准备查询失败");
   sqlite3_bind_text(st.get(), 1, id.c_str(), -1, SQLITE_TRANSIENT);
-  if (sqlite3_step(st.get()) == SQLITE_ROW) return row_to_source(st.get());
+  const int rc = sqlite3_step(st.get());
+  if (rc == SQLITE_ROW) return row_to_source(st.get());
+  if (rc != SQLITE_DONE) {
+    return internal(std::string("查询执行失败: ") + sqlite3_errmsg(db_.raw()));
+  }
   return not_found("来源不存在: " + id);
 }
 

@@ -105,7 +105,11 @@ Result<Citation> CitationRepository::get(const std::string& id) const {
   Stmt st(db_.raw(), sql.c_str());
   if (!st.ok()) return internal("准备查询失败");
   sqlite3_bind_text(st.get(), 1, id.c_str(), -1, SQLITE_TRANSIENT);
-  if (sqlite3_step(st.get()) == SQLITE_ROW) return row_to_citation(st.get());
+  const int rc = sqlite3_step(st.get());
+  if (rc == SQLITE_ROW) return row_to_citation(st.get());
+  if (rc != SQLITE_DONE) {
+    return internal(std::string("查询执行失败: ") + sqlite3_errmsg(db_.raw()));
+  }
   return not_found("证据引用不存在: " + id);
 }
 
@@ -172,30 +176,37 @@ Result<void> CitationRepository::remove(const std::string& id) {
   return {};
 }
 
-int CitationRepository::count_for_subject(
+Result<int> CitationRepository::count_for_subject(
     CitationSubjectType type, const std::string& subject_id) const {
   Stmt st(db_.raw(),
           "SELECT COUNT(*) FROM citation WHERE subject_type = ?1"
           " AND subject_id = ?2");
-  if (!st.ok()) return 0;
+  if (!st.ok()) {
+    return internal(std::string("引用计数查询准备失败: ") +
+                    sqlite3_errmsg(db_.raw()));
+  }
   sqlite3_bind_text(st.get(), 1, to_string(type).c_str(), -1,
                     SQLITE_TRANSIENT);
   sqlite3_bind_text(st.get(), 2, subject_id.c_str(), -1, SQLITE_TRANSIENT);
-  if (sqlite3_step(st.get()) == SQLITE_ROW) {
-    return sqlite3_column_int(st.get(), 0);
-  }
-  return 0;
+  const int rc = sqlite3_step(st.get());
+  if (rc == SQLITE_ROW) return sqlite3_column_int(st.get(), 0);
+  return internal(std::string("引用计数查询失败: ") +
+                  sqlite3_errmsg(db_.raw()));
 }
 
-int CitationRepository::count_for_source(const std::string& source_id) const {
+Result<int> CitationRepository::count_for_source(
+    const std::string& source_id) const {
   Stmt st(db_.raw(),
           "SELECT COUNT(*) FROM citation WHERE source_id = ?1");
-  if (!st.ok()) return 0;
-  sqlite3_bind_text(st.get(), 1, source_id.c_str(), -1, SQLITE_TRANSIENT);
-  if (sqlite3_step(st.get()) == SQLITE_ROW) {
-    return sqlite3_column_int(st.get(), 0);
+  if (!st.ok()) {
+    return internal(std::string("引用计数查询准备失败: ") +
+                    sqlite3_errmsg(db_.raw()));
   }
-  return 0;
+  sqlite3_bind_text(st.get(), 1, source_id.c_str(), -1, SQLITE_TRANSIENT);
+  const int rc = sqlite3_step(st.get());
+  if (rc == SQLITE_ROW) return sqlite3_column_int(st.get(), 0);
+  return internal(std::string("引用计数查询失败: ") +
+                  sqlite3_errmsg(db_.raw()));
 }
 
 int CitationRepository::count_subjects_without_citation(

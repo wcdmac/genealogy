@@ -19,7 +19,12 @@ std::unordered_map<std::string, int> generations_topo(const PersonGraph& g) {
     (void)node;
     int parents = 0;
     if (g.father_of(id) != nullptr) ++parents;
-    if (g.mother_of(id) != nullptr) ++parents;
+    // 与 children_of 的去重口径一致（graph.cpp 对同一父母两边挂入去重）：
+    // father_id==mother_id 的脏数据若按 2 计入度，孩子会永久卡在
+    // pending 里被排除出世代表（2026-11 静态审查 M3）。
+    if (g.mother_of(id) != nullptr && g.mother_of(id) != g.father_of(id)) {
+      ++parents;
+    }
     pending[id] = parents;
     if (parents == 0) {
       gen[id] = 1;  // 始祖
