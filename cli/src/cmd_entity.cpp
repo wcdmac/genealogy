@@ -23,6 +23,7 @@
 #include <genealogy/repository/database.hpp>
 #include <genealogy/service/branch_service.hpp>
 #include <genealogy/service/event_service.hpp>
+#include <genealogy/model/book.hpp>
 #include <genealogy/service/book_service.hpp>
 #include <genealogy/service/place_service.hpp>
 #include <genealogy/service/union_service.hpp>
@@ -77,8 +78,8 @@ int usage(const std::string& msg) {
 
 // ---------- 文本行打印器 ----------
 
-void print_book_text(const Lineage& v) {
-  std::cout << v.id << "\t" << v.surname << "氏·" << v.name;
+void print_book_text(const Book& v) {
+  std::cout << v.surname << "氏·" << v.name;
   if (v.commandery) std::cout << "\t[" << *v.commandery << "]";
   if (v.hall_name) std::cout << "\t" << *v.hall_name;
   std::cout << "\trev=" << v.rev << "\n";
@@ -152,7 +153,9 @@ int cmd_book(const std::vector<std::string>& args,
       ("hall", "堂号", cxxopts::value<std::string>())
       ("note", "备注", cxxopts::value<std::string>());
     const auto r = parse_args(opts, rest);
-    Book b = svc.get_book();
+    auto got_b = svc.get_book();
+    if (!got_b) { print_error(got_b.error()); return exit_code_for(got_b.error()); }
+    Book b = *got_b;
     if (r.count("name")) b.name = r["name"].as<std::string>();
     if (r.count("surname")) b.surname = r["surname"].as<std::string>();
     if (r.count("surname-origin"))

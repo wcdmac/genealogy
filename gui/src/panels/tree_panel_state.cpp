@@ -52,6 +52,10 @@ bool TreePanel::needs_rebuild(const std::string& root, int depth) const {
 
 void TreePanel::begin_load(DbSession& session, const std::string& root,
                            int depth) {
+  // worker 可能已把 running_ 置 false 但线程对象仍 joinable；直接
+  // 给 worker_ 赋值会触发 std::thread::operator= → std::terminate。
+  // 先幂等 join 再起新线程（H-4）。
+  stop_worker();
   loaded_root_ = root;
   loaded_depth_ = depth;
   has_tree_ = false;

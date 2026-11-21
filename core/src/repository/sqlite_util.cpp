@@ -156,7 +156,9 @@ const char* person_insert_sql() noexcept {
          " burial_place_id, biography, father_id, mother_id,"
          " portrait_attachment_id, note, rev, created_at, updated_at)"
          " VALUES (?1,?2,?3,?4,?5,?6,?7,?8,?9,?10,?11,?12,?13,?14,?15,?16,"
-         "?17,?18,?19,?20,?21,?22,?23,?24,?25,?26,?27,?28)";
+         "?17,?18,?19,?20,?21,?22,?23,?24,?25,?26,?27)";
+// 单谱单库（0007）移除 lineage_id 后主表 27 列，bind_person 也绑定 27 个值；
+// 曾残留 ?28 导致 prepare 恒失败（所有建档/灌库不可用）。
 }
 
 const char* place_insert_sql() noexcept {

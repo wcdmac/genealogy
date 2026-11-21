@@ -105,17 +105,31 @@ Result<Database> Database::open(const std::filesystem::path& path) {
 
   const auto* migrations = embedded_schema::migrations();
   const auto count = embedded_schema::migration_count();
+  // 0007 用 DROP TABLE 重建 person/branch/document 以去 lineage_id。
+  // foreign_keys=ON 时 DROP 会触发隐式 DELETE 的外键检查，非空存量库
+  // 必然 FK 失败；SQLite 要求该 PRAGMA 在事务外切换，故此处按迁移
+  // 粒度临时关闭，提交/回滚后立即恢复。
+  constexpr std::string_view kRebuildMigration = "0007_single_book";
   for (std::size_t i = 0; i < count; ++i) {
     const auto& m = migrations[i];
     if (migration_applied(raw, m.name)) {
       impl->applied = i + 1;
       continue;
     }
+    const bool rebuild = (m.name == kRebuildMigration);
+    if (rebuild) {
+      if (auto r = repo_internal::exec(raw, "PRAGMA foreign_keys=OFF;"); !r) return r.error();
+    }
     if (auto r = repo_internal::exec(raw, "BEGIN IMMEDIATE;"); !r) return r.error();
     auto apply = repo_internal::exec(raw, m.sql);
     if (apply) apply = record_migration(raw, m.name, m.sql);
     if (auto r = repo_internal::exec(raw, apply ? "COMMIT;" : "ROLLBACK;"); !r) {
+      if (rebuild) (void)repo_internal::exec(raw, "PRAGMA foreign_keys=ON;");
       return r.error();
+    }
+    if (rebuild) {
+      // 重建后的表结构已由迁移脚本重建外键约束，恢复 PRAGMA 即可。
+      if (auto r = repo_internal::exec(raw, "PRAGMA foreign_keys=ON;"); !r) return r.error();
     }
     if (!apply) {
       return Error{ErrorCode::Internal,

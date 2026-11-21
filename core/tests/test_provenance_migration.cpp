@@ -218,14 +218,13 @@ TEST_CASE("出处迁移：dry-run 零写入；keep-note 保留原文") {
   cleanup_db(path);
 }
 
-TEST_CASE("出处迁移：多谱库按 lineage 各建一来源；显式绑定覆盖") {
+TEST_CASE("出处迁移：单谱单库恒一来源；显式绑定覆盖") {
   const auto path = temp_db_path();
   auto opened = Database::open(path);
   REQUIRE(opened);
   Database& db = *opened;
 
-  // 建第二个谱
-  
+  // 单谱单库：同一部谱内不同人物的出处归入同一来源
   PersonRepository persons(db);
   auto li = persons.insert(mk("李一人", "谱p12"));
   Person wp;
@@ -245,33 +244,29 @@ TEST_CASE("出处迁移：多谱库按 lineage 各建一来源；显式绑定覆
 
   auto report = migrate_note_provenance(db, {li_binding});
   REQUIRE(report);
-  CHECK(report->sources_created == 2);  // 李氏显式 + 吴氏派生
+  CHECK(report->sources_created == 1);  // 单谱库恒一来源（显式 title 生效）
   CHECK(report->citations_created == 2);
-  CHECK(report->warnings.empty());  // 两谱都有绑定
+  CHECK(report->warnings.empty());
 
-  // 各来源独立：两人物引用不同 source_id
+  // 同一来源：两人物引用相同 source_id
   CitationRepository citations(db);
   auto rows = citations.list(CitationFilter{});
   REQUIRE(rows);
   CHECK(rows->size() == 2);
-  CHECK((*rows)[0].source_id != (*rows)[1].source_id);
+  CHECK((*rows)[0].source_id == (*rows)[1].source_id);
 
-  // 派生来源的 title/year 从谱名解析
+  // 单谱单库恒一来源，显式绑定的 title/year/repository 均生效
   SourceRepository sources(db);
   auto srcs = sources.list(SourceFilter{});
   REQUIRE(srcs);
-  CHECK(srcs->size() == 2);
-  for (const auto& s : *srcs) {
-    CHECK(s.type == SourceType::GenealogyBook);
-    if (s.title == "高阳李氏家谱") {
-      REQUIRE(s.repository.has_value());
-      CHECK(*s.repository == "上海图书馆");
-    }
-    if (s.title == "长林吴氏家谱") {
-      REQUIRE(s.year_text.has_value());
-      CHECK(*s.year_text == "乾隆四年刻本");
-    }
-  }
+  REQUIRE(srcs->size() == 1);
+  const auto& only = (*srcs)[0];
+  CHECK(only.type == SourceType::GenealogyBook);
+  CHECK(only.title == "高阳李氏家谱");
+  REQUIRE(only.repository.has_value());
+  CHECK(*only.repository == "上海图书馆");
+  REQUIRE(only.year_text.has_value());
+  CHECK(*only.year_text == "清嘉庆四年钞本");
 
   cleanup_db(path);
 }

@@ -106,7 +106,10 @@ def main() -> int:
         scan_counts[path.suffix] = scan_counts.get(path.suffix, 0) + 1
         try:
             text = path.read_text(encoding="utf-8")
-        except (UnicodeDecodeError, OSError):
+        except (UnicodeDecodeError, OSError) as exc:
+            # 静默跳过会让「禁 Qt」卡点假绿：读取失败的文件不再被扫描。
+            # 记为 violation，强制人工处理（转 UTF-8 或显式豁免）。
+            violations.append(f"{rel} 无法读取，禁 Qt 扫描未覆盖: {exc}")
             continue
         for lineno, line in enumerate(text.splitlines(), 1):
             if QT_PATTERN.search(line):

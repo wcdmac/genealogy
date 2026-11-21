@@ -59,13 +59,21 @@ Result<void> BulkLoader::ensure_started() {
   // M9.1：灌库事务全程持有写互斥（与 Transaction 同一把递归锁）
   db_.write_mutex().lock();
   locked_ = true;
+  // 失败路径必须解锁：递归锁若在此泄漏，后续任何 Transaction 都会永久阻塞
+  //（析构只在 !started_ 分支 unlock 一次，无法配平多次失败后的重复 lock）。
   if (!impl_->place->ok() || !impl_->person->ok() || !impl_->union_row->ok() ||
       !impl_->member->ok() || !impl_->event->ok()) {
+    db_.write_mutex().unlock();
+    locked_ = false;
     return Error{ErrorCode::Internal, "灌库预备语句准备失败（SQL 或列名有误）"};
   }
   // 整个灌库一个事务：10 万人物 + 50 万事件若逐条自动提交，WAL 下每次
   // 提交都要 fsync，实测慢到无法接受。灌库是批处理，本就该一个事务。
-  if (auto r = repo_internal::begin_immediate(db_.raw()); !r) return r.error();
+  if (auto r = repo_internal::begin_immediate(db_.raw()); !r) {
+    db_.write_mutex().unlock();
+    locked_ = false;
+    return r.error();
+  }
   started_ = true;
   return {};
 }

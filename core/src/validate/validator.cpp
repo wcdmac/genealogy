@@ -415,6 +415,7 @@ void check_burial_before_death(const RuleDef& r, const PersonGraph& g,
     if (e.subject_type != EventSubjectType::Person) continue;
     const Person* p = g.find(e.subject_id);
     if (p == nullptr || !p->death_date) continue;
+    if (!e.date) continue;  // 葬期未登记时跳过（空 optional 解引用是 UB）
     const auto by = year_of(&*e.date);
     const auto dy = year_of(&*p->death_date);
     if (!by || !dy) continue;

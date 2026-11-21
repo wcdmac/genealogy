@@ -51,9 +51,10 @@ def run(genea: Path, *args: str) -> subprocess.CompletedProcess:
     )
 
 
-def person_count(genea: Path, db: Path) -> int | None:
-    # --limit 拉全：默认 50 只是第一页，拿它比对会漏
-    result = run(genea, "person", "list", "--db", str(db), "--limit", "5000",
+def person_count(genea: Path, db: Path, limit: int = 5000) -> int | None:
+    # --limit 必须覆盖实际人数：固定 5000 时 --persons 20000 的演练会在
+    # 丢 15000 人的情况下仍判定"一致"（假绿）。调用方按 --persons 传入。
+    result = run(genea, "person", "list", "--db", str(db), "--limit", str(limit),
                  "--format", "json")
     if result.returncode != 0:
         return None
@@ -74,6 +75,7 @@ def main() -> int:
     parser.add_argument("--genea", default=str(DEFAULT_GENEA), help="genea 可执行文件路径")
     parser.add_argument("--persons", type=int, default=500, help="合成谱人数")
     args = parser.parse_args()
+    count_limit = max(5000, args.persons + 1000)
 
     genea = Path(args.genea)
     if not genea.is_file():
@@ -93,7 +95,7 @@ def main() -> int:
         result = run(genea, "db", "seed", "--db", str(db), "--persons", str(args.persons))
         check(f"db seed（{args.persons} 人）", result.returncode == 0, result.stderr.strip())
 
-        baseline = person_count(genea, db)
+        baseline = person_count(genea, db, count_limit)
         check("基线人物数可读", baseline is not None and baseline > 0, baseline)
         if baseline is None:
             return 1
@@ -120,7 +122,7 @@ def main() -> int:
         check("db restore", result.returncode == 0, result.stderr.strip())
 
         # 5. 核对
-        restored = person_count(genea, db)
+        restored = person_count(genea, db, count_limit)
         check("恢复后人物数与基线一致", restored == baseline, f"{restored} vs {baseline}")
         schema = run(genea, "db", "init", "--db", str(db))
         check("恢复后 schema 就绪", schema.returncode == 0, schema.stderr.strip())
@@ -131,7 +133,7 @@ def main() -> int:
         result = run(genea, "db", "restore", "--db", str(db), "--from", str(backup_dir), "--force")
         check("--force 恢复成功", result.returncode == 0, result.stderr.strip())
         check("--force 后旧库留 .bak", any(workdir.glob("family.db.bak-*")))
-        after_force = person_count(genea, db)
+        after_force = person_count(genea, db, count_limit)
         check("--force 恢复后数据仍一致", after_force == baseline, f"{after_force} vs {baseline}")
 
         # 7. H3 旁车纪律 + 复核 2.6 回滚注入
@@ -149,7 +151,7 @@ def main() -> int:
               any(workdir.glob("family.db-wal.bak-*")) and not wal.exists())
         check("shm 旁车随迁为 .bak",
               any(workdir.glob("family.db-shm.bak-*")) and not shm.exists())
-        after_sidecar = person_count(genea, db)
+        after_sidecar = person_count(genea, db, count_limit)
         check("旁车恢复后数据一致", after_sidecar == baseline,
               f"{after_sidecar} vs {baseline}")
 
@@ -175,7 +177,7 @@ def main() -> int:
             # 回滚后原位是旧库本体；哑 wal 与本次失败无关，删掉再验数据
             wal.unlink(missing_ok=True)
             shm.unlink(missing_ok=True)
-            after_rollback = person_count(genea, db)
+            after_rollback = person_count(genea, db, count_limit)
             check("回滚后旧库数据可读且一致", after_rollback == baseline,
                   f"{after_rollback} vs {baseline}")
 

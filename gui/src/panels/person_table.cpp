@@ -11,6 +11,19 @@ namespace genealogy::gui {
 
 namespace {
 
+// 数值列的安全解析：脏库里出现非数字内容时不能让 std::stoi 从 ImGui
+// 绘制回调抛出（无人捕获 → 进程终止），回退 0 与空串同义。
+int safe_int(const std::string& s) {
+  if (s.empty()) return 0;
+  try {
+    std::size_t used = 0;
+    const int v = std::stoi(s, &used);
+    return used == s.size() ? v : 0;
+  } catch (const std::exception&) {
+    return 0;
+  }
+}
+
 const char* gender_label(Gender g) {
   switch (g) {
     case Gender::Male: return "男";
@@ -143,11 +156,13 @@ void PersonTablePanel::draw(DbSession& session) {
                          const std::string kb = key_of(b, sort_col_);
                          // 世代/行几按数值语义比：字符串比会让 "10" < "9"
                          const bool numeric = sort_col_ == 0 || sort_col_ == 1;
-                         const bool less = numeric
-                                               ? std::stoi(ka.empty() ? "0" : ka) <
-                                                 std::stoi(kb.empty() ? "0" : kb)
-                                               : ka < kb;
-                         return sort_asc_ ? less : kb < ka;
+                         const int na = numeric ? safe_int(ka) : 0;
+                         const int nb = numeric ? safe_int(kb) : 0;
+                         const bool less = numeric ? na < nb : ka < kb;
+                         // 降序必须沿同一口径取反；此前 kb < ka 让数值列
+                         // 退化为字符串比较（"9" 排在 "10" 之前）。
+                         return sort_asc_ ? less
+                                          : (numeric ? nb < na : kb < ka);
                        });
     }
   }
@@ -159,13 +174,9 @@ void PersonTablePanel::draw(DbSession& session) {
       const std::string full = r.family_name + r.given_name + r.courtesy_name;
       if (full.find(name_filter_) == std::string::npos) continue;
     }
-    if (gen_from_ != 0 && !r.generation.empty() &&
-        std::stoi(r.generation) < gen_from_) {
-      continue;
-    }
-    if (gen_to_ != 0 && !r.generation.empty() && std::stoi(r.generation) > gen_to_) {
-      continue;
-    }
+    const int gen = safe_int(r.generation);
+    if (gen_from_ != 0 && gen < gen_from_) continue;
+    if (gen_to_ != 0 && gen > gen_to_) continue;
     ImGui::TableNextRow();
     ImGui::TableNextColumn(); ImGui::TextUnformatted(r.generation.c_str());
     ImGui::TableNextColumn(); ImGui::TextUnformatted(r.birth_order.c_str());

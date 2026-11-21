@@ -223,16 +223,18 @@ Result<Person> PersonRepository::update(const Person& p) {
                     "，库中 rev=" + std::to_string(current->rev));
   }
 
+  // 占位符须与下面 bind 的连续序号一致（?4 曾缺失导致整体错位一位，
+  // WHERE rev=?27 实际绑的是 id —— 乐观锁永远冲突，人物无法更新）。
   Stmt st(db_.raw(),
           "UPDATE person SET"
           " branch_id=?1, family_name=?2, given_name=?3,"
-          " courtesy_name=?5, art_name=?6, posthumous_title=?7, alias=?8,"
-          " gender=?9, birth_order=?10, generation_no=?11, is_heir=?12,"
-          " is_living=?13, privacy_level=?14, birth_date=?15, death_date=?16,"
-          " birth_place_id=?17, death_place_id=?18, burial_place_id=?19,"
-          " biography=?20, father_id=?21, mother_id=?22,"
-          " portrait_attachment_id=?23, note=?24, updated_at=?25, rev=rev+1"
-          " WHERE id=?26 AND rev=?27");
+          " courtesy_name=?4, art_name=?5, posthumous_title=?6, alias=?7,"
+          " gender=?8, birth_order=?9, generation_no=?10, is_heir=?11,"
+          " is_living=?12, privacy_level=?13, birth_date=?14, death_date=?15,"
+          " birth_place_id=?16, death_place_id=?17, burial_place_id=?18,"
+          " biography=?19, father_id=?20, mother_id=?21,"
+          " portrait_attachment_id=?22, note=?23, updated_at=?24, rev=rev+1"
+          " WHERE id=?25 AND rev=?26");
   if (!st.ok()) return internal("准备 UPDATE 失败");
 
   int i = 1;

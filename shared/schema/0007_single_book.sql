@@ -33,7 +33,7 @@ SELECT 'book', name, surname, surname_origin, commandery, hall_name, generation_
 FROM lineage LIMIT 1;
 
 INSERT INTO book (id, name, surname, surname_origin, commandery, hall_name, generation_poem, note, created_at, updated_at, rev)
-SELECT 'book', '', '', NULL, NULL, NULL, NULL,
+SELECT 'book', '', '', NULL, NULL, NULL, NULL, NULL,
        strftime('%Y-%m-%dT%H:%M:%SZ','now'),
        strftime('%Y-%m-%dT%H:%M:%SZ','now'), 1
 WHERE NOT EXISTS (SELECT 1 FROM book);

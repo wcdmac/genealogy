@@ -19,33 +19,29 @@ Dear ImGui + GLFW（**严禁 Qt**）+ CLI 三端共用同一领域核心；**无
   `shared/rules/validation.json`，阈值/等级/启停改 JSON 即生效
 - [x] **M1.6 性能灌库验收**：合成谱生成器（固定种子可复现）+ 灌库快路径 + `genea bench`
   基准报告（10 万人物 / 8.9 万事件，全部达标，余量 4～12 倍）+ 规模往返哨兵测试
-- [x] **M2 REST 服务（Drogon，MIT）**：`genealogy-server` 起 `http://127.0.0.1:8080/api/v1`，
-  47 端点全部走 core 用例层（非旁路）；RFC 9457 problem+json 错误、游标分页、
-  `ETag`/`If-Match` 乐观锁、JWT(HS256) 鉴权、CORS（Web 外接）、`/openapi.yaml` 原样托管；
-  spec 与实现严格对齐（`tools/validate_openapi.py` 是 CI 卡点）
-- [x] **M2 TS 客户端**：`clients/web` 类型由 openapi-typescript 从 spec 生成（勿手改）+
-  薄封装 + 读写冒烟（28 项）+ 浏览器 UI 冒烟（15 项，playwright 驱动真实 Chromium）
+- [x] **单机定位收口（2026-11-21）**：原 M2 REST 服务 / M2 TS 客户端 / M5 Web UI+SSE
+  随「单机软件、单谱单库」整体裁撤（`server/`、`clients/` 源码已从工作树移除，
+  git 历史可完整恢复）。无联网组件。
 - [x] **M3 桌面 GUI（Dear ImGui docking + GLFW，MIT/zlib）**：`genealogy-gui` 起 docking 主窗口，
   人物卡（行内编辑 + rev 乐观锁）/ 世系表（可排序大表格）/ 检索（FTS）/ 关系（路径+辈分+五服+称谓）/
   世系树（十代展开）/ 校验面板；OpenGL 3.2+/GLSL 130，中文字体按平台探测，
   高对比度皮肤 + 字体缩放；`--headless-check` 供 CI 区分「无显示环境」与「真故障」
 - [x] **M4 算法与互通**：五服/称谓/世代/字辈引擎（派语解析/辈字定位/世代一致性，CLI `genea poem`）+
   五服规则表快照测试 + GEDCOM 双向（往返零严重损失）
-- [x] **M5 多客户端外接**：Web UI 参考实现（Vite + React，建档→关系→世系图→导出浏览器闭环）+
-  SSE 变更协同（`/events/stream`，写操作实时推送）+ 迁徙登记与 SVG 迁徙地图
+- [x] **M5 迁徙与导出**：迁徙登记 + SVG 迁徙地图；世系图 DOT/Mermaid 导出；
+  单谱单库后迁徙载体按 book 记录
 - [x] **M6 发行**：三平台打包（CPack：Windows ZIP / macOS dmg / Linux tar.gz，
   Windows DLL 全量随包）+ 文档站（`docs/`：使用手册 + 修谱工作流）+
-  备份恢复（`genea db backup|restore`，VACUUM INTO 一致性快照；演练 13 项断言，CI 卡点）
+  备份恢复（`genea db backup|restore`，VACUUM INTO 一致性快照；演练 20 项断言（含旁车失败回滚注入），CI 卡点）
 - [x] **M7 数据可信度（进行中）**：证据链（source/citation 全生命周期，三端；删除被引事实 409）+
   校验 R16 无证据事实清单 / R17 引用冲突裁定（confidence=disputed 出口）+
   Document 域（谱序/凡例/族规家训/艺文/契约；正文 trigram FTS 检索，中文子串可命中）+
   GEDCOM SOUR 双向映射（0 SOUR 记录 + INDI/FAM/事实级引用 + QUAY↔置信度，往返零损失）+
   名号变更史（person_name：谱名/乳名/学名/改后名/身后名，起止 + 主名全人唯一）+
-  M8 安全与隐私：角色 ACL（viewer 禁写/editor 禁删/steward 全权）+ Idempotency-Key
-  24h 重放 + 限流（60 req/min，env GENEALOGY_RATE_LIMIT）+ 在世者按级别脱敏
-  （豁免走令牌 claim）+ audit_log 全写操作接线（GET /audit 仅 steward）
-- [x] Catch2 测试（core 786187 断言 / 105 用例 + server HTTP 集成 + GUI 数据层）+
-  三平台 CI（构建/测试/打包/规范校验/TS 客户端/UI 冒烟/备份演练）+ 许可证白名单卡点
+  在世者按隐私级别脱敏（本地库由 GUI 显式开关控制）；原 M8 云端安全
+  （ACL/幂等/限流/audit）随 REST 裁撤一并关闭
+- [x] Catch2 测试（core / CLI / GUI 三层，单谱单库契约）+ 三平台 CI
+  （构建/测试/打包/CLI e2e/备份演练/GUI 无头自检）+ 许可证白名单卡点
 
 ### 历法引擎的数据从哪来
 
@@ -163,7 +159,7 @@ Linux 需 `ninja-build`；macOS 用 `arm64-osx` 三元组。
 启用可选组件：
 
 ```bash
-cmake -S . -B build -DBUILD_SERVER=ON -DBUILD_GUI=ON ...
+cmake -S . -B build -DBUILD_GUI=ON ...
 ```
 
 ## 使用示例
@@ -233,41 +229,8 @@ cmake -S . -B build -DBUILD_SERVER=ON -DBUILD_GUI=ON ...
 # GEDCOM 导出 10000 人物        < 10000        49.0 ms   PASS
 # GEDCOM 导入 10000 人物        < 60000      7709.7 ms   PASS
 
-# REST 服务（M2）
-# 构建（三样缺一不可：BUILD_SERVER 决定编不编、manifest feature 决定装不装
-# Drogon、overlay 决定按哪套规则装——本地见 tools/build-server-msvc.bat 与
-# tools/vcpkg-install.ps1，CI 见 .github/workflows/ci.yml）：
-#   cmake -S . -B build -DBUILD_SERVER=ON -DVCPKG_MANIFEST_FEATURES=server \
-#     -DVCPKG_OVERLAY_TRIPLETS=tools/vcpkg-triplets \
-#     -DVCPKG_OVERLAY_PORTS=tools/vcpkg-ports
-./build/bin/genealogy-server --db family.db --port 8080
-curl -s localhost:8080/api/v1/health
-curl -s -X POST localhost:8080/api/v1/persons \
-  -H 'Content-Type: application/json' \
-  -d '{"lineage_id":"01J...","family_name":"陈","given_name":"文远","gender":"male"}'
-# 错误统一是 problem+json（RFC 9457）：
-#   {"type":"https://genealogy.local/problems/invalid-argument",
-#    "title":"参数校验失败","status":400,"code":1001,
-#    "detail":"...","instance":"/api/v1/persons","errors":[{"field":"given_name","message":"必填"}]}
-# 写操作必须带 If-Match（当前 rev），否则 428；版本不符 409 并告知当前 rev。
-# 本地免鉴权模式（默认绑 127.0.0.1）任意 body 可换本地 JWT（username/role
-# 自选），开箱即用；--require-auth 后所有数据端点（含 SSE 流）必须带有效
-# Bearer 头，且 /auth/token 只认 GENEALOGY_AUTH_PASSWORD（口令即全权
-# steward；单机/局域网工具，无速率限制与防爆破，用户模型属 M3 路线图）。
-# 口令与 JWT 密钥缺一即拒绝启动（内置默认密钥是公开的，用它等于
-# 允许任何人伪造令牌）。匿名可达的只剩 /health、/openapi.yaml 与
-# /auth/token 本身。
-# CORS 默认只放行本机来源（localhost/127.0.0.1/[::1]，跨端口开发不受影响；
-# 绑回环挡不住受害者浏览器里的第三方网页，故不放行外部 Origin）；
-# GENEALOGY_CORS_ORIGINS 显式白名单，值 "*" 表示放开（自担风险）。
-# SSE 协同：GET /events/stream，任一写操作实时推送 event: change 帧。
-
-# Web UI（M5）
-cd clients/web && npm install && npm run build && npm run preview   # 生产预览
-# 或开发模式：npm run dev（/api 自动代理到 127.0.0.1:8080）
-# 页面里填服务器地址（默认 /api/v1 同源；跨端口填 http://127.0.0.1:8080/api/v1）→ 连接
-# 闭环：宗族建档 → 人物建档/编辑 → 婚姻登记 → 世系图 → GEDCOM/DOT 导出 → 校验
-# 冒烟：npm run smoke（API 层 28 项）/ npm run ui-smoke（浏览器层 15 项）
+# REST / Web UI 已于 2026-11-21 随单机定位裁撤（git 历史可恢复）。
+# 单机用法：genea db init → person add → io validate → db backup。
 
 # 迁徙（M5）
 ./build/bin/genea migration add --db family.db --subject-type person \

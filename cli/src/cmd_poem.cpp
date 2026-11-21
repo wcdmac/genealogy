@@ -35,16 +35,19 @@ bool resolve_owner(const cxxopts::ParseResult& r, PoemOwner* owner,
                    std::string* owner_id) {
   const bool has_lineage = r.count("lineage") > 0;
   const bool has_branch = r.count("branch") > 0;
-  if (has_lineage == has_branch) {
-    std::cerr << "用法错误: --lineage 与 --branch 必须二选一\n";
+  // 单谱单库：缺省即谱级派语（owner_id 固定 "book"，与 0007 的
+  // generation_poem 谱级归一一致）。--lineage 保留作向后兼容别名，
+  // 与 --branch 同时给出仍视为用法错误。
+  if (has_lineage && has_branch) {
+    std::cerr << "用法错误: --lineage 与 --branch 不能同时给出\n";
     return false;
   }
-  if (has_lineage) {
-    *owner = PoemOwner::Lineage;
-    *owner_id = r["lineage"].as<std::string>();
-  } else {
+  if (has_branch) {
     *owner = PoemOwner::Branch;
     *owner_id = r["branch"].as<std::string>();
+  } else {
+    *owner = PoemOwner::Lineage;
+    *owner_id = has_lineage ? r["lineage"].as<std::string>() : std::string("book");
   }
   return true;
 }

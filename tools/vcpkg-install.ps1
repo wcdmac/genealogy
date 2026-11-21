@@ -65,8 +65,7 @@ $env:VCPKG_CONCURRENCY = '1'
 
 # 只编 Release 的 overlay triplet：debug 配置本项目用不上，
 # 单并发下编两份要半小时以上。见 tools/vcpkg-triplets/ 里的说明。
-# overlay 端口：trantor 去掉 openssl 依赖（不需要 TLS），
-# 见 tools/vcpkg-ports/trantor/vcpkg.json 里的 $comment。
+# server 裁撤后 tools/vcpkg-ports（trantor 专用）已删除，overlay 只剩 triplets。
 #
 # 两条 flag 都内联写死，不经过变量：2026-10-15 实测变量版在这台机器的
 # 后台任务里 $OverlayTriplets 解析成空串（同一条赋值语句的 $OverlayPorts

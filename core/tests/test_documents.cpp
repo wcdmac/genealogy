@@ -153,27 +153,35 @@ TEST_CASE("文档：中文正文检索——全词/子串/两字回退/无命中
   cleanup_db(path);
 }
 
-TEST_CASE("文档：服务层校验——lineage 必须存在、标题必填") {
+TEST_CASE("文档：单谱单库契约——标题必填 + 建档/列表成功路径") {
   const auto path = temp_db_path();
   auto opened = Database::open(path);
   REQUIRE(opened);
 
   DocumentService svc(*opened);
 
-  Document bad_lineage = mk("序", "正文");
-  auto r1 = svc.create_document(bad_lineage);
-  CHECK_FALSE(r1.has_value());
-  CHECK(r1.error().code() == ErrorCode::NotFound);
-
+  // 单谱单库（0007）已移除 lineage 维度：不再校验 lineage 存在性。
   Document no_title = mk("", "正文");
-  auto r2 = svc.create_document(no_title);
-  CHECK_FALSE(r2.has_value());
-  CHECK(r2.error().code() == ErrorCode::InvalidArgument);
+  auto bad = svc.create_document(no_title);
+  CHECK_FALSE(bad.has_value());
+  CHECK(bad.error().code() == ErrorCode::InvalidArgument);
 
-  Document no_lineage = mk("序", "正文");
-  auto r3 = svc.create_document(no_lineage);
-  CHECK_FALSE(r3.has_value());
-  CHECK(r3.error().code() == ErrorCode::InvalidArgument);
+  // 成功路径回归：覆盖 DocumentRepository::insert 占位符数与 list 的
+  // WHERE 子句——这两处 SQL 错误此前让文档 CRUD 整体不可用（第四轮 K-1/K-2）。
+  auto made = svc.create_document(mk("序", "正文"));
+  REQUIRE(made.has_value());
+  CHECK_FALSE(made->id.empty());
+
+  auto listed = svc.list_documents(DocumentFilter{});
+  REQUIRE(listed.has_value());
+  CHECK(listed->size() == 1);
+  CHECK(listed->at(0).title == "序");
+
+  DocumentFilter by_type;
+  by_type.type = DocumentType::Preface;
+  auto filtered = svc.list_documents(by_type);
+  REQUIRE(filtered.has_value());
+  CHECK(filtered->size() == 1);
 
   cleanup_db(path);
 }

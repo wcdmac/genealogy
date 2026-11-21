@@ -24,7 +24,6 @@ constexpr const char* kCols =
 
 enum Col {
   kId = 0,
-  kLineageId,
   kName,
   kFounderPersonId,
   kParentBranchId,
@@ -108,7 +107,7 @@ Result<Branch> BranchRepository::insert(Branch branch) {
   if (branch.id.empty()) branch.id = generate_ulid();
   branch.rev = 1;
   const std::string sql = std::string("INSERT INTO branch(").append(kCols) +
-                          ") VALUES (?1,?2,?3,?4,?5,?6,?7,?8)";
+                          ") VALUES (?1,?2,?3,?4,?5,?6,?7)";
   Stmt st(db_.raw(), sql.c_str());
   if (!st.ok()) {
     return Error{ErrorCode::Internal,

@@ -93,28 +93,34 @@ std::string persist(Database& db, io::ImportResult& r, int* created) {
   *created = 0;
 
   for (const auto& pl : r.places) {
+    auto made = places.create_place(pl);
     if (!made) return "建地点失败: " + made.error().to_string();
     ++*created;
   }
   for (const auto& p : io::order_by_dependency(r.persons)) {
+    auto made = persons.create_person(p);
     if (!made) return "建人物失败(" + p.family_name + p.given_name + "): " +
                      made.error().to_string();
     ++*created;
   }
   for (const auto& u : r.unions) {
+    auto made = unions.create_union(u);
     if (!made) return "建婚姻结合失败: " + made.error().to_string();
     ++*created;
   }
   for (const auto& e : r.events) {
+    auto made = events.create_event(e);
     if (!made) return "建事件失败: " + made.error().to_string();
     ++*created;
   }
   // 出处链（M7.5）：来源先于引用（citation.source_id 外键）
   for (const auto& s : r.sources) {
+    auto made = sources.create_source(s);
     if (!made) return "建来源失败: " + made.error().to_string();
     ++*created;
   }
   for (const auto& c : r.citations) {
+    auto made = citations.create_citation(c);
     if (!made) return "建证据引用失败: " + made.error().to_string();
     ++*created;
   }
@@ -611,15 +617,13 @@ int cmd_db_seed(const std::vector<std::string>& args, const std::string& db_path
       ("seed", "随机种子（同种子同数据，便于复现）",
        cxxopts::value<std::uint64_t>()->default_value("20261013"))
       ("surname", "主姓", cxxopts::value<std::string>()->default_value("陈"))
-      ("founder-year", "始祖生年", cxxopts::value<int>()->default_value("1500"))
+      ("founder-year", "始祖生年", cxxopts::value<int>()->default_value("1500"));
   const auto r = parse_args(opts, args);
 
   auto db = open_db(db_path);
   if (!db) {
     print_error(db.error());
     return exit_code_for(db.error());
-  }
-
   }
 
   io::SyntheticOptions so;
@@ -1003,6 +1007,7 @@ int cmd_bench(const std::vector<std::string>& args, const std::string& db_path,
             p.family_name = "并发";
             p.given_name = "写" + std::to_string(w) + "-" + std::to_string(i);
             p.gender = Gender::Male;
+            auto made = wsvc.create_person(p);
             if (!made) {
               if (made.error().message().find("locked") != std::string::npos) {
                 ++locked;

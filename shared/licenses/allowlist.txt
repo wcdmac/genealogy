@@ -6,8 +6,6 @@
 # 核心链路
 sqlite3
 nlohmann-json
-spdlog
-fmt
 cxxopts
 catch2
 
@@ -18,45 +16,18 @@ zlib
 glfw3
 
 # ---------------------------------------------------------------------------
-# ---------------------------------------------------------------------------
-# npm 依赖（第三轮新-W2：clients/web 与 tools/gen_calendar 的 package.json
-# 纳入 license_check.py 卡点，登记同样附许可依据）。
-# MPL-2.0 的接受理由：文件级 copyleft，义务仅及被修改的 MPL 文件本身；
-# 本项目只链接不修改其源码，分发义务不扩散——与「宽松许可」声明相容。
+# 已裁撤（server/、clients/web 于 2026-11-21 移除，git 历史可恢复）：
+#   drogon/trantor/jsoncpp/c-ares、react/react-dom/pdfjs-dist、vite、
+#   typescript、playwright、@types/*、openapi-typescript —— 不再登记。
+# spdlog/fmt 从未启用，一并移除。
 #
-# 运行时（clients/web）：
-#   react / react-dom      MIT
-#   pdfjs-dist             MPL-2.0（PDF 渲染，JPEG2000/JBIG2 wasm 支持）
-# 工具链（clients/web devDependencies）：
-#   typescript             Apache-2.0
-#   vite                   MIT
-#   @vitejs/plugin-react   MIT
-#   openapi-typescript     MIT
-#   playwright             Apache-2.0
-#   @types/node            MIT
-#   @types/react           MIT
-#   @types/react-dom       MIT
-react
-react-dom
-pdfjs-dist
-typescript
-vite
-@vitejs/plugin-react
-openapi-typescript
-playwright
-@types/node
-@types/react
-@types/react-dom
+# vendored 第三方（不进 vcpkg manifest，直接编入目标）：
+#   imgui        MIT（third_party/imgui/LICENSE.txt，gui/CMakeLists.txt 编入）
+imgui
 
-# 以下仅为「离线生成工具」，用 Node 跑一次产出 C++ 静态表，之后即与运行时无关：
-# 不进 vcpkg.json、不被编译、不被链接、不参与分发，故不受运行时许可约束，
-# 但仍须为宽松许可（此处均为 MIT / MIT AND Apache-2.0）。
-#
-# lunar-javascript  农历数据表离线生成（1583-3000），MIT
-# cn-era            年号区间表来源，MIT
-# opencc-js         年号繁转简，MIT AND Apache-2.0
-# 实体登记（第三轮新-W2 起 npm 依赖过卡点，注释不算登记）：
+# 离线生成工具（Node 跑一次产出 C++ 静态表，不编译/不链接/不分发）：
+#   lunar-javascript  农历数据表生成（MIT）
 lunar-javascript
-#
-# 说明：lunar-javascript 只在 1900-2025 段用于与紫金山天文台官方数据交叉核验，
-# 该区间最终写入的数据一律以官方《1900-2025年日历》为准，其余年份由其推算。
+
+# 说明：lunar-javascript 只用于与紫金山天文台官方数据交叉核验，
+# 最终写入的数据以官方《1900-2025年日历》为准。

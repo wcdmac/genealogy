@@ -5,6 +5,12 @@
 # 形式——CMake 会把它组成分号分隔列表，file(WRITE) 会把分号写进产物，
 # 导致生成的 .cpp 行首出现 ";" 从而触发 MSVC C2014。
 
+foreach(_var SCHEMA_DIR OUT)
+  if(NOT DEFINED ${_var} OR "${${_var}}" STREQUAL "")
+    message(FATAL_ERROR "EmbedSql.cmake 必须提供 -D${_var}=<path>")
+  endif()
+endforeach()
+
 file(GLOB SCHEMA_FILES "${SCHEMA_DIR}/*.sql")
 list(SORT SCHEMA_FILES)
 

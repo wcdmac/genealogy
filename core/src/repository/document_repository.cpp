@@ -92,8 +92,11 @@ DocumentRepository::DocumentRepository(Database& db) : db_(db) {}
 
 Result<std::vector<Document>> DocumentRepository::list(
     const DocumentFilter& filter) const {
+  // 单谱单库（0007）：document 已无 lineage_id 列，也不能用 ?1 占位。
+  // 首条条件直接用 1=1 保持后续占位符编号不变（?2=type / ?3=cursor / ?4=limit）。
   const std::string sql = std::string("SELECT ").append(kCols) +
                           " FROM document"
+                          " WHERE 1=1"
                           "   AND (?2 IS NULL OR type = ?2)"
                           "   AND (?3 IS NULL OR id > ?3)"
                           " ORDER BY id LIMIT ?4";
@@ -199,7 +202,7 @@ Result<Document> DocumentRepository::insert(Document doc) {
   const std::string sql =
       "INSERT INTO document"
       " (id, type, title, author, date_text, edition, content, seq)"
-      " VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9)";
+      " VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8)";
   Stmt st(db_.raw(), sql.c_str());
   if (!st.ok()) return internal("准备 INSERT 失败");
   bind_document(st.get(), doc);

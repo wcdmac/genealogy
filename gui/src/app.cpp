@@ -80,8 +80,11 @@ void GenealogyApp::draw_menu_bar() {
       show_open_dialog_ = true;
     }
     if (ImGui::MenuItem("关闭数据库")) {
-      session_.close();
+      // 先停各面板后台线程并清缓存，再析构 session：worker 持有
+      // DbSession* 并在后台查询，反向顺序会 use-after-free（H-3）。
+      // 与打开库路径（:269）使用同一份 reset_for_database_switch。
       reset_panels_for_switch();
+      session_.close();
       state_.set_status("数据库已关闭");
     }
     ImGui::Separator();

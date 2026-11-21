@@ -55,14 +55,16 @@ using namespace genealogy;
 const char* kSubcommandsHelp =
     "子命令:\n"
     "  db       init|seed|backup|restore\n"
-    "  person   add|list|show|relation|tree\n"
-    "  book     show|update
-"
+    "  person   add|list|show|name|relation|tree|remove\n"
+    "  book     show|update\n"
     "  branch   add|list|show|remove\n"
     "  place    add|list|show|remove\n"
     "  union    add|list|show|remove\n"
     "  event    add|list|show|remove\n"
     "  migration add|list|show|remove\n"
+    "  source   add|list|show|remove\n"
+    "  citation add|list|show|remove\n"
+    "  document add|list|show|remove\n"
     "  poem     set|show|check\n"
     "  date     convert|lunar|terms|era|info\n"
     "  io       import|export|validate\n"
@@ -189,6 +191,7 @@ int cmd_person_name(const std::vector<std::string>& args,
     }
     n.is_primary = r["primary"].as<bool>();
     if (r.count("note")) n.note = r["note"].as<std::string>();
+    auto made = svc.create_person_name(n);
     if (!made) {
       print_error(made.error());
       return exit_code_for(made.error());
@@ -196,8 +199,9 @@ int cmd_person_name(const std::vector<std::string>& args,
     if (format == "json") {
       std::cout << to_json(*made).dump(2) << "\n";
     } else {
-                << to_string(made->type) << "	" << made->name
-                << (made->is_primary ? "	[主名]" : "") << "\n";
+      std::cout << "已登记名号: " << made->id << "\t"
+                << to_string(made->type) << "\t" << made->name
+                << (made->is_primary ? "\t[主名]" : "") << "\n";
     }
     return 0;
   }
@@ -1071,16 +1075,12 @@ int run(std::vector<std::string> raw_args) {
     return 1;
   }
 
-  std::cerr << "未知命令: " << command << " " << sub
-            << "（支持: db init | person add|list|show |"
-            << " lineage|branch|place|union|event add|list|show|remove |"
-            << " poem set|show|check |"
-            << " date convert|lunar|terms|era|info |"
-            << " io import|export|validate | bench）\n";
+  std::cerr << "未知命令: " << command << " " << sub << "\n"
+            << kSubcommandsHelp << "\n";
   return 2;
 }
 
-#ifdef _WIN32
+#if defined(_WIN32) && !defined(GENEA_NO_MAIN)
 int wmain(int argc, wchar_t* argv[]) {
   std::vector<std::string> args;
   if (argc > 1) {
@@ -1089,7 +1089,7 @@ int wmain(int argc, wchar_t* argv[]) {
   }
   return run(std::move(args));
 }
-#else
+#elif !defined(GENEA_NO_MAIN)
 int main(int argc, char* argv[]) {
   std::vector<std::string> args;
   if (argc > 1) {

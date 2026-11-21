@@ -86,7 +86,10 @@ Result<ProvenanceMigrationReport> migrate_note_provenance(
   bool source_known = false;
   auto ensure_source = [&]() -> Result<std::string> {
     if (source_known) return source_id;
-    const std::string title = binding.title.empty() ? book->name : binding.title;
+    std::string title = binding.title.empty() ? book->name : binding.title;
+    // 新库 book 行为空（谱名尚未填写），SourceService 要求 title 非空；
+    // 用稳定兜底名，待谱元数据登记后重跑可用 binding.title 覆盖。
+    if (title.empty()) title = "本家家谱";
     SourceFilter f;
     f.title_contains = title;
     f.limit = 200;

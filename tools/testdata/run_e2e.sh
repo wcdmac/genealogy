@@ -20,7 +20,7 @@ check_has() { case "$2" in *"$3"*) ok "$1";; *) bad "$1（未包含[$3]）";; es
 
 jid()     { $PY -c "import sys,json;print(json.load(sys.stdin).get('id',''))"; }
 jlen()    { $PY -c "import sys,json;print(len(json.load(sys.stdin)))"; }
-jval()    { $PY -c "import sys,json;print(json.load(sys.stdin)['$1'])" ; }
+jval()    { $PY -c 'import sys,json;print(json.load(sys.stdin)[sys.argv[1]])' "$1" ; }
 # 带重试：Windows 下 MSYS 管道+原生 exe 偶发丢字节（2026-10-23 曾致
 # 「show 陈德明」间歇 FAIL——管道丢字节使 python 解析不到 id）
 pid_of()  {
@@ -46,12 +46,12 @@ echo "== 1. 建库 =="
 $GENE db init --db "$DB" --format json >/dev/null 2>&1
 check_eq "db init 退出码" 0 $?
 
-echo "== 2. 宗族建档 =="
-L=$($GENE lineage add --db "$DB" --name "中湘陈氏测试谱" --surname 陈 --commandery 颍川 --hall 德星堂 --format json | jid)
-check_ge "lineage add 返回 ID" ${#L} 20
+echo "== 2. 谱元数据（单谱单库：db init 已建 book 行）=="
+$GENE book update --db "$DB" --name "中湘陈氏测试谱" --surname 陈 --commandery 颍川 --hall 德星堂 --format json >/dev/null 2>&1
+check_eq "book update 退出码" 0 $?
 
 echo "== 3. GEDCOM 导入主谱 =="
-$GENE io import gedcom tools/testdata/family_gedcom.ged --db "$DB" --lineage "$L" --format json > "$OUT/import.json" 2>&1
+$GENE io import gedcom tools/testdata/family_gedcom.ged --db "$DB" --format json > "$OUT/import.json" 2>&1
 check_eq "import 退出码" 0 $?
 check_eq "导入人物数" 11 "$($PY -c "import json;print(json.load(open('$OUT/import.json'))['imported']['persons'])")"
 check_eq "导入结合数" 4  "$($PY -c "import json;print(json.load(open('$OUT/import.json'))['imported']['unions'])")"
@@ -60,7 +60,7 @@ check_eq "导入来源数" 1 "$($PY -c "import json;print(json.load(open('$OUT/i
 check_eq "导入引用数" 1 "$($PY -c "import json;print(json.load(open('$OUT/import.json'))['imported']['citations'])")"
 
 echo "== 4. 主谱一致性校验（应无 error） =="
-$GENE io validate --db "$DB" --lineage "$L" --format json > "$OUT/validate.json" 2>&1
+$GENE io validate --db "$DB" --format json > "$OUT/validate.json" 2>&1
 check_eq "validate 退出码（error=0）" 0 $?
 check_eq "error 计数" 0 "$($PY -c "import json;print(json.load(open('$OUT/validate.json'))['summary']['error'])")"
 
@@ -81,14 +81,13 @@ TREE=$($GENE person tree --db "$DB" "$(pid_of 陈德明)" --depth 4 --format jso
 check_ge "树节点数>=7" "$(echo "$TREE" | jval nodes)" 7
 
 echo "== 8. GEDCOM 导出与往返 =="
-$GENE io export gedcom --db "$DB" --lineage "$L" --out "$OUT/roundtrip.ged" --submitter 测试谱师 --format json >/dev/null 2>&1
+$GENE io export gedcom --db "$DB" --out "$OUT/roundtrip.ged" --submitter 测试谱师 --format json >/dev/null 2>&1
 check_eq "export 退出码" 0 $?
 check_ge "导出文件非空" "$(wc -c < "$OUT/roundtrip.ged")" 500
 # 单谱单库（2026-11-21 定位收口）：往返导入落独立库文件，不再同库开第二谱
 RTDB="$OUT/roundtrip.db"
 $GENE db init --db "$RTDB" --format json >/dev/null 2>&1
-L2=$($GENE lineage add --db "$RTDB" --name "往返校验谱" --surname 陈 --format json | jid)
-$GENE io import gedcom "$OUT/roundtrip.ged" --db "$RTDB" --lineage "$L2" --format json > "$OUT/roundtrip.json" 2>&1
+$GENE io import gedcom "$OUT/roundtrip.ged" --db "$RTDB" --format json > "$OUT/roundtrip.json" 2>&1
 check_eq "往返导入人物数一致" 11 "$($PY -c "import json;print(json.load(open('$OUT/roundtrip.json'))['imported']['persons'])")"
 
 echo "== 9. 世系树渲染（DOT / Mermaid） =="
@@ -113,9 +112,9 @@ $GENE date convert 1582-10-05 >/dev/null 2>&1 && check_eq "convert 1582-10-05 �
 
 echo "== 11. 字辈引擎 =="
 # 派语与谱中辈字名对齐：德明(1世,德)→文远/文达(2世,文)→承嗣(3世,承)→世昌(4世,世)
-$GENE poem set --db "$DB" --lineage "$L" --text "德文承世，源远流长" --format json > "$OUT/poem.json" 2>&1
+$GENE poem set --db "$DB" --text "德文承世，源远流长" --format json > "$OUT/poem.json" 2>&1
 check_eq "poem set 辈字数" 8 "$(jlen < "$OUT/poem.json")"
-$GENE poem check --db "$DB" --lineage "$L" --format json >/dev/null 2>&1
+$GENE poem check --db "$DB" --format json >/dev/null 2>&1
 check_eq "poem check 退出码" 0 $?
 
 echo "== 12. 迁徙登记 =="
@@ -155,8 +154,7 @@ check_eq "restore 拒绝覆盖（exit 4）" 4 $?
 echo "== 16. 脏数据导入与校验规则命中 =="
 DB2="$OUT/broken.db"
 $GENE db init --db "$DB2" >/dev/null 2>&1
-L3=$($GENE lineage add --db "$DB2" --name "脏数据谱" --surname 陈 --format json | jid)
-timeout 60 $GENE io import gedcom tools/testdata/broken_gedcom.ged --db "$DB2" --lineage "$L3" > "$OUT/broken_import.txt" 2>&1
+timeout 60 $GENE io import gedcom tools/testdata/broken_gedcom.ged --db "$DB2" > "$OUT/broken_import.txt" 2>&1
 BROKEN_IMPORT_RC=$?
 check_eq "broken 导入未挂起（60s 超时保护）" "ok" $([ $BROKEN_IMPORT_RC -eq 124 ] && echo hung || echo ok)
 if [ $BROKEN_IMPORT_RC -eq 0 ]; then
@@ -175,8 +173,7 @@ fi
 echo "== 16b. 世系环导入（应明确拒绝，非挂起非误导报错） =="
 DB4="$OUT/cycle.db"
 $GENE db init --db "$DB4" >/dev/null 2>&1
-L4=$($GENE lineage add --db "$DB4" --name "环测试谱" --surname 陈 --format json | jid)
-timeout 60 $GENE io import gedcom tools/testdata/cycle_gedcom.ged --db "$DB4" --lineage "$L4" > "$OUT/cycle_import.txt" 2>&1
+timeout 60 $GENE io import gedcom tools/testdata/cycle_gedcom.ged --db "$DB4" > "$OUT/cycle_import.txt" 2>&1
 CYCLE_RC=$?
 check_eq "环导入未挂起" "ok" $([ $CYCLE_RC -eq 124 ] && echo hung || echo ok)
 check_eq "环导入被拒绝（InvalidArgument=2）" 2 $CYCLE_RC
@@ -207,7 +204,7 @@ $GENE person name remove --db "$DB" "$N1" >/dev/null
 check_eq "person name remove 退出码" 0 $?
 
 echo "== 18. 文档域：建谱序 → 正文检索命中（M7.4 验收门） =="
-DOC=$($GENE document add --db "$DB" --lineage "$L" --type preface --title "冒烟谱序"   --content "我族建德星堂义庄，凡族人谨守家训。" --seq 1 --format json | jid)
+DOC=$($GENE document add --db "$DB" --type preface --title "冒烟谱序"   --content "我族建德星堂义庄，凡族人谨守家训。" --seq 1 --format json | jid)
 check_ge "document add 返回 ID" ${#DOC} 20
 check_eq "正文全词命中（义庄）" 1 "$($GENE document search --db "$DB" --query 义庄 --format json | jlen)"
 check_eq "正文子串命中（堂义庄，trigram）" 1 "$($GENE document search --db "$DB" --query 堂义庄 --format json | jlen)"
@@ -220,12 +217,12 @@ echo "== 19. bench 不污染用户库（复核 2.1/F1 验收门） =="
 # bench 的灌库/并发写此前会把基准数据写进 --db 指定的业务库——修复后
 # 全部落临时基准库。断言：跑一轮小规模 bench（含 --writers 4 并发写）
 # 前后，用户库人物计数必须不变。
-BEFORE=$($GENE person list --db "$DB" --format json | jlen)
+BEFORE=$($GENE person list --db "$DB" --limit 100000 --format json | jlen)
 $GENE bench --db "$DB" --persons 50 --writers 4 --events-per-person 3 \
   --depth 3 --repeat 1 --gedcom-records 20 --format json > "$OUT/bench.json" 2>&1
 check_eq "bench 退出码（指标全 PASS）" 0 $?
 check_has "bench 自述不触碰业务库" "$(cat "$OUT/bench.json")" "临时"
-AFTER=$($GENE person list --db "$DB" --format json | jlen)
+AFTER=$($GENE person list --db "$DB" --limit 100000 --format json | jlen)
 check_eq "bench 前后用户库人物计数不变" "$BEFORE" "$AFTER"
 # 参数生效断言（第三轮新-C8：--events-per-person 曾注册了却从未接线）
 $GENE bench --db "$DB" --persons 50 --events-per-person 0 --depth 3   --repeat 1 --gedcom-records 0 --format json > "$OUT/bench2.json" 2>&1

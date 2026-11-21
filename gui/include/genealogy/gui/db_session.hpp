@@ -8,7 +8,6 @@
 //
 // 生命周期：一次只开一个库（桌面单机形态）。换库 = close + open。
 
-#include <genealogy/repository/bootstrap.hpp>
 #include <genealogy/repository/database.hpp>
 #include <genealogy/service/branch_service.hpp>
 #include <genealogy/service/event_service.hpp>
@@ -42,7 +41,7 @@ class DbSession {
   PersonService& persons() noexcept { return *persons_; }
   UnionService& unions() noexcept { return *unions_; }
   EventService& events() noexcept { return *events_; }
-  BookRepository& books() noexcept { return books_; }
+  BookRepository& books() noexcept { return *books_; }
   BranchService& branches() noexcept { return *branches_; }
   PlaceService& places() noexcept { return *places_; }
 

@@ -17,33 +17,32 @@ jid() { $PY -c "import sys,json;print(json.load(sys.stdin).get('id',''))"; }
 
 $GENE db init --db "$DB" >/dev/null || { echo "建库失败"; exit 1; }
 
-L=$($GENE lineage add --db "$DB" --name "规则触发测试谱" --surname 陈 --format json | jid)
 
 # 基准家庭：F1/M1 已婚（避免干扰 R7）
-F1=$($GENE person add --db "$DB" --family-name 陈 --given-name 大洪 --gender male --birth 1850 --generation 1 --lineage "$L" --format json | jid)
-M1=$($GENE person add --db "$DB" --family-name 王 --given-name 大娘子 --gender female --birth 1852 --generation 1 --lineage "$L" --format json | jid)
+F1=$($GENE person add --db "$DB" --family-name 陈 --given-name 大洪 --gender male --birth 1850 --generation 1 --format json | jid)
+M1=$($GENE person add --db "$DB" --family-name 王 --given-name 大娘子 --gender female --birth 1852 --generation 1 --format json | jid)
 $GENE union add --db "$DB" --type marriage --member "$F1:husband,$M1:wife" --format json >/dev/null
 
 # R14 排行断层：同胞 1、2、4（跳 3）
-$GENE person add --db "$DB" --family-name 陈 --given-name 甲 --gender male --birth 1875 --birth-order 1 --generation 2 --father "$F1" --mother "$M1" --lineage "$L" --format json >/dev/null
-$GENE person add --db "$DB" --family-name 陈 --given-name 乙 --gender male --birth 1877 --birth-order 2 --generation 2 --father "$F1" --mother "$M1" --lineage "$L" --format json >/dev/null
-$GENE person add --db "$DB" --family-name 陈 --given-name 丁 --gender male --birth 1881 --birth-order 4 --generation 2 --father "$F1" --mother "$M1" --lineage "$L" --format json >/dev/null
+$GENE person add --db "$DB" --family-name 陈 --given-name 甲 --gender male --birth 1875 --birth-order 1 --generation 2 --father "$F1" --mother "$M1" --format json >/dev/null
+$GENE person add --db "$DB" --family-name 陈 --given-name 乙 --gender male --birth 1877 --birth-order 2 --generation 2 --father "$F1" --mother "$M1" --format json >/dev/null
+$GENE person add --db "$DB" --family-name 陈 --given-name 丁 --gender male --birth 1881 --birth-order 4 --generation 2 --father "$F1" --mother "$M1" --format json >/dev/null
 
 # R6 配偶性别相同（两名男性婚姻结合）
-P1=$($GENE person add --db "$DB" --family-name 张 --given-name 龙 --gender male --birth 1880 --lineage "$L" --format json | jid)
-P2=$($GENE person add --db "$DB" --family-name 赵 --given-name 虎 --gender male --birth 1881 --lineage "$L" --format json | jid)
+P1=$($GENE person add --db "$DB" --family-name 张 --given-name 龙 --gender male --birth 1880 --format json | jid)
+P2=$($GENE person add --db "$DB" --family-name 赵 --given-name 虎 --gender male --birth 1881 --format json | jid)
 $GENE union add --db "$DB" --type marriage --member "$P1:husband,$P2:husband" --format json >/dev/null
 
 # R7 父母冗余字段无对应结合 + R8 有父母无世代序号
-F2=$($GENE person add --db "$DB" --family-name 周 --given-name 父 --gender male --birth 1855 --lineage "$L" --format json | jid)
-M2=$($GENE person add --db "$DB" --family-name 吴 --given-name 母 --gender female --birth 1858 --lineage "$L" --format json | jid)
-$GENE person add --db "$DB" --family-name 周 --given-name 子 --gender male --birth 1885 --father "$F2" --mother "$M2" --lineage "$L" --format json >/dev/null
+F2=$($GENE person add --db "$DB" --family-name 周 --given-name 父 --gender male --birth 1855 --format json | jid)
+M2=$($GENE person add --db "$DB" --family-name 吴 --given-name 母 --gender female --birth 1858 --format json | jid)
+$GENE person add --db "$DB" --family-name 周 --given-name 子 --gender male --birth 1885 --father "$F2" --mother "$M2" --format json >/dev/null
 
 # R9 性别未登记（缺省 unknown）
-$GENE person add --db "$DB" --family-name 郑 --given-name 无性别 --birth 1890 --lineage "$L" --format json >/dev/null
+$GENE person add --db "$DB" --family-name 郑 --given-name 无性别 --birth 1890 --format json >/dev/null
 
 # R10 生年缺失
-$GENE person add --db "$DB" --family-name 冯 --given-name 无生年 --gender male --lineage "$L" --format json >/dev/null
+$GENE person add --db "$DB" --family-name 冯 --given-name 无生年 --gender male --format json >/dev/null
 
 echo "cases.db 构建完成: $DB"
-echo "L=$L"
+echo "单谱单库：book 行由 db init 建立"

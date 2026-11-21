@@ -471,11 +471,10 @@ TEST_CASE("校验：R17 引用冲突——不同来源同字段两条 high 才�
   CHECK(has_issue(r_ev, "R17", "E9"));
 }
 
-TEST_CASE("校验：R5 同名同年分谱不互报（多谱隔离）") {
-  // 两谱各有「王大明 1900」×2：谱内两两互报（各报 1），跨谱不报。
+TEST_CASE("校验：R5 同名同年判定（单谱单库口径）") {
+  // 单谱单库后 Person 无 lineage 字段；同谱内同名同年两两互报。
   std::vector<Person> persons;
-  auto mk_of = [&persons](const std::string& lineage, const std::string& tag,
-                          int birth) {
+  auto mk = [&persons](const std::string& tag, int birth) {
     Person p;
     p.id = tag;
     p.family_name = "王";
@@ -484,30 +483,27 @@ TEST_CASE("校验：R5 同名同年分谱不互报（多谱隔离）") {
     p.birth_date = GenealogyDate::from_iso(std::to_string(birth)).value();
     persons.push_back(p);
   };
-  mk_of("L1", "L1-a1", 1900);
-  mk_of("L1", "L1-a2", 1900);   // L1 谱内同名同年 → R5 报 1
-  mk_of("L2", "L2-a1", 1900);
-  mk_of("L2", "L2-a2", 1900);   // L2 谱内同名同年 → R5 报 1
+  mk("a1", 1900);
+  mk("a2", 1900);
+  mk("a3", 1900);
 
   const auto r = run(persons);
+  // R5 同一人只报一次（报 id 较小方），三人同名报 2（a1、a2）
   CHECK(count_rule(r, "R5") == 2);
-  CHECK(has_issue(r, "R5", "L1-a1"));
-  CHECK(has_issue(r, "R5", "L2-a1"));
+  CHECK(has_issue(r, "R5", "a1"));
 
-  // 单人谱对：跨谱同名同年不构成 R5
-  std::vector<Person> solo;
-  auto mk_in = [&solo](const std::string& lineage, const std::string& tag,
-                       int birth) {
+  std::vector<Person> distinct;
+  auto mk_in = [&distinct](const std::string& tag, int birth) {
     Person p;
     p.id = tag;
     p.family_name = "王";
     p.given_name = "大明";
     p.gender = Gender::Male;
     p.birth_date = GenealogyDate::from_iso(std::to_string(birth)).value();
-    solo.push_back(p);
+    distinct.push_back(p);
   };
-  mk_in("L1", "solo-L1", 1900);
-  mk_in("L2", "solo-L2", 1900);
-  const auto r2 = run(solo);
+  mk_in("x", 1899);
+  mk_in("y", 1900);
+  const auto r2 = run(distinct);
   CHECK(count_rule(r2, "R5") == 0);
 }

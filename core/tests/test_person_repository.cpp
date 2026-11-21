@@ -173,7 +173,11 @@ TEST_CASE("用例：建档校验", "[service]") {
   REQUIRE_FALSE(r1);
   REQUIRE(r1.error().code() == ErrorCode::InvalidArgument);
 
-  Person bad_father = missing_name;
+  // 单独构造完整必填字段的草稿：只验证「父亲不存在」这一条，避免
+  // 继承 missing_name 的空 given_name 先撞「名必填」（InvalidArgument）。
+  Person bad_father;
+  bad_father.family_name = "陈";
+  bad_father.given_name = "文远";
   bad_father.father_id = std::string(26, '7');  // ULID 格式合法但不存在
   const auto r3 = svc.create_person(bad_father);
   REQUIRE_FALSE(r3);

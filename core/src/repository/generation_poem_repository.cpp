@@ -59,9 +59,13 @@ Result<std::vector<GenerationPoemEntry>> GenerationPoemRepository::list(
   sqlite3_bind_text(st.get(), 2, owner_id.c_str(), -1, SQLITE_TRANSIENT);
 
   std::vector<GenerationPoemEntry> out;
-  for (int rc = sqlite3_step(st.get()); rc == SQLITE_ROW;
-       rc = sqlite3_step(st.get())) {
+  int rc = SQLITE_OK;
+  while ((rc = sqlite3_step(st.get())) == SQLITE_ROW) {
     out.push_back(row_to_entry(st.get()));
+  }
+  if (rc != SQLITE_DONE) {
+    return Error{ErrorCode::Internal,
+                 std::string("查询执行失败: ") + sqlite3_errmsg(db_.raw())};
   }
   return out;
 }
