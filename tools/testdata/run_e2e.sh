@@ -182,7 +182,7 @@ check_has "报错点名世系环" "$(cat "$OUT/cycle_import.txt")" "世系环"
 check_has "报错带出环上人名" "$(cat "$OUT/cycle_import.txt")" "成环"
 
 echo "== 17. CLI 规则触发集 =="
-bash tools/testdata/build_cases.sh > "$OUT/cases_build.txt" 2>&1
+GENEA_BIN="$GENE" bash tools/testdata/build_cases.sh > "$OUT/cases_build.txt" 2>&1
 check_eq "build_cases 退出码" 0 $?
 DB3="$OUT/cases.db"
 if [ -f "$DB3" ]; then
