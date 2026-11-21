@@ -1,5 +1,7 @@
 #include <genealogy/gui/app.hpp>
 
+#include <genealogy/gui/db_switch.hpp>
+
 #include <imgui.h>
 #include <imgui_impl_glfw.h>
 #include <imgui_impl_opengl3.h>
@@ -79,12 +81,7 @@ void GenealogyApp::draw_menu_bar() {
     }
     if (ImGui::MenuItem("关闭数据库")) {
       session_.close();
-      state_.selected_person_id.clear();
-      // 关系端点一并清（第三轮新-C5）：换库后拿旧库 id 建图，关系
-      // 面板算出的是旧库数据
-      state_.relation_ego.clear();
-      state_.relation_alter.clear();
-      for (auto& p : panels_) p->on_database_closed();
+      reset_panels_for_switch();
       state_.set_status("数据库已关闭");
     }
     ImGui::Separator();
@@ -155,6 +152,13 @@ void GenealogyApp::draw_status_bar() {
   }
   ImGui::End();
   ImGui::PopStyleVar(2);
+}
+
+void GenealogyApp::reset_panels_for_switch() {
+  std::vector<Panel*> ptrs;
+  ptrs.reserve(panels_.size());
+  for (auto& p : panels_) ptrs.push_back(p.get());
+  reset_for_database_switch(state_, ptrs);
 }
 
 bool GenealogyApp::run(std::string* err) {
@@ -259,13 +263,10 @@ bool GenealogyApp::run(std::string* err) {
       if (ImGui::Button("打开")) {
         std::string why;
         // open() 会先 close() 旧库（新库打开失败旧库也已不在）：
-        // 换库前后各面板缓存一律清掉，检索/关系/校验面板不得展示
-        // 旧库的命中、路径与校验结论（复核 2.13，与「关闭数据库」
-        // 菜单项同口径）；关系端点同样清（第三轮新-C5）。
-        for (auto& p : panels_) p->on_database_closed();
-        state_.selected_person_id.clear();
-        state_.relation_ego.clear();
-        state_.relation_alter.clear();
+        // 换库前后各面板缓存与全局选中态一律清掉（复核 2.13 +
+        // 第三轮新-C5），清理序列与「关闭数据库」同一份
+        //（reset_for_database_switch，可无头单测）。
+        reset_panels_for_switch();
         if (session_.open(path_buf_, &why)) {
           state_.db_path = path_buf_;
           state_.set_status(std::string("已打开 ") + path_buf_);

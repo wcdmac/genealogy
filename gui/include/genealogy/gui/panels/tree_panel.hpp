@@ -34,6 +34,25 @@ class TreePanel : public Panel {
   void draw(DbSession& session) override;
   void on_database_closed() override;
 
+  // ---- 无头状态机（ROADMAP 债务偿还：装载/重建决策与 ImGui 绘制分离，
+  // 定义在 tree_panel_state.cpp——无 imgui 依赖，gui-tests 直接驱动）。
+  // 重建条件（第三轮新-C4）：根或展开代数变化都触发
+  bool needs_rebuild(const std::string& root, int depth) const;
+  // 后台装载（第三轮新-C10）：spawn worker；换根/换库/析构会作废
+  // 在途结果（代际守卫）。Database 为 FULLMUTEX，worker 与 UI 线程
+  // 共用 session 连接安全。
+  void begin_load(DbSession& session, const std::string& root, int depth);
+  // 采纳已完成的 worker 结果（有则换血图与树、写 error_）
+  void poll();
+  bool load_in_flight() const { return running_; }
+  // 面板是否持有任何缓存数据（换库清理断言的观测缝）
+  bool has_cached_data() const {
+    return has_tree_ || !loaded_root_.empty() || graph_ != nullptr;
+  }
+  // 测试观测缝：装载结果（has_tree_ 为真时 tree_ 非空）
+  bool tree_ready() const { return has_tree_; }
+  const std::string& last_error() const { return error_; }
+
  private:
   // 递归绘制 core 的 TreeNode。root_label 为空表示是顶层根。
   void draw_node(const lineage::TreeNode& node, const std::string& root_id);

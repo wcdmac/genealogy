@@ -53,6 +53,8 @@ class PersonTablePanel : public Panel {
     loaded_lineage_.clear();
     loaded_ = false;
   }
+  // 面板是否持有任何缓存数据（换库清理断言的观测缝）
+  bool has_cached_data() const { return loaded_ || !rows_.empty(); }
 };
 
 }  // namespace genealogy::gui

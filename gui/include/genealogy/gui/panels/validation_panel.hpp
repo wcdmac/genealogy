@@ -37,6 +37,16 @@ class ValidationPanel : public Panel {
   // 后台校验先停（第三轮新-C10）
   void on_database_closed() override;
 
+  // ---- 无头状态机（ROADMAP 债务偿还：装载/校验与 ImGui 绘制分离，
+  // 定义在 validation_panel_state.cpp——无 imgui 依赖，gui-tests 直接
+  // 驱动）。start_run 拉起后台校验线程；poll 采纳已完成的结果并写
+  // 状态栏（AppState 只在 UI/测试线程写）。
+  void start_run(DbSession& session);
+  void poll();
+  bool run_in_flight() const { return running_; }
+  // 面板是否持有任何缓存数据（换库清理断言的观测缝）
+  bool has_cached_data() const { return ran_ || !issues_.empty(); }
+
  private:
   void stop_worker();
 

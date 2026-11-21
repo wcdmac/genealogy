@@ -1,16 +1,12 @@
+// 人物卡面板的渲染层（ImGui）。状态机（load/save/切换决策）在
+// person_card_state.cpp——无 imgui 依赖、可被 gui-tests 无头驱动；
+// 本 TU 只把状态机的 API 画出来，不含任何装配逻辑。
+
 #include <genealogy/gui/panels/person_card.hpp>
 
 #include <imgui.h>
 
 #include <genealogy/gui/widgets.hpp>
-
-#include <algorithm>
-
-#include <genealogy/model/person.hpp>
-#include <genealogy/repository/person_name_repository.hpp>
-#include <genealogy/repository/person_repository.hpp>
-#include <genealogy/repository/union_repository.hpp>
-#include <genealogy/ulid.hpp>
 
 #include <string>
 #include <vector>
@@ -19,207 +15,10 @@ namespace genealogy::gui {
 
 namespace {
 
-// optional<string> ↔ InputText 缓冲的桥接。空串表示「未设置」——
-// 与 core 的口径一致（service 层会把空串规范化为未设置）。
-std::string opt_str(const std::optional<std::string>& v) {
-  return v.value_or(std::string{});
-}
-
-std::optional<std::string> to_opt(const std::string& s) {
-  if (s.empty()) return std::nullopt;
-  return s;
-}
-
-int parse_int_or(const std::string& s, int fallback) {
-  try {
-    return std::stoi(s);
-  } catch (const std::exception&) {
-    return fallback;
-  }
-}
-
 const char* kGenderLabels[] = {"男", "女", "未知"};
 const char* kPrivacyLabels[] = {"公开", "亲缘", "私密"};
 
 }  // namespace
-
-bool PersonCardPanel::load(DbSession& session) {
-  const std::string& id = state_.selected_person_id;
-  if (id.empty()) {
-    loaded_id_.clear();
-    return false;
-  }
-  auto got = session.persons().get_person(id);
-  if (!got) {
-    state_.set_status("读取人物失败: " + got.error().message(), true);
-    loaded_id_.clear();
-    return false;
-  }
-  const Person& p = *got;
-
-  buf_family_ = p.family_name;
-  buf_given_ = p.given_name;
-  buf_courtesy_ = opt_str(p.courtesy_name);
-  buf_art_ = opt_str(p.art_name);
-  buf_posthumous_ = opt_str(p.posthumous_title);
-  buf_alias_ = opt_str(p.alias);
-  buf_biography_ = opt_str(p.biography);
-  buf_note_ = opt_str(p.note);
-  // 长文本进 string 缓冲（CallbackResize 桥接后无截断——第三轮新-C14
-  // 之前是定长数组 snprintf 截断，丢字比崩好已无必要）
-  bio_buf_ = buf_biography_;
-  note_buf_ = buf_note_;
-  // 名号变更史（M7.1）：读失败不拦人物卡（列表留空 + 状态栏提示），
-  // 主信息照常编辑——名号是补充维度，不该阻塞主流程
-  name_rows_.clear();
-  {
-    PersonNameRepository names(session.db());
-    auto ns = names.list(id);
-    if (ns) {
-      for (const auto& n : *ns) {
-        std::string row = std::string("[") + to_string(n.type) + "] " + n.name;
-        if (n.is_primary) row += "（主名）";
-        if (n.start_date) row += " 起:" + n.start_date->display();
-        if (n.end_date) row += " 止:" + n.end_date->display();
-        if (n.note) row += " — " + *n.note;
-        name_rows_.push_back(std::move(row));
-      }
-    } else {
-      state_.set_status("读取名号失败: " + ns.error().message(), true);
-    }
-  }
-  buf_birth_ = p.birth_date.gregorian.value_or(std::string{});
-  buf_death_ = p.death_date ? p.death_date->gregorian.value_or(std::string{})
-                            : std::string{};
-  buf_gender_ = p.gender == Gender::Male    ? 0
-                : p.gender == Gender::Female ? 1
-                                             : 2;
-  buf_privacy_ = p.privacy == PrivacyLevel::Public  ? 0
-                 : p.privacy == PrivacyLevel::Private ? 2
-                                                      : 1;
-  buf_heir_ = p.is_heir;
-  buf_living_ = p.is_living;
-  buf_birth_order_ =
-      p.birth_order ? std::to_string(*p.birth_order) : std::string{};
-  buf_generation_no_ =
-      p.generation_no ? std::to_string(*p.generation_no) : std::string{};
-
-  loaded_id_ = p.id;
-  loaded_rev_ = static_cast<int>(p.rev);
-  dirty_ = false;
-
-  // 关系链：父母 + 配偶 + 子女（供跳转）
-  father_id_ = p.father_id.value_or(std::string{});
-  mother_id_ = p.mother_id.value_or(std::string{});
-  spouse_ids_.clear();
-  child_ids_.clear();
-  UnionFilter uf;
-  uf.person_id = p.id;
-  uf.limit = 100;
-  if (auto us = session.unions().list_unions(uf)) {
-    for (const auto& u : *us) {
-      for (const auto& m : u.members) {
-        if (m.person_id != p.id) spouse_ids_.push_back(m.person_id);
-      }
-    }
-  }
-  if (!father_id_.empty() || !mother_id_.empty()) {
-    // 仓储的 parent_any（father_id 或 mother_id 命中，走索引点查）。
-    // 父母都登记时查两次取并集；对父查询带出的「mother_id=父」这类
-    // 无意义分支在真实数据里为空，并集语义不受影响。此前是全量装载
-    // 20 万人物内存过滤——大库上每次选中都是一次全表遍历。
-    std::vector<std::string> seen;
-    auto collect = [&](const std::string& parent) {
-      if (parent.empty()) return;
-      PersonFilter cf;
-      cf.parent_any = parent;
-      cf.limit = 1000;
-      if (auto children = session.persons().list_persons(cf)) {
-        for (const auto& c : *children) {
-          if (std::find(seen.begin(), seen.end(), c.id) != seen.end()) continue;
-          seen.push_back(c.id);
-          child_ids_.push_back(c.id);
-        }
-      }
-    };
-    collect(father_id_);
-    collect(mother_id_);
-  }
-  return true;
-}
-
-bool PersonCardPanel::save(DbSession& session) {
-  if (loaded_id_.empty()) return false;
-  auto cur = session.persons().get_person(loaded_id_);
-  if (!cur) {
-    state_.set_status("保存前读取失败: " + cur.error().message(), true);
-    return false;
-  }
-  Person p = *cur;   // 以库中当前值为底，只覆写编辑缓冲覆盖的字段
-  // rev 用「载入时读到的值」——此前取当前库值，乐观锁形同虚设：
-  // 多端并发编辑会静默互相覆盖（2026-11 静态审查 H11）。旧值会撞
-  // 409 冲突，由用户重载后再改——家谱数据不可再生，宁拦勿盖。
-  p.rev = loaded_rev_;
-
-  p.family_name = buf_family_;
-  p.given_name = buf_given_;
-  p.courtesy_name = to_opt(buf_courtesy_);
-  p.art_name = to_opt(buf_art_);
-  p.posthumous_title = to_opt(buf_posthumous_);
-  p.alias = to_opt(buf_alias_);
-  // 行传/备注以常驻缓冲为准（用户在多行框里编辑的是它）
-  buf_biography_ = bio_buf_;
-  buf_note_ = note_buf_;
-  p.biography = to_opt(buf_biography_);
-  p.note = to_opt(buf_note_);
-  p.gender = buf_gender_ == 0   ? Gender::Male
-              : buf_gender_ == 1 ? Gender::Female
-                                : Gender::Unknown;
-  p.privacy = buf_privacy_ == 0   ? PrivacyLevel::Public
-               : buf_privacy_ == 2 ? PrivacyLevel::Private
-                                   : PrivacyLevel::Kin;
-  p.is_heir = buf_heir_;
-  p.is_living = buf_living_;
-  p.birth_order = buf_birth_order_.empty()
-                      ? std::optional<int>{}
-                      : std::optional<int>{parse_int_or(buf_birth_order_, 0)};
-  p.generation_no = buf_generation_no_.empty()
-                        ? std::optional<int>{}
-                        : std::optional<int>{parse_int_or(buf_generation_no_, 0)};
-
-  // 日期：空串 = 清除；非空按 ISO 解析（yyyy / yyyy-mm / yyyy-mm-dd）。
-  if (buf_birth_.empty()) {
-    p.birth_date = GenealogyDate{};
-  } else if (auto d = GenealogyDate::from_iso(buf_birth_)) {
-    p.birth_date = *d;
-  } else {
-    state_.set_status("出生日期不是合法 ISO（yyyy / yyyy-mm / yyyy-mm-dd）",
-                      true);
-    return false;
-  }
-  if (buf_death_.empty()) {
-    p.death_date.reset();
-  } else if (auto d = GenealogyDate::from_iso(buf_death_)) {
-    p.death_date = *d;
-  } else {
-    state_.set_status("卒年日期不是合法 ISO（yyyy / yyyy-mm / yyyy-mm-dd）",
-                      true);
-    return false;
-  }
-
-  // rev 用「载入时读到的值」：并发编辑会拿到 409，由用户重载后再改。
-  // 这比静默覆盖安全——家谱数据不可再生。
-  auto saved = session.persons().update_person(p);
-  if (!saved) {
-    state_.set_status("保存失败: " + saved.error().message(), true);
-    return false;
-  }
-  loaded_rev_ = static_cast<int>(saved->rev);
-  dirty_ = false;
-  state_.set_status("已保存 " + saved->family_name + saved->given_name +
-                    "（rev=" + std::to_string(saved->rev) + "）");
-  return true;
-}
 
 void PersonCardPanel::draw(DbSession& session) {
   if (!session.is_open()) {
@@ -233,20 +32,20 @@ void PersonCardPanel::draw(DbSession& session) {
   // 选中变了就重新装载（跨面板联动的落点）。有未保存修改时不静默
   // 覆盖（第三轮新-C3）：面板内显式三选——保存/放弃/留在当前。
   if (state_.selected_person_id != loaded_id_) {
-    if (dirty_) {
+    if (switch_pending(state_.selected_person_id)) {
       ImGui::TextColored(ImVec4(1.0F, 0.45F, 0.45F, 1.0F),
                          "人物卡有未保存修改，全局选中已切到 %.16s…",
                          state_.selected_person_id.c_str());
       if (ImGui::Button("保存并切换")) {
-        if (save(session)) load(session);
+        resolve_switch(SwitchAction::SaveAndLoad, session);
       }
       ImGui::SameLine();
       if (ImGui::Button("放弃修改并切换")) {
-        load(session);
+        resolve_switch(SwitchAction::DiscardAndLoad, session);
       }
       ImGui::SameLine();
       if (ImGui::Button("留在当前")) {
-        state_.selected_person_id = loaded_id_;
+        resolve_switch(SwitchAction::Stay, session);
       }
       return;  // 确认期间不渲染编辑区，避免继续累积未保存修改
     }
@@ -256,25 +55,25 @@ void PersonCardPanel::draw(DbSession& session) {
 
   ImGui::SeparatorText("姓名");
   ImGui::SetNextItemWidth(120);
-  if (input_text("姓", &buf_family_, 64)) dirty_ = true;
+  if (input_text("姓", &buf_family_, 64)) mark_edited();
   ImGui::SameLine();
   ImGui::SetNextItemWidth(140);
-  if (input_text("名", &buf_given_, 64)) dirty_ = true;
+  if (input_text("名", &buf_given_, 64)) mark_edited();
   ImGui::SameLine();
   ImGui::SetNextItemWidth(110);
-  if (ImGui::Combo("性别", &buf_gender_, kGenderLabels, 3)) dirty_ = true;
+  if (ImGui::Combo("性别", &buf_gender_, kGenderLabels, 3)) mark_edited();
 
   ImGui::SetNextItemWidth(140);
-  if (input_text("字", &buf_courtesy_, 64)) dirty_ = true;
+  if (input_text("字", &buf_courtesy_, 64)) mark_edited();
   ImGui::SameLine();
   ImGui::SetNextItemWidth(140);
-  if (input_text("号", &buf_art_, 64)) dirty_ = true;
+  if (input_text("号", &buf_art_, 64)) mark_edited();
   ImGui::SameLine();
   ImGui::SetNextItemWidth(140);
-  if (input_text("谥/赠", &buf_posthumous_, 64)) dirty_ = true;
+  if (input_text("谥/赠", &buf_posthumous_, 64)) mark_edited();
 
   ImGui::SetNextItemWidth(180);
-  if (input_text("别称/改名前名", &buf_alias_, 96)) dirty_ = true;
+  if (input_text("别称/改名前名", &buf_alias_, 96)) mark_edited();
   // 名号变更史（M7.1 验收门：人物卡显示全部名号）——只读列表，
   // 增删走 genea person name / REST /persons/{id}/names
   if (!name_rows_.empty()) {
@@ -286,35 +85,35 @@ void PersonCardPanel::draw(DbSession& session) {
 
   ImGui::SeparatorText("生卒");
   ImGui::SetNextItemWidth(120);
-  if (input_text("生（公历）", &buf_birth_, 32)) dirty_ = true;
+  if (input_text("生（公历）", &buf_birth_, 32)) mark_edited();
   ImGui::SameLine();
   ImGui::SetNextItemWidth(120);
-  if (input_text("卒（公历）", &buf_death_, 32)) dirty_ = true;
+  if (input_text("卒（公历）", &buf_death_, 32)) mark_edited();
   ImGui::SameLine();
-  if (ImGui::Checkbox("在世", &buf_living_)) dirty_ = true;
+  if (ImGui::Checkbox("在世", &buf_living_)) mark_edited();
   ImGui::SameLine();
-  if (ImGui::Checkbox("承重/嫡嗣", &buf_heir_)) dirty_ = true;
+  if (ImGui::Checkbox("承重/嫡嗣", &buf_heir_)) mark_edited();
 
   ImGui::SeparatorText("行辈与隐私");
   ImGui::SetNextItemWidth(80);
-  if (input_text("行几", &buf_birth_order_, 8)) dirty_ = true;
+  if (input_text("行几", &buf_birth_order_, 8)) mark_edited();
   ImGui::SameLine();
   ImGui::SetNextItemWidth(80);
-  if (input_text("世代", &buf_generation_no_, 8)) dirty_ = true;
+  if (input_text("世代", &buf_generation_no_, 8)) mark_edited();
   ImGui::SameLine();
   ImGui::SetNextItemWidth(110);
-  if (ImGui::Combo("隐私", &buf_privacy_, kPrivacyLabels, 3)) dirty_ = true;
+  if (ImGui::Combo("隐私", &buf_privacy_, kPrivacyLabels, 3)) mark_edited();
 
   ImGui::SeparatorText("行传");
   if (input_text_multiline("##biography", &bio_buf_,
                            ImGui::GetTextLineHeight() * 6)) {
-    dirty_ = true;
+    mark_edited();
   }
 
   ImGui::SeparatorText("备注");
   if (input_text_multiline("##note", &note_buf_,
                            ImGui::GetTextLineHeight() * 3)) {
-    dirty_ = true;
+    mark_edited();
   }
 
   if (dirty_) {

@@ -169,13 +169,16 @@ Result<Person> PersonRepository::get(const std::string& id) const {
 Result<std::vector<Person>> PersonRepository::search(
     std::string_view keyword, int limit, const std::string& after_id) const {
   if (keyword.empty()) return invalid_argument("检索关键词不能为空");
-  // after_id 非空时加 keyset 划分（第三轮新-3）：/search 的游标翻页
+  // after_id 非空时加 keyset 划分（第三轮新-3）：/search 的游标翻页。
+  // 排序必须与划分键同源（ORDER BY p.id）：此前 ORDER BY rank 配
+  // id 划分，高 rank 低 id 的命中会跨页重复——e2e 游标翻页当场抓出。
+  // 相关性排序让位于确定性翻页（本地工具命中集小，id 序足够）。
   std::string sql = "SELECT " + qualify_cols(kSelectCols, "p") +
                     " FROM person p JOIN person_fts"
                     " ON person_fts.rowid = p.rowid"
                     " WHERE person_fts MATCH ?1";
   if (!after_id.empty()) sql += " AND p.id > ?3";
-  sql += " ORDER BY rank LIMIT ?2";
+  sql += " ORDER BY p.id LIMIT ?2";
   Stmt st(db_.raw(), sql.c_str());
   if (!st.ok()) {
     return Error{ErrorCode::Internal,

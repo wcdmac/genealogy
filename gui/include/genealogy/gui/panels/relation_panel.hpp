@@ -47,6 +47,9 @@ class RelationPanel : public Panel {
  private:
   void compute(DbSession& session);
 
+  // 面板是否持有任何缓存数据（换库清理断言的观测缝）
+  bool has_cached_data() const { return computed_; }
+
   AppState& state_;
   bool computed_ = false;
   bool has_path_ = false;

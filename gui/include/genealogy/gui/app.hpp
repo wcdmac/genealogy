@@ -39,6 +39,9 @@ class GenealogyApp {
   void build_panels();
   void draw_menu_bar();
   void draw_status_bar();
+  // 换库/关库的统一清理序列（db_switch.cpp，可无头单测）——菜单与
+  // 打开弹窗两个入口共用
+  void reset_panels_for_switch();
 
   AppOptions options_;
   AppState state_;

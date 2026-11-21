@@ -29,6 +29,14 @@
 #include <fstream>
 #include <string>
 
+#include <genealogy/gui/db_switch.hpp>
+#include <genealogy/gui/panels/person_card.hpp>
+#include <genealogy/gui/panels/person_table.hpp>
+#include <genealogy/gui/panels/relation_panel.hpp>
+#include <genealogy/gui/panels/search_panel.hpp>
+#include <genealogy/gui/panels/tree_panel.hpp>
+#include <genealogy/gui/panels/validation_panel.hpp>
+
 using namespace genealogy;
 using namespace genealogy::gui;
 using namespace genealogy::lineage;
@@ -276,4 +284,248 @@ TEST_CASE("面板数据装配：校验引擎装载路径") {
     if (i.rule_id == "R1") has_r1 = true;
   }
   CHECK(has_r1);
+}
+
+// ================================================================
+// 面板状态机（ROADMAP「面板装配抽离 ImGui TU」债务偿还后的无头验证）。
+// 第三轮修复的三个状态机自此可自动回归：dirty 置位与切换确认、
+// 树面板深度重建条件与后台装载、换库缓存清理序列。
+
+#include <chrono>
+#include <thread>
+
+namespace {
+
+// 等后台面板线程收尾（本地毫秒级；超时判失败防止死等）
+template <typename Pred>
+void wait_until(Pred&& ready, int timeout_ms = 10000) {
+  const auto deadline = std::chrono::steady_clock::now() +
+                        std::chrono::milliseconds(timeout_ms);
+  while (!ready()) {
+    if (std::chrono::steady_clock::now() > deadline) {
+      FAIL("wait_until 超时——后台面板线程未按预期收尾");
+    }
+    std::this_thread::sleep_for(std::chrono::milliseconds(10));
+  }
+}
+
+}  // namespace
+
+TEST_CASE("面板状态机：人物卡 dirty 置位与三选切换（第三轮新-C3）") {
+  TempDb t;
+  std::string why;
+  REQUIRE(t.open(&why));
+  auto a = t.session.persons().create_person(
+      make_person("陈", "文远", Gender::Male, "1864"));
+  auto b = t.session.persons().create_person(
+      make_person("陈", "承嗣", Gender::Male, "1890"));
+  REQUIRE(a.has_value());
+  REQUIRE(b.has_value());
+
+  AppState state;
+  state.selected_person_id = a->id;
+  PersonCardPanel card(state);
+
+  // 装载：缓冲就位、无脏、无可确认切换
+  REQUIRE(card.load(t.session));
+  CHECK_FALSE(card.switch_pending(b->id));
+  CHECK(card.has_cached_data());
+
+  // 编辑置 dirty（第三轮修复前 dirty_ 从未被置 true——本断言即回归）
+  card.edit_given_name("文远改");
+  CHECK(card.switch_pending(b->id));
+  CHECK_FALSE(card.switch_pending(a->id));  // 同一人物不构成切换
+
+  // Stay：全局选中退回当前人物，缓冲保留
+  state.selected_person_id = b->id;
+  card.resolve_switch(PersonCardPanel::SwitchAction::Stay, t.session);
+  CHECK(state.selected_person_id == a->id);
+  CHECK(card.switch_pending(b->id));  // 仍是脏的
+
+  // SaveAndLoad：先保存再切换——库里真改名，切换后 dirty 复位
+  state.selected_person_id = b->id;
+  card.resolve_switch(PersonCardPanel::SwitchAction::SaveAndLoad, t.session);
+  auto saved = t.session.persons().get_person(a->id);
+  REQUIRE(saved.has_value());
+  CHECK(saved->given_name == "文远改");
+  CHECK(state.selected_person_id == b->id);
+  CHECK(card.has_cached_data());
+  CHECK_FALSE(card.switch_pending(a->id));  // 已不脏也不指向 a
+
+  // DiscardAndLoad：脏缓冲直接作废、按选中重载
+  card.edit_given_name("不会入库的修改");
+  state.selected_person_id = a->id;
+  CHECK(card.switch_pending(a->id));
+  card.resolve_switch(PersonCardPanel::SwitchAction::DiscardAndLoad, t.session);
+  CHECK(card.has_cached_data());
+  CHECK_FALSE(card.switch_pending(b->id));
+  auto reloaded = t.session.persons().get_person(a->id);
+  REQUIRE(reloaded.has_value());
+  CHECK(reloaded->given_name == "文远改");  // 丢弃的是缓冲，库值不变
+}
+
+TEST_CASE("面板状态机：人物卡保存走载入 rev 乐观锁（H11 回归）") {
+  TempDb t;
+  std::string why;
+  REQUIRE(t.open(&why));
+  auto made = t.session.persons().create_person(
+      make_person("陈", "文远", Gender::Male, "1864"));
+  REQUIRE(made.has_value());
+
+  AppState state;
+  state.selected_person_id = made->id;
+  PersonCardPanel card(state);
+  REQUIRE(card.load(t.session));
+  card.edit_given_name("并发受害者");
+
+  // 外部写入者抢先改库：rev 前进
+  auto cur = t.session.persons().get_person(made->id);
+  REQUIRE(cur.has_value());
+  Person intruder = *cur;
+  intruder.courtesy_name = "旁路写入";
+  auto bumped = t.session.persons().update_person(intruder);
+  REQUIRE(bumped.has_value());
+
+  // 保存拿载入时的旧 rev → 409 冲突 → 原地不动 + 状态栏报错
+  card.resolve_switch(PersonCardPanel::SwitchAction::SaveAndLoad, t.session);
+  CHECK(state.status_is_error);
+  CHECK(state.selected_person_id == made->id);  // 未被切走
+  CHECK(card.has_cached_data());                // 编辑仍在（没丢）
+
+  // 库里值未被本卡覆盖——仍是旁路写入者的 courtesy
+  auto after = t.session.persons().get_person(made->id);
+  REQUIRE(after.has_value());
+  CHECK(after->courtesy_name == "旁路写入");
+}
+
+TEST_CASE("面板状态机：树面板重建条件含深度（第三轮新-C4）") {
+  TempDb t;
+  std::string why;
+  REQUIRE(t.open(&why));
+  auto made = t.session.persons().create_person(
+      make_person("陈", "始祖", Gender::Male, "1600"));
+  REQUIRE(made.has_value());
+
+  AppState state;
+  TreePanel tree(state);
+  CHECK_FALSE(tree.has_cached_data());
+
+  CHECK(tree.needs_rebuild(made->id, 10));  // 未装载过 → 重建
+  tree.begin_load(t.session, made->id, 10);
+  CHECK(tree.load_in_flight());
+  wait_until([&] { return !tree.load_in_flight(); });
+  tree.poll();
+  CHECK(tree.tree_ready());
+  CHECK(tree.has_cached_data());
+  CHECK_FALSE(tree.needs_rebuild(made->id, 10));  // 同根同深 → 不重建
+  CHECK(tree.needs_rebuild(made->id, 2));         // 深度变化 → 重建（修复前只看根）
+
+  // 深度 1：只有根节点，不展开子女
+  tree.begin_load(t.session, made->id, 1);
+  wait_until([&] { return !tree.load_in_flight(); });
+  tree.poll();
+  CHECK(tree.tree_ready());
+  CHECK(tree.last_error().empty());
+
+  // 不存在的根：错误发布并被采纳，不残留旧树
+  tree.begin_load(t.session, "01NOTEXIST0000000000000000XX", 5);
+  wait_until([&] { return !tree.load_in_flight(); });
+  tree.poll();
+  CHECK_FALSE(tree.tree_ready());
+  CHECK_FALSE(tree.last_error().empty());
+  // 失败批次不采纳图与树；换库清理后再看缓存是否清空
+  tree.on_database_closed();
+  CHECK_FALSE(tree.has_cached_data());
+}
+
+TEST_CASE("面板状态机：换库作废在途装载（第三轮新-C10）") {
+  TempDb t;
+  std::string why;
+  REQUIRE(t.open(&why));
+  auto made = t.session.persons().create_person(
+      make_person("陈", "始祖", Gender::Male, "1600"));
+  REQUIRE(made.has_value());
+
+  AppState state;
+  TreePanel tree(state);
+  tree.begin_load(t.session, made->id, 10);
+  // 装载在途时换库：on_database_closed 必须先 join 再清场
+  tree.on_database_closed();
+  CHECK_FALSE(tree.load_in_flight());
+  tree.poll();
+  CHECK_FALSE(tree.has_cached_data());
+}
+
+TEST_CASE("面板状态机：校验面板后台跑与采纳（第三轮新-C10）") {
+  TempDb t;
+  std::string why;
+  REQUIRE(t.open(&why));
+  auto made = t.session.persons().create_person(
+      make_person("陈", "无生年", Gender::Male, ""));
+  REQUIRE(made.has_value());  // R10 生年缺失 info 触发器
+
+  AppState state;
+  ValidationPanel panel(state);
+  CHECK_FALSE(panel.has_cached_data());
+  panel.start_run(t.session);
+  CHECK(panel.run_in_flight());
+  wait_until([&] { return !panel.run_in_flight(); });
+  panel.poll();
+  CHECK(panel.has_cached_data());
+
+  // 在途换库：join + 清场，不采纳陈旧批次
+  panel.start_run(t.session);
+  panel.on_database_closed();
+  CHECK_FALSE(panel.run_in_flight());
+  panel.poll();
+  CHECK_FALSE(panel.has_cached_data());
+  CHECK_FALSE(state.status_is_error);  // 清场不写状态栏
+}
+
+TEST_CASE("面板状态机：换库清理序列（复核 2.13 + 第三轮新-C5）") {
+  TempDb t;
+  std::string why;
+  REQUIRE(t.open(&why));
+  auto made = t.session.persons().create_person(
+      make_person("陈", "始祖", Gender::Male, "1600"));
+  REQUIRE(made.has_value());
+
+  AppState state;
+  state.selected_person_id = made->id;
+  state.relation_ego = made->id;
+  state.relation_alter = made->id;
+
+  // 六面板齐全：缓存可填充的三个填满，其余保持空（序列不得引入缓存）
+  PersonCardPanel card(state);
+  TreePanel tree(state);
+  ValidationPanel validation(state);
+  SearchPanel search(state);
+  RelationPanel relation(state);
+  PersonTablePanel table(state);
+
+  state.selected_person_id = made->id;
+  REQUIRE(card.load(t.session));
+  tree.begin_load(t.session, made->id, 10);
+  wait_until([&] { return !tree.load_in_flight(); });
+  tree.poll();
+  validation.start_run(t.session);
+  wait_until([&] { return !validation.run_in_flight(); });
+  validation.poll();
+
+  CHECK(card.has_cached_data());
+  CHECK(tree.has_cached_data());
+  CHECK(validation.has_cached_data());
+
+  std::vector<Panel*> panels = {&card, &tree, &validation,
+                                &search, &relation, &table};
+  reset_for_database_switch(state, panels);
+
+  // 全局选中态清空（第三轮新-C5：关系端点一并清）
+  CHECK(state.selected_person_id.empty());
+  CHECK(state.relation_ego.empty());
+  CHECK(state.relation_alter.empty());
+  // 六面板缓存全清——换库后检索/关系/校验/人物卡/树不再展示旧库数据
+  for (const auto* p : panels) {
+    CHECK_FALSE(p->has_cached_data());
+  }
 }

@@ -135,16 +135,17 @@ Result<std::vector<Document>> DocumentRepository::search(
 
   std::string sql;
   if (codepoint_count(keyword) >= 3) {
-    // trigram FTS：中文子串命中，rank 排序。quote_fts 包成短语查询，
+    // trigram FTS：中文子串命中。quote_fts 包成短语查询，
     // 避免关键词里的 FTS5 语法字符被当查询表达式。列名必须限定
     // document.——external-content FTS 镜像了同名列，裸列名歧义
     // （person_fts 的 search 同款处理，见 sqlite_util 的 qualify_cols）。
+    // ORDER BY 与 keyset 划分键同源（同 person_fts 的跨页重复教训）
     sql = std::string("SELECT ").append(qualify_cols(kCols, "document")) +
           " FROM document JOIN document_fts"
           " ON document_fts.rowid = document.rowid"
           " WHERE document_fts MATCH ?1";
     if (!after_id.empty()) sql += " AND document.id > ?3";
-    sql += " ORDER BY rank LIMIT ?2";
+    sql += " ORDER BY document.id LIMIT ?2";
   } else {
     // 1-2 字查询（「家训」「凡例」）：trigram 需 ≥3 字符，回退 LIKE
     sql = std::string("SELECT ").append(kCols) +

@@ -20,9 +20,32 @@ class PersonCardPanel : public Panel {
   const char* title() const override { return "人物卡"; }
   void draw(DbSession& session) override;
 
- private:
-  // 数据层：把选中人物读进编辑缓冲。返回 false 表示没选中或读失败。
+  // ---- 无头状态机（ROADMAP 债务偿还：装配逻辑与 ImGui 绘制分离，
+  // 定义在 person_card_state.cpp——无 imgui 依赖，gui-tests 直接驱动）。
+  // 编辑落缓冲（draw 的输入控件在值变化时调用）：置 dirty
+  void mark_edited() { dirty_ = true; }
+  // 无头编辑入口：与 draw 的输入控件同一落点（改缓冲 + 置 dirty）。
+  // 测试用内容级编辑驱动 dirty/保存语义，不必经由 ImGui
+  void edit_given_name(const std::string& v) {
+    buf_given_ = v;
+    mark_edited();
+  }
+  // 全局选中与本卡缓冲分叉且有未保存修改 → 切换需确认（第三轮新-C3）
+  bool switch_pending(const std::string& selected) const {
+    return dirty_ && selected != loaded_id_;
+  }
+  // 切换决策（第三轮新-C3 的三选）：
+  //   Stay           全局选中退回本卡当前人物
+  //   DiscardAndLoad 丢缓冲、按新选中重载
+  //   SaveAndLoad    先保存（失败则原地不动），成功后按新选中重载
+  enum class SwitchAction { Stay, DiscardAndLoad, SaveAndLoad };
+  void resolve_switch(SwitchAction action, DbSession& session);
+  // 面板是否持有任何缓存/未保存数据（换库清理断言的观测缝）
+  bool has_cached_data() const { return dirty_ || !loaded_id_.empty(); }
+  // 装载全局选中人物进缓冲（切换/重载的执行体，也是测试驱动入口）
   bool load(DbSession& session);
+
+ private:
   // 数据层：保存编辑缓冲。成功返回 true，失败把原因写进 state 状态栏。
   bool save(DbSession& session);
   void on_database_closed() override {

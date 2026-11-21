@@ -61,13 +61,17 @@ add_executable(genealogy-gui
   src/main.cpp
   src/app.cpp
   src/db_session.cpp
+  src/db_switch.cpp
   src/font.cpp
   src/panels/person_card.cpp
+  src/panels/person_card_state.cpp
   src/panels/person_table.cpp
   src/panels/search_panel.cpp
   src/panels/relation_panel.cpp
   src/panels/validation_panel.cpp
+  src/panels/validation_panel_state.cpp
   src/panels/tree_panel.cpp
+  src/panels/tree_panel_state.cpp
 )
 
 target_include_directories(genealogy-gui
@@ -86,18 +90,29 @@ target_link_libraries(genealogy-gui
 install(TARGETS genealogy-gui RUNTIME DESTINATION bin)
 
 # ---------------------------------------------------------------- 测试
-# 无头测试的覆盖面：DbSession（GUI 调 core 用例的同一条入口链）。
-# 面板装配函数虽不调 ImGui，但与 ImGui 绘制同文件同类、且私有于面板——
-# 要进无头测试需先把装配抽到无 UI 头的 TU（登记为 ROADMAP 暂缓项），
-# 此前「面板状态刷新可无头单测」的说法超前于事实。
-# 渲染层（GLFW/OpenGL）需要显示环境，只保证编译通过与运行时报错路径。
+# 无头测试的覆盖面：DbSession（GUI 数据层入口）+ 面板状态机。
+#
+# ROADMAP「面板装配抽离 ImGui TU」债务已偿还：person_card /
+# tree_panel / validation_panel 各拆出 *_state.cpp（无 imgui 依赖的
+# 装载/决策/异步采纳逻辑），连同 db_switch（换库清理序列）一起编进
+# 测试二进制。draw() 所在的渲染 TU 也一并编入——类实例化需要完整
+# vtable（引用全部虚函数），只编 state TU 会链接失败；测试运行期
+# 从不调用 draw()，不触碰 GLFW/OpenGL，无显示环境照跑。
 if(BUILD_TESTS)
   find_package(Catch2 CONFIG REQUIRED)
   add_executable(genealogy-gui-tests
     tests/test_gui.cpp
-    # DbSession 是 GUI 数据层的入口，编进测试二进制才能无头单测。
-    # 它只依赖 core（无 ImGui/GLFW 头文件），链接进来不会拖入渲染栈。
     ${PROJECT_SOURCE_DIR}/gui/src/db_session.cpp
+    ${PROJECT_SOURCE_DIR}/gui/src/db_switch.cpp
+    ${PROJECT_SOURCE_DIR}/gui/src/panels/person_card.cpp
+    ${PROJECT_SOURCE_DIR}/gui/src/panels/person_card_state.cpp
+    ${PROJECT_SOURCE_DIR}/gui/src/panels/person_table.cpp
+    ${PROJECT_SOURCE_DIR}/gui/src/panels/search_panel.cpp
+    ${PROJECT_SOURCE_DIR}/gui/src/panels/relation_panel.cpp
+    ${PROJECT_SOURCE_DIR}/gui/src/panels/validation_panel.cpp
+    ${PROJECT_SOURCE_DIR}/gui/src/panels/validation_panel_state.cpp
+    ${PROJECT_SOURCE_DIR}/gui/src/panels/tree_panel.cpp
+    ${PROJECT_SOURCE_DIR}/gui/src/panels/tree_panel_state.cpp
   )
   target_include_directories(genealogy-gui-tests
     PRIVATE ${PROJECT_SOURCE_DIR}/gui/include
@@ -105,6 +120,7 @@ if(BUILD_TESTS)
   target_link_libraries(genealogy-gui-tests
     PRIVATE
       genealogy-core
+      imgui
       Catch2::Catch2WithMain
   )
   add_test(NAME genealogy-gui-tests COMMAND genealogy-gui-tests)
