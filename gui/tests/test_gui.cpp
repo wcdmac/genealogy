@@ -64,7 +64,6 @@ struct TempDb {
 Person make_person(const std::string& family, const std::string& given,
                    Gender g, const std::string& birth_year) {
   Person p;
-  p.lineage_id = kDefaultLineageId;
   p.family_name = family;
   p.given_name = given;
   p.gender = g;

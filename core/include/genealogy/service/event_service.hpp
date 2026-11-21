@@ -8,7 +8,6 @@
 #include <genealogy/repository/branch_repository.hpp>
 #include <genealogy/repository/database.hpp>
 #include <genealogy/repository/event_repository.hpp>
-#include <genealogy/repository/lineage_repository.hpp>
 #include <genealogy/repository/person_repository.hpp>
 #include <genealogy/repository/place_repository.hpp>
 #include <genealogy/repository/union_repository.hpp>
@@ -35,7 +34,6 @@ class EventService {
   PersonRepository persons_;
   UnionRepository unions_;
   BranchRepository branches_;
-  LineageRepository lineages_;
   PlaceRepository places_;
 };
 

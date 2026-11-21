@@ -11,7 +11,6 @@
 #include <genealogy/error.hpp>
 #include <genealogy/model/person.hpp>
 #include <genealogy/model/person_name.hpp>
-#include <genealogy/repository/bootstrap.hpp>
 #include <genealogy/repository/database.hpp>
 #include <genealogy/service/person_name_service.hpp>
 #include <genealogy/service/person_service.hpp>
@@ -35,7 +34,6 @@ void cleanup_db(const std::filesystem::path& path) {
 
 Person mk_person(const std::string& given) {
   Person p;
-  p.lineage_id = kDefaultLineageId;
   p.family_name = "陈";
   p.given_name = given;
   p.gender = Gender::Male;
@@ -66,7 +64,6 @@ TEST_CASE("名号：CRUD 闭环 + 主名互斥（置新主清旧主）") {
   auto opened = Database::open(path);
   REQUIRE(opened);
   REQUIRE(opened->schema_version() >= 5);  // 0005 名号补列已应用
-  REQUIRE(ensure_default_lineage(*opened));
 
   PersonService persons(*opened);
   auto p = persons.create_person(mk_person("文远"));
@@ -128,7 +125,6 @@ TEST_CASE("名号：服务层校验——人物必须存在、名号文本必填
   const auto path = temp_db_path();
   auto opened = Database::open(path);
   REQUIRE(opened);
-  REQUIRE(ensure_default_lineage(*opened));
 
   PersonNameService svc(*opened);
 

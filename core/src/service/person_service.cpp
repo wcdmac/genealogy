@@ -12,20 +12,14 @@
 namespace genealogy {
 
 PersonService::PersonService(Database& db)
-    : db_(&db), repo_(db), lineages_(db) {}
+    : db_(&db), repo_(db) {}
 
 namespace {
 
 // 建档与更新共用的领域校验。空 Error 表示通过。
-Error validate_person(const Person& draft, LineageRepository& lineages,
-                      PersonRepository& repo) {
-  if (draft.lineage_id.empty()) return invalid_argument("lineage_id 必填");
+Error validate_person(const Person& draft, PersonRepository& repo) {
   if (draft.family_name.empty()) return invalid_argument("姓必填");
   if (draft.given_name.empty()) return invalid_argument("名必填");
-
-  // 宗族存在性：未传 --lineage 时 CLI 落入占位宗族（bootstrap 保证存在）
-  auto lineage = lineages.get(draft.lineage_id);
-  if (!lineage) return not_found("宗族不存在: " + draft.lineage_id);
 
   Person p = draft;
   // 空串 ID 视为未设置（CLI 传 --father "" 等场景），
@@ -55,7 +49,7 @@ Error validate_person(const Person& draft, LineageRepository& lineages,
 }  // namespace
 
 Result<Person> PersonService::create_person(const Person& draft) {
-  if (auto err = validate_person(draft, lineages_, repo_); err) return err;
+  if (auto err = validate_person(draft, repo_); err) return err;
   return repo_.insert(draft);
 }
 
@@ -69,7 +63,7 @@ Result<std::vector<Person>> PersonService::list_persons(
 }
 
 Result<Person> PersonService::update_person(const Person& p) {
-  if (auto err = validate_person(p, lineages_, repo_); err) return err;
+  if (auto err = validate_person(p, repo_); err) return err;
   return repo_.update(p);
 }
 
@@ -178,9 +172,8 @@ Result<void> PersonService::remove_person(const std::string& id) {
 }
 
 Result<std::vector<Person>> PersonService::search_persons(
-    std::string_view keyword, int limit, const std::string& after_id,
-    const std::string& lineage_id) {
-  return repo_.search(keyword, limit, after_id, lineage_id);
+    std::string_view keyword, int limit, const std::string& after_id) {
+  return repo_.search(keyword, limit, after_id);
 }
 
 }  // namespace genealogy

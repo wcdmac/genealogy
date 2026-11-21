@@ -12,7 +12,6 @@
 namespace genealogy {
 
 struct DocumentFilter {
-  std::optional<std::string> lineage_id;
   std::optional<DocumentType> type;
   int limit = 50;
   std::optional<std::string> cursor;
@@ -29,11 +28,9 @@ class DocumentRepository {
   // MATCH 不命中，回退 title/content 的 LIKE 全扫（文档量级几百篇，
   // <50ms 门槛内）。命中按 FTS rank 排序。
   // after_id：keyset 游标（第三轮新-3，语义同 PersonRepository::search）
-  // lineage_id 非空时限定单谱（多谱同库检索谱内化）
   Result<std::vector<Document>> search(std::string_view keyword,
                                        int limit,
-                                       const std::string& after_id = {},
-                                       const std::string& lineage_id = {}) const;
+                                       const std::string& after_id = {}) const;
 
   Result<Document> get(const std::string& id) const;
   Result<Document> insert(Document doc);

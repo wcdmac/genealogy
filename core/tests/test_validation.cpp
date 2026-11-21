@@ -20,7 +20,6 @@ Person mk(const std::string& id, const std::string& surname,
           int death_year = 0) {
   Person p;
   p.id = id;
-  p.lineage_id = "L1";
   p.family_name = surname;
   p.given_name = given;
   p.gender = gender;
@@ -479,7 +478,6 @@ TEST_CASE("校验：R5 同名同年分谱不互报（多谱隔离）") {
                           int birth) {
     Person p;
     p.id = tag;
-    p.lineage_id = lineage;
     p.family_name = "王";
     p.given_name = "大明";
     p.gender = Gender::Male;
@@ -502,7 +500,6 @@ TEST_CASE("校验：R5 同名同年分谱不互报（多谱隔离）") {
                        int birth) {
     Person p;
     p.id = tag;
-    p.lineage_id = lineage;
     p.family_name = "王";
     p.given_name = "大明";
     p.gender = Gender::Male;

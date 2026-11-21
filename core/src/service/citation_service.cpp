@@ -4,7 +4,6 @@
 
 #include <genealogy/repository/branch_repository.hpp>
 #include <genealogy/repository/event_repository.hpp>
-#include <genealogy/repository/lineage_repository.hpp>
 #include <genealogy/repository/migration_repository.hpp>
 #include <genealogy/repository/person_repository.hpp>
 #include <genealogy/repository/union_repository.hpp>
@@ -52,9 +51,7 @@ Result<void> require_subject_exists(Database& db,
       return {};
     }
     case CitationSubjectType::Lineage: {
-      LineageRepository repo(db);
-      auto got = repo.get(subject_id);
-      if (!got) return not_found("引用主体不存在（lineage）: " + subject_id);
+      // 单谱单库：谱本体即 book 行，主体校验恒过（历史数据兼容保留枚举）
       return {};
     }
   }

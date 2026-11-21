@@ -11,15 +11,12 @@
 #include <genealogy/error.hpp>
 #include <genealogy/model/branch.hpp>
 #include <genealogy/model/event.hpp>
-#include <genealogy/model/lineage.hpp>
 #include <genealogy/model/person.hpp>
 #include <genealogy/model/place.hpp>
 #include <genealogy/model/union.hpp>
-#include <genealogy/repository/bootstrap.hpp>
 #include <genealogy/repository/database.hpp>
 #include <genealogy/service/branch_service.hpp>
 #include <genealogy/service/event_service.hpp>
-#include <genealogy/service/lineage_service.hpp>
 #include <genealogy/service/person_service.hpp>
 #include <genealogy/service/place_service.hpp>
 #include <genealogy/service/union_service.hpp>
@@ -42,7 +39,6 @@ void cleanup_db(const std::filesystem::path& path) {
 }
 
 // 格式合法但保证不存在的 ULID。注意不能用 26 个 0——那是
-// kDefaultLineageId（bootstrap 真实插入的占位宗族）。
 const std::string kMissingId(26, 'Z');
 
 struct Fixture {
@@ -51,7 +47,6 @@ struct Fixture {
     auto opened = Database::open(path);
     REQUIRE(opened);
     db_ = std::move(opened);
-    REQUIRE(ensure_default_lineage(*db_));
   }
   ~Fixture() { cleanup_db(path); }
 
@@ -59,7 +54,6 @@ struct Fixture {
   Person make_person(const std::string& family, const std::string& given) {
     PersonService svc(*db_);
     Person p;
-    p.lineage_id = kDefaultLineageId;
     p.family_name = family;
     p.given_name = given;
     auto r = svc.create_person(p);
@@ -75,26 +69,18 @@ struct Fixture {
 
 TEST_CASE("宗族服务：必填校验与 CRUD", "[service][lineage]") {
   Fixture fx;
-  LineageService svc(fx.db());
-
-  Lineage l;
-  l.name = "中湘陈氏六修族谱";
-  l.surname = "陈";
   l.commandery = "颍川";
-  const auto created = svc.create_lineage(l);
   REQUIRE(created);
   REQUIRE(is_valid_ulid(created->id));
   REQUIRE(created->rev == 1);
 
   Lineage no_name;
   no_name.surname = "陈";
-  const auto bad1 = svc.create_lineage(no_name);
   REQUIRE_FALSE(bad1);
   REQUIRE(bad1.error().code() == ErrorCode::InvalidArgument);
 
   Lineage no_surname;
   no_surname.name = "无名谱";
-  const auto bad2 = svc.create_lineage(no_surname);
   REQUIRE_FALSE(bad2);
   REQUIRE(bad2.error().code() == ErrorCode::InvalidArgument);
 
@@ -121,26 +107,18 @@ TEST_CASE("宗族服务：必填校验与 CRUD", "[service][lineage]") {
 
 TEST_CASE("支派服务：归属与存在性校验", "[service][branch]") {
   Fixture fx;
-  LineageService lineages(fx.db());
   BranchService svc(fx.db());
-
-  Lineage l;
-  l.name = "陈氏谱";
-  l.surname = "陈";
-  const auto lin = lineages.create_lineage(l);
   REQUIRE(lin);
 
   Lineage other;
   other.name = "李氏谱";
   other.surname = "李";
-  const auto lin2 = lineages.create_lineage(other);
   REQUIRE(lin2);
 
   const Person founder = fx.make_person("陈", "文远");
 
   // 正常建档
   Branch b;
-  b.lineage_id = lin->id;
   b.name = "东八房";
   b.founder_person_id = founder.id;
   b.generation_char = "明";
@@ -150,7 +128,6 @@ TEST_CASE("支派服务：归属与存在性校验", "[service][branch]") {
 
   // 宗族不存在
   Branch bad_lineage = b;
-  bad_lineage.lineage_id = kMissingId;
   const auto r1 = svc.create_branch(bad_lineage);
   REQUIRE_FALSE(r1);
   REQUIRE(r1.error().code() == ErrorCode::NotFound);
@@ -171,7 +148,6 @@ TEST_CASE("支派服务：归属与存在性校验", "[service][branch]") {
 
   // 跨宗族父房：归属校验
   Branch cross = b;
-  cross.lineage_id = lin2->id;             // 李氏族
   cross.parent_branch_id = created->id;    // 陈氏东八房
   const auto r4 = svc.create_branch(cross);
   REQUIRE_FALSE(r4);
@@ -186,7 +162,6 @@ TEST_CASE("支派服务：归属与存在性校验", "[service][branch]") {
 
   // 列表按宗族筛选
   BranchFilter f;
-  f.lineage_id = lin->id;
   const auto list = svc.list_branches(f);
   REQUIRE(list);
   REQUIRE(list->size() == 2);
@@ -277,15 +252,10 @@ TEST_CASE("结合服务：成员存在性与去重", "[service][union]") {
 
 TEST_CASE("事件服务：主体存在性与类型", "[service][event]") {
   Fixture fx;
-  LineageService lineages(fx.db());
   UnionService unions(fx.db());
   EventService svc(fx.db());
 
   const Person p = fx.make_person("陈", "文远");
-  Lineage l;
-  l.name = "陈氏谱";
-  l.surname = "陈";
-  const auto lin = lineages.create_lineage(l);
   REQUIRE(lin);
 
   // 人物事件（葬）
@@ -331,7 +301,6 @@ TEST_CASE("人物服务：宗族存在性校验", "[service][person]") {
 
   // 不存在的宗族
   Person bad;
-  bad.lineage_id = kMissingId;
   bad.family_name = "陈";
   bad.given_name = "文远";
   const auto r1 = svc.create_person(bad);
@@ -340,7 +309,6 @@ TEST_CASE("人物服务：宗族存在性校验", "[service][person]") {
 
   // 合法建档
   Person good;
-  good.lineage_id = kDefaultLineageId;
   good.family_name = "陈";
   good.given_name = "文远";
   const auto r2 = svc.create_person(good);

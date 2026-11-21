@@ -885,9 +885,6 @@ std::vector<Person> order_by_dependency(const std::vector<Person>& all) {
 
 Result<ImportResult> import_gedcom(const GedcomDocument& doc,
                                    const ImportOptions& opt) {
-  if (opt.lineage_id.empty()) {
-    return invalid_argument("导入必须指定 lineage_id（谱要落到哪个宗族）");
-  }
   ImportResult res;
   const std::string now = utc_now_iso();
   std::unordered_map<std::string, std::string> place_ids;   // 地名 → id
@@ -1078,7 +1075,6 @@ Result<ImportResult> import_gedcom(const GedcomDocument& doc,
     const std::string xref = "@" + rec.xref + "@";
     Person p;
     p.id = generate_ulid();
-    p.lineage_id = opt.lineage_id;
     p.created_at = now;
     p.updated_at = now;
 

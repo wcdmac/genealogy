@@ -39,7 +39,6 @@ int cmd_document(const std::vector<std::string>& args,
   opts.add_options()
       ("type", "文档类型: preface|rule|regulation|literature|contract|"
                "edition_note", cxxopts::value<std::string>())
-      ("lineage", "宗族 ID（list 过滤用）", cxxopts::value<std::string>())
       ("title", "标题（add 必填）", cxxopts::value<std::string>())
       ("author", "作者/撰人", cxxopts::value<std::string>())
       ("date", "年份照录原文（嘉庆四年 等）", cxxopts::value<std::string>())
@@ -60,7 +59,6 @@ int cmd_document(const std::vector<std::string>& args,
 
   if (sub == "add") {
     Document d;
-    if (r.count("lineage")) d.lineage_id = r["lineage"].as<std::string>();
     if (r.count("type")) {
       auto t = document_type_from_string(r["type"].as<std::string>());
       if (!t) {
@@ -96,7 +94,6 @@ int cmd_document(const std::vector<std::string>& args,
       auto t = document_type_from_string(r["type"].as<std::string>());
       if (t) f.type = *t;
     }
-    if (r.count("lineage")) f.lineage_id = r["lineage"].as<std::string>();
     f.limit = r["limit"].as<int>();
     auto rows = svc.list_documents(f);
     if (!rows) {

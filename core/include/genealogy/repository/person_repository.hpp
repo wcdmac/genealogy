@@ -13,7 +13,6 @@ namespace genealogy {
 
 struct PersonFilter {
   std::optional<std::string> branch_id;
-  std::optional<std::string> lineage_id;    // 按宗族过滤（REST /persons?lineage_id=）
   std::optional<int> generation_no;         // 精确世代
   std::optional<int> generation_from;       // 世代区间（含端）
   std::optional<int> generation_to;
@@ -34,10 +33,8 @@ class PersonRepository {
   Result<Person> get(const std::string& id) const;
   // after_id：keyset 游标——只返回 id 大于它的命中（/search 翻页，
   // 第三轮新-3）。排序与划分键同源（ORDER BY p.id，不重不漏）。
-  // lineage_id 非空时限定单谱（多谱同库的检索谱内化，2026-11-21）。
   Result<std::vector<Person>> search(std::string_view keyword, int limit,
-                                     const std::string& after_id = {},
-                                     const std::string& lineage_id = {}) const;
+                                     const std::string& after_id = {}) const;
 
   // 插入：分配 id / rev / created_at / updated_at（入参这些字段被忽略）。
   Result<Person> insert(Person person);

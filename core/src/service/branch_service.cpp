@@ -7,14 +7,11 @@
 namespace genealogy {
 
 BranchService::BranchService(Database& db)
-    : db_(&db), repo_(db), lineages_(db), persons_(db) {}
+    : db_(&db), repo_(db), persons_(db) {}
 
 Error BranchService::validate(const Branch& b) {
-  if (b.lineage_id.empty()) return invalid_argument("lineage_id 必填");
   if (b.name.empty()) return invalid_argument("支派名称必填");
 
-  auto lineage = lineages_.get(b.lineage_id);
-  if (!lineage) return not_found("宗族不存在: " + b.lineage_id);
 
   if (b.founder_person_id && !b.founder_person_id->empty()) {
     if (!is_valid_ulid(*b.founder_person_id)) {
@@ -32,10 +29,6 @@ Error BranchService::validate(const Branch& b) {
     }
     auto parent = repo_.get(*b.parent_branch_id);
     if (!parent) return not_found("父房不存在: " + *b.parent_branch_id);
-    // 支派归属：父房必须与本支派同属一个宗族
-    if (parent->lineage_id != b.lineage_id) {
-      return invalid_argument("父房不属于同一宗族（跨宗族挂接）");
-    }
   }
   return {};
 }

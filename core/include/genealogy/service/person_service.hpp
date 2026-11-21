@@ -6,7 +6,6 @@
 #include <genealogy/error.hpp>
 #include <genealogy/model/person.hpp>
 #include <genealogy/repository/database.hpp>
-#include <genealogy/repository/lineage_repository.hpp>
 #include <genealogy/repository/person_repository.hpp>
 
 namespace genealogy {
@@ -34,14 +33,12 @@ class PersonService {
   Result<std::vector<Person>> list_persons(const PersonFilter& filter);
   Result<std::vector<Person>> search_persons(std::string_view keyword,
                                              int limit,
-                                             const std::string& after_id = {},
-                                             const std::string& lineage_id = {});
+                                             const std::string& after_id = {});
 
  private:
   // 事件/迁徙的级联清理需要各自的仓储（remove_person）
   Database* db_ = nullptr;
   PersonRepository repo_;
-  LineageRepository lineages_;
 };
 
 }  // namespace genealogy

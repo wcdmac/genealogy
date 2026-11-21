@@ -38,9 +38,8 @@
 namespace genealogy {
 
 struct ProvenanceSourceBinding {
-  std::string lineage_id;                 // 该谱人物所属 lineage
-  std::string title;                      // Source::title（谱名）
-  std::string year_text;                  // 年份照录（清嘉庆四年钞本）
+  std::string title;                      // Source::title（谱名；缺省取 book.name）
+  std::string year_text;                  // 年份照录
   std::optional<std::string> repository;  // 收藏机构；未知不填
   std::optional<std::string> author;      // 修谱者；未知不填
 };
@@ -59,7 +58,7 @@ struct ProvenanceMigrationReport {
 
 // dry_run = true 时只扫描与计数，不写库（报告字段语义相同）。
 Result<ProvenanceMigrationReport> migrate_note_provenance(
-    Database& db, const std::vector<ProvenanceSourceBinding>& bindings,
+    Database& db, const ProvenanceSourceBinding& binding = {},
     bool strip_note_tokens = true, bool dry_run = false);
 
 nlohmann::json to_json(const ProvenanceMigrationReport& r);

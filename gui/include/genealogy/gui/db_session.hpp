@@ -12,7 +12,7 @@
 #include <genealogy/repository/database.hpp>
 #include <genealogy/service/branch_service.hpp>
 #include <genealogy/service/event_service.hpp>
-#include <genealogy/service/lineage_service.hpp>
+#include <genealogy/repository/book_repository.hpp>
 #include <genealogy/service/person_service.hpp>
 #include <genealogy/service/place_service.hpp>
 #include <genealogy/service/union_service.hpp>
@@ -42,7 +42,7 @@ class DbSession {
   PersonService& persons() noexcept { return *persons_; }
   UnionService& unions() noexcept { return *unions_; }
   EventService& events() noexcept { return *events_; }
-  LineageService& lineages() noexcept { return *lineages_; }
+  BookRepository& books() noexcept { return books_; }
   BranchService& branches() noexcept { return *branches_; }
   PlaceService& places() noexcept { return *places_; }
 
@@ -54,7 +54,7 @@ class DbSession {
   std::unique_ptr<PersonService> persons_;
   std::unique_ptr<UnionService> unions_;
   std::unique_ptr<EventService> events_;
-  std::unique_ptr<LineageService> lineages_;
+  std::unique_ptr<BookRepository> books_;
   std::unique_ptr<BranchService> branches_;
   std::unique_ptr<PlaceService> places_;
 

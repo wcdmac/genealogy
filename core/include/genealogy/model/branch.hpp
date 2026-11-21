@@ -11,7 +11,6 @@ namespace genealogy {
 // （同姓不同支派派语不同，辈字是区分支派的机器可读指纹）。
 struct Branch {
   std::string id;
-  std::string lineage_id;
   std::string name;
   std::optional<std::string> founder_person_id;  // 始迁祖
   std::optional<std::string> parent_branch_id;   // 父房

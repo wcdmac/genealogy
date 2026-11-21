@@ -53,7 +53,6 @@ Result<PrivacyLevel> privacy_from_string(const std::string& s) {
 nlohmann::json to_json(const Person& p) {
   nlohmann::ordered_json j;
   j["id"] = p.id;
-  j["lineage_id"] = p.lineage_id;
   if (p.branch_id) j["branch_id"] = *p.branch_id;
   j["family_name"] = p.family_name;
   j["given_name"] = p.given_name;
@@ -89,9 +88,6 @@ Result<Person> person_from_json(const nlohmann::json& j) {
   try {
     if (const auto it = j.find("id"); it != j.end() && !it->is_null()) {
       p.id = it->get<std::string>();
-    }
-    if (const auto it = j.find("lineage_id"); it != j.end() && !it->is_null()) {
-      p.lineage_id = it->get<std::string>();
     }
     if (const auto it = j.find("branch_id"); it != j.end() && !it->is_null()) {
       p.branch_id = it->get<std::string>();

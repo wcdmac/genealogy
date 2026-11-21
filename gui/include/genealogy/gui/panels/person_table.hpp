@@ -39,7 +39,7 @@ class PersonTablePanel : public Panel {
 
   AppState& state_;
   std::vector<TableRow> rows_;
-  std::string loaded_lineage_;   // 载入时的宗族筛选（变了才重载）
+  std::string loaded_db_path_;   // 载入时的库路径（变了才重载）
   bool loaded_ = false;
   int gen_from_ = 0;             // 世代区间筛选（0 = 不限）
   int gen_to_ = 0;
@@ -50,7 +50,7 @@ class PersonTablePanel : public Panel {
  public:
   void on_database_closed() override {
     rows_.clear();
-    loaded_lineage_.clear();
+    loaded_db_path_.clear();
     loaded_ = false;
   }
   // 面板是否持有任何缓存数据（换库清理断言的观测缝）

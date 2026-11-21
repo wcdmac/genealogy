@@ -1,7 +1,7 @@
 // genea 导入导出与校验（M1.5）。
 //
-//   genea io import gedcom <file> --lineage <id> [--surname 陈] [--no-places]
-//   genea io export gedcom [--lineage <id>] [--out file.ged] [--submitter 名字]
+//   genea io import gedcom <file> [--surname 陈] [--no-places]
+//   genea io export gedcom [--out file.ged] [--submitter 名字]
 //   genea io validate [--rule R1,R7] [--limit n]
 //
 // 导入走既有用例层（PersonService/UnionService/EventService/PlaceService），
@@ -35,13 +35,10 @@
 #include <genealogy/io/tree_render.hpp>
 #include <genealogy/lineage/graph.hpp>
 #include <genealogy/lineage/tree.hpp>
-#include <genealogy/model/lineage.hpp>
-#include <genealogy/repository/bootstrap.hpp>
 #include <genealogy/repository/transaction.hpp>
 #include <genealogy/repository/bulk_load.hpp>
 #include <genealogy/service/citation_service.hpp>
 #include <genealogy/service/event_service.hpp>
-#include <genealogy/service/lineage_service.hpp>
 #include <genealogy/service/person_service.hpp>
 #include <genealogy/service/place_service.hpp>
 #include <genealogy/service/source_service.hpp>
@@ -96,34 +93,28 @@ std::string persist(Database& db, io::ImportResult& r, int* created) {
   *created = 0;
 
   for (const auto& pl : r.places) {
-    auto made = places.create_place(pl);
     if (!made) return "建地点失败: " + made.error().to_string();
     ++*created;
   }
   for (const auto& p : io::order_by_dependency(r.persons)) {
-    auto made = persons.create_person(p);
     if (!made) return "建人物失败(" + p.family_name + p.given_name + "): " +
                      made.error().to_string();
     ++*created;
   }
   for (const auto& u : r.unions) {
-    auto made = unions.create_union(u);
     if (!made) return "建婚姻结合失败: " + made.error().to_string();
     ++*created;
   }
   for (const auto& e : r.events) {
-    auto made = events.create_event(e);
     if (!made) return "建事件失败: " + made.error().to_string();
     ++*created;
   }
   // 出处链（M7.5）：来源先于引用（citation.source_id 外键）
   for (const auto& s : r.sources) {
-    auto made = sources.create_source(s);
     if (!made) return "建来源失败: " + made.error().to_string();
     ++*created;
   }
   for (const auto& c : r.citations) {
-    auto made = citations.create_citation(c);
     if (!made) return "建证据引用失败: " + made.error().to_string();
     ++*created;
   }
@@ -138,13 +129,12 @@ int cmd_import_gedcom(const std::vector<std::string>& args,
   cxxopts::Options opts("genea io import gedcom", "导入 GEDCOM 5.5.1 文件");
   opts.add_options()
       ("file", "GEDCOM 文件路径", cxxopts::value<std::string>())
-      ("lineage", "落到哪个宗族 ID", cxxopts::value<std::string>())
       ("surname", "NAME 无 /姓/ 结构时的兜底姓", cxxopts::value<std::string>())
       ("no-places", "不自动按名称建地点",
        cxxopts::value<bool>()->default_value("false")->implicit_value("true"));
   opts.parse_positional({"file"});
   const auto r = parse_args(opts, args);
-  if (!r.count("file") || !r.count("lineage")) {
+  if (!r.count("file")) {
     std::cerr << "用法错误: genea io import gedcom <file.ged> --lineage <宗族ID>"
                  " [--surname 陈] [--no-places]\n";
     return 2;
@@ -163,7 +153,6 @@ int cmd_import_gedcom(const std::vector<std::string>& args,
   }
 
   io::ImportOptions opt;
-  opt.lineage_id = r["lineage"].as<std::string>();
   if (r.count("surname")) opt.default_surname = r["surname"].as<std::string>();
   opt.create_places = !r["no-places"].as<bool>();
 
@@ -243,7 +232,6 @@ int cmd_export_gedcom(const std::vector<std::string>& args,
                       const std::string& db_path, const std::string& format) {
   cxxopts::Options opts("genea io export gedcom", "导出 GEDCOM 5.5.1 文件");
   opts.add_options()
-      ("lineage", "只导出这个宗族（缺省导出全部）", cxxopts::value<std::string>())
       ("out", "输出文件路径（缺省打到标准输出）", cxxopts::value<std::string>())
       ("submitter", "提交人姓名", cxxopts::value<std::string>())
       ("gedcom-version", "目标 GEDCOM 版本：5.5.1（默认）或 7.0",
@@ -265,14 +253,6 @@ int cmd_export_gedcom(const std::vector<std::string>& args,
     return exit_code_for(person_list.error());
   }
   std::vector<Person> rows = std::move(*person_list);
-  if (r.count("lineage")) {
-    const std::string lid = r["lineage"].as<std::string>();
-    rows.erase(std::remove_if(rows.begin(), rows.end(),
-                              [&lid](const Person& p) {
-                                return p.lineage_id != lid;
-                              }),
-               rows.end());
-  }
 
   // 结合与事件：一次查全，再按「是否涉及导出集内的人物」在内存里过滤。
   // 曾经按人物逐个查（N+1 查询 + 线性去重），1 万人物实测 57 秒——
@@ -407,7 +387,6 @@ int cmd_validate(const std::vector<std::string>& args,
   cxxopts::Options opts("genea io validate", "运行一致性校验规则");
   opts.add_options()
       ("rule", "只跑这些规则（逗号分隔）", cxxopts::value<std::string>())
-      ("lineage", "只校验这个宗族", cxxopts::value<std::string>())
       ("limit", "载入上限", cxxopts::value<int>()->default_value("100000"));
   const auto r = parse_args(opts, args);
 
@@ -425,12 +404,6 @@ int cmd_validate(const std::vector<std::string>& args,
     return exit_code_for(person_list.error());
   }
   std::vector<Person> rows = std::move(*person_list);
-  if (r.count("lineage")) {
-    const std::string lid = r["lineage"].as<std::string>();
-    rows.erase(std::remove_if(rows.begin(), rows.end(),
-                              [&lid](const Person& p) { return p.lineage_id != lid; }),
-               rows.end());
-  }
 
   UnionService unions(*db);
   UnionFilter uf;
@@ -639,8 +612,6 @@ int cmd_db_seed(const std::vector<std::string>& args, const std::string& db_path
        cxxopts::value<std::uint64_t>()->default_value("20261013"))
       ("surname", "主姓", cxxopts::value<std::string>()->default_value("陈"))
       ("founder-year", "始祖生年", cxxopts::value<int>()->default_value("1500"))
-      ("lineage", "落到哪个宗族 ID（缺省新建一个）",
-       cxxopts::value<std::string>());
   const auto r = parse_args(opts, args);
 
   auto db = open_db(db_path);
@@ -649,24 +620,9 @@ int cmd_db_seed(const std::vector<std::string>& args, const std::string& db_path
     return exit_code_for(db.error());
   }
 
-  std::string lineage_id;
-  if (r.count("lineage")) {
-    lineage_id = r["lineage"].as<std::string>();
-  } else {
-    LineageService lineages(*db);
-    Lineage l;
-    l.name = "合成性能谱";
-    l.surname = r["surname"].as<std::string>();
-    auto made = lineages.create_lineage(l);
-    if (!made) {
-      print_error(made.error());
-      return exit_code_for(made.error());
-    }
-    lineage_id = made->id;
   }
 
   io::SyntheticOptions so;
-  so.lineage_id = lineage_id;
   so.surname = r["surname"].as<std::string>();
   so.persons = r["persons"].as<std::size_t>();
   so.generations = r["generations"].as<int>();
@@ -720,7 +676,6 @@ int cmd_db_seed(const std::vector<std::string>& args, const std::string& db_path
   };
   if (format == "json") {
     std::cout << nlohmann::json{
-        {"lineage_id", lineage_id},
         {"persons", loader.persons()},
         {"unions", loader.unions()},
         {"events", loader.events()},
@@ -842,18 +797,8 @@ int cmd_bench(const std::vector<std::string>& args, const std::string& db_path,
     print_error(db.error());
     return exit_code_for(db.error());
   }
-  LineageService lineages(*db);
-  Lineage l;
-  l.name = "性能基准谱";
-  l.surname = "陈";
-  auto made = lineages.create_lineage(l);
-  if (!made) {
-    print_error(made.error());
-    return exit_code_for(made.error());
-  }
 
   io::SyntheticOptions so;
-  so.lineage_id = made->id;
   so.surname = "陈";
   so.persons = persons;
   so.generations = depth + 4;
@@ -955,7 +900,6 @@ int cmd_bench(const std::vector<std::string>& args, const std::string& db_path,
     // 合成一份 1 万条记录的 GEDCOM，走 io import 的真实路径（用例层落库）
     const int want = r["gedcom-records"].as<int>();
     io::SyntheticOptions go;
-    go.lineage_id = made->id;
     go.surname = "陈";
     go.persons = static_cast<std::size_t>(want);
     go.generations = 12;
@@ -981,17 +925,9 @@ int cmd_bench(const std::vector<std::string>& args, const std::string& db_path,
                         " 人物（" + std::to_string(text.size() / 1024) + " KB）",
                     "< 10000", export_ms, "ms", export_ms < 10000.0});
 
-    LineageService lineages2(*db);
-    Lineage l2;
-    l2.name = "GEDCOM 基准谱";
-    l2.surname = "陈";
-    auto made2 = lineages2.create_lineage(l2);
-    if (!made2) { print_error(made2.error()); return exit_code_for(made2.error()); }
-
     auto doc = io::parse_gedcom(text);
     if (!doc) { print_error(doc.error()); return exit_code_for(doc.error()); }
     io::ImportOptions io_opt;
-    io_opt.lineage_id = made2->id;
     io_opt.default_surname = "陈";
     auto mapped = io::import_gedcom(*doc, io_opt);
     if (!mapped) { print_error(mapped.error()); return exit_code_for(mapped.error()); }
@@ -1064,11 +1000,9 @@ int cmd_bench(const std::vector<std::string>& args, const std::string& db_path,
           pf.limit = 1;
           for (int i = 0; i < 5; ++i) {
             Person p;
-            p.lineage_id = kDefaultLineageId;
             p.family_name = "并发";
             p.given_name = "写" + std::to_string(w) + "-" + std::to_string(i);
             p.gender = Gender::Male;
-            auto made = wsvc.create_person(p);
             if (!made) {
               if (made.error().message().find("locked") != std::string::npos) {
                 ++locked;

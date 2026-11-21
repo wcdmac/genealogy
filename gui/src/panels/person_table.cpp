@@ -33,7 +33,7 @@ const char* privacy_label(PrivacyLevel p) {
 
 void PersonTablePanel::reload(DbSession& session) {
   rows_.clear();
-  loaded_lineage_ = state_.db_path;   // 换库即重载（路径变 = 库变）
+  loaded_db_path_ = state_.db_path;   // 换库即重载（路径变 = 库变）
   PersonFilter pf;
   pf.limit = 200000;
   auto got = session.persons().list_persons(pf);
@@ -68,7 +68,7 @@ void PersonTablePanel::draw(DbSession& session) {
     ImGui::TextDisabled("（未打开数据库）");
     return;
   }
-  if (!loaded_ || loaded_lineage_ != state_.db_path) {
+  if (!loaded_ || loaded_db_path_ != state_.db_path) {
     reload(session);
     if (!loaded_) return;
   }

@@ -8,7 +8,6 @@
 #include <genealogy/model/document.hpp>
 #include <genealogy/repository/database.hpp>
 #include <genealogy/repository/document_repository.hpp>
-#include <genealogy/repository/lineage_repository.hpp>
 
 namespace genealogy {
 
@@ -30,7 +29,6 @@ class DocumentService {
  private:
   Database* db_ = nullptr;
   DocumentRepository repo_;
-  LineageRepository lineages_;
 };
 
 }  // namespace genealogy

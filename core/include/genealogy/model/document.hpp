@@ -29,7 +29,6 @@ std::optional<DocumentType> document_type_from_string(const std::string& s);
 // document 表无 rev（篇章正文非谱面实体；乐观锁仅覆盖谱面实体）。
 struct Document {
   std::string id;
-  std::string lineage_id;  // 必填：挂在哪个宗族名下
   DocumentType type = DocumentType::Preface;
   std::string title;  // 必填：《嘉庆四年修谱序》 等
   std::optional<std::string> author;

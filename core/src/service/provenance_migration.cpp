@@ -5,7 +5,7 @@
 #include <regex>
 
 #include <genealogy/model/person.hpp>
-#include <genealogy/repository/lineage_repository.hpp>
+#include <genealogy/repository/book_repository.hpp>
 #include <genealogy/repository/person_repository.hpp>
 #include <genealogy/service/citation_service.hpp>
 #include <genealogy/service/person_service.hpp>
@@ -64,110 +64,64 @@ bool strip_leading_tokens(std::string& note) {
   return changed;
 }
 
-// 从 lineage 名派生默认 Source 绑定：去括号 + 家谱后缀；括号内原文
-// 作 year_text。例：高阳李氏（嘉庆四年钞本）→《高阳李氏家谱》/
-// 嘉庆四年钞本。
-ProvenanceSourceBinding derive_binding(const Lineage& lineage) {
-  ProvenanceSourceBinding b;
-  b.lineage_id = lineage.id;
-  std::string name = lineage.name;
-  const auto paren_open = name.find("（");
-  if (paren_open != std::string::npos) {
-    const std::string paren = name.substr(paren_open + std::strlen("（"));
-    const auto paren_close = paren.rfind("）");
-    if (paren_close != std::string::npos) {
-      b.year_text = paren.substr(0, paren_close);
-    }
-    name = name.substr(0, paren_open);
-  }
-  b.title = name + "家谱";
-  return b;
-}
-
 }  // namespace
 
 Result<ProvenanceMigrationReport> migrate_note_provenance(
-    Database& db, const std::vector<ProvenanceSourceBinding>& bindings,
+    Database& db, const ProvenanceSourceBinding& binding,
     bool strip_note_tokens, bool dry_run) {
   ProvenanceMigrationReport report;
-  LineageRepository lineages(db);
-  LineageFilter lf;
-  lf.limit = 200;
-  auto lineage_rows = lineages.list(lf);
-  if (!lineage_rows) return lineage_rows.error();
-
-  // lineage_id → 绑定：显式 bindings 优先，其余自动派生
-  std::vector<ProvenanceSourceBinding> resolved;
-  for (const auto& lineage : *lineage_rows) {
-    const auto it = std::find_if(
-        bindings.begin(), bindings.end(),
-        [&](const ProvenanceSourceBinding& b) {
-          return b.lineage_id == lineage.id;
-        });
-    resolved.push_back(it != bindings.end() ? *it : derive_binding(lineage));
-  }
+  BookRepository books(db);
+  auto book = books.get();
+  if (!book) return book.error();
 
   SourceService sources(db);
   CitationService citations(db);
   PersonService persons(db);
   PersonRepository person_repo(db);
 
-  // 来源登记（懒创建）：首条引用真正需要时才查/建——空谱（如默认
-  // 宗族）不产生占位来源。title 精确匹配即复用（幂等）。
-  std::vector<std::pair<std::string, std::string>> source_by_lineage;
-  auto source_for_or_create =
-      [&](const ProvenanceSourceBinding& binding) -> Result<std::string> {
+  // 来源登记（懒创建）：单谱单库恒单来源，title 精确匹配即复用。
+  // 绑定缺省 title = 谱名 + 「家谱」——book.name 即谱名原文，已是
+  // 《高阳李氏家谱》形态的照录，不再追加后缀。
+  std::string source_id;
+  bool source_known = false;
+  auto ensure_source = [&]() -> Result<std::string> {
+    if (source_known) return source_id;
+    const std::string title = binding.title.empty() ? book->name : binding.title;
     SourceFilter f;
-    f.title_contains = binding.title;
+    f.title_contains = title;
     f.limit = 200;
     auto existing = sources.list_sources(f);
     if (!existing) return existing.error();
     const auto hit = std::find_if(
         existing->begin(), existing->end(),
-        [&](const Source& s) { return s.title == binding.title; });
+        [&](const Source& s) { return s.title == title; });
     if (hit != existing->end()) {
       ++report.sources_reused;
-      return hit->id;
+      source_id = hit->id;
+      source_known = true;
+      return source_id;
     }
-    // dry-run 不建来源（此前守卫缺失，dry-run 曾把来源写进库）：
-    // 计「拟建」数并返回空 id——dry-run 的引用计数用不到真 id
     if (dry_run) {
       ++report.sources_created;
-      return std::string{};
+      source_known = true;
+      source_id = "";
+      return source_id;
     }
     Source src;
     src.type = SourceType::GenealogyBook;
-    src.title = binding.title;
+    src.title = title;
     if (!binding.year_text.empty()) src.year_text = binding.year_text;
     src.repository = binding.repository;
     src.author = binding.author;
     auto made = sources.create_source(src);
     if (!made) return made.error();
     ++report.sources_created;
-    return made->id;
-  };
-  auto source_for = [&](const std::string& lineage_id) -> const std::string* {
-    for (const auto& [lid, sid] : source_by_lineage) {
-      if (lid == lineage_id) return &sid;
-    }
-    return nullptr;
-  };
-  auto ensure_source = [&](const std::string& lineage_id) -> Result<std::string> {
-    if (const std::string* sid = source_for(lineage_id)) return *sid;
-    const auto it = std::find_if(
-        resolved.begin(), resolved.end(),
-        [&](const ProvenanceSourceBinding& b) { return b.lineage_id == lineage_id; });
-    if (it == resolved.end()) {
-      return Error{ErrorCode::NotFound, "lineage 无来源绑定: " + lineage_id};
-    }
-    auto made = source_for_or_create(*it);
-    if (!made) return made.error();
-    source_by_lineage.emplace_back(lineage_id, *made);
-    return *made;
+    source_id = made->id;
+    source_known = true;
+    return source_id;
   };
 
   // 事务：citation 与 note 剥离要么整体生效要么整体不动。
-  // dry_run 无写操作，不开事务（M9.1：Transaction 嵌套感知）。
   std::optional<Transaction> tx;
   if (!dry_run) {
     tx.emplace(db);
@@ -186,10 +140,9 @@ Result<ProvenanceMigrationReport> migrate_note_provenance(
 
     for (auto& person : *page) {
       ++report.persons_scanned;
-      auto bound = ensure_source(person.lineage_id);
+      auto bound = ensure_source();
       if (!bound) {
-        report.warnings.push_back("lineage 无来源绑定，跳过: " +
-                                  person.lineage_id);
+        report.warnings.push_back("来源登记失败，跳过: " + bound.error().message());
         continue;
       }
       const std::string& source_id = *bound;
@@ -202,7 +155,6 @@ Result<ProvenanceMigrationReport> migrate_note_provenance(
           person.biography.value_or(std::string{}));
       bool cited_here = false;
       for (const auto& token : tokens) {
-        // 库内已有（同主体+来源+locator）→ 幂等跳过
         CitationFilter cf;
         cf.subject_type = CitationSubjectType::Person;
         cf.subject_id = person.id;
@@ -247,7 +199,7 @@ Result<ProvenanceMigrationReport> migrate_note_provenance(
           if (dry_run) {
             if (stripped.empty()) person.note = std::nullopt;
             else person.note = stripped;
-            continue;  // 不写库
+            continue;
           }
           Person p = person;
           if (stripped.empty()) p.note = std::nullopt;

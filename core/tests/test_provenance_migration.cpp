@@ -16,10 +16,8 @@
 #include <genealogy/model/citation.hpp>
 #include <genealogy/model/person.hpp>
 #include <genealogy/model/source.hpp>
-#include <genealogy/repository/bootstrap.hpp>
 #include <genealogy/repository/citation_repository.hpp>
 #include <genealogy/repository/database.hpp>
-#include <genealogy/repository/lineage_repository.hpp>
 #include <genealogy/repository/person_repository.hpp>
 #include <genealogy/repository/source_repository.hpp>
 #include <genealogy/service/provenance_migration.hpp>
@@ -44,7 +42,6 @@ void cleanup_db(const std::filesystem::path& path) {
 Person mk(const std::string& given, const std::string& note = "",
           const std::string& biography = "") {
   Person p;
-  p.lineage_id = kDefaultLineageId;
   p.family_name = "李";
   p.given_name = given;
   p.gender = Gender::Male;
@@ -59,7 +56,6 @@ TEST_CASE("出处迁移：单页码/区间/存疑/剥字与幂等") {
   const auto path = temp_db_path();
   auto opened = Database::open(path);
   REQUIRE(opened);
-  REQUIRE(ensure_default_lineage(*opened));
   Database& db = *opened;
 
   PersonRepository persons(db);
@@ -142,7 +138,6 @@ TEST_CASE("出处迁移：biography 出处照迁且不剥原文；正文引用�
   const auto path = temp_db_path();
   auto opened = Database::open(path);
   REQUIRE(opened);
-  REQUIRE(ensure_default_lineage(*opened));
   Database& db = *opened;
 
   PersonRepository persons(db);
@@ -191,7 +186,6 @@ TEST_CASE("出处迁移：dry-run 零写入；keep-note 保留原文") {
   const auto path = temp_db_path();
   auto opened = Database::open(path);
   REQUIRE(opened);
-  REQUIRE(ensure_default_lineage(*opened));
   Database& db = *opened;
 
   PersonRepository persons(db);
@@ -228,21 +222,13 @@ TEST_CASE("出处迁移：多谱库按 lineage 各建一来源；显式绑定覆
   const auto path = temp_db_path();
   auto opened = Database::open(path);
   REQUIRE(opened);
-  REQUIRE(ensure_default_lineage(*opened));
   Database& db = *opened;
 
   // 建第二个谱
-  LineageRepository lineages(db);
-  Lineage wu;
-  wu.name = "长林吴氏（乾隆四年刻本）";
-  wu.surname = "吴";
-  auto wu_made = lineages.insert(wu);
-  REQUIRE(wu_made);
-
+  
   PersonRepository persons(db);
   auto li = persons.insert(mk("李一人", "谱p12"));
   Person wp;
-  wp.lineage_id = wu_made->id;
   wp.family_name = "吴";
   wp.given_name = "吴一人";
   wp.gender = Gender::Male;
@@ -253,7 +239,6 @@ TEST_CASE("出处迁移：多谱库按 lineage 各建一来源；显式绑定覆
 
   // 显式绑定：李氏带收藏机构
   ProvenanceSourceBinding li_binding;
-  li_binding.lineage_id = kDefaultLineageId;
   li_binding.title = "高阳李氏家谱";
   li_binding.year_text = "清嘉庆四年钞本";
   li_binding.repository = "上海图书馆";

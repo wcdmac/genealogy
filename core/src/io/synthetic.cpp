@@ -49,9 +49,6 @@ Result<SyntheticData> generate_synthetic(const SyntheticOptions& opt) {
   // 下游 .value() 会以 bad_optional_access 崩溃；founder_year ≥ 40 保证
   // 最小的派生年 ≥ 36，上限 2000 + 世代推 60 代 ≈ 5600 也安全。
   // 此前参数无校验，from_iso(...).value() 直接把非法参数变成未捕获异常。
-  if (opt.lineage_id.empty()) {
-    return invalid_argument("合成谱需要 lineage_id");
-  }
   if (opt.founder_year < 40 || opt.founder_year > 2000) {
     return invalid_argument("founder_year 应在 40..2000（派生年推算域）");
   }
@@ -94,7 +91,6 @@ Result<SyntheticData> generate_synthetic(const SyntheticOptions& opt) {
                          const std::string& mother_id) -> Person {
     Person p;
     p.id = generate_ulid();
-    p.lineage_id = opt.lineage_id;
     p.family_name = opt.surname;
     p.given_name = kGivenPool[rng.below(static_cast<int>(kGivenCount))];
     if (rng.below(4) == 0) {

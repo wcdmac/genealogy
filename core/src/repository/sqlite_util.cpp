@@ -149,7 +149,7 @@ Result<void> rollback(sqlite3* db) {
 // ---- 主表 INSERT ----
 
 const char* person_insert_sql() noexcept {
-  return "INSERT INTO person(id, lineage_id, branch_id, family_name,"
+  return "INSERT INTO person(id, branch_id, family_name,"
          " given_name, courtesy_name, art_name, posthumous_title, alias,"
          " gender, birth_order, generation_no, is_heir, is_living, privacy_level,"
          " birth_date, death_date, birth_place_id, death_place_id,"
@@ -209,7 +209,6 @@ const char* event_insert_sql() noexcept {
 void bind_person(sqlite3_stmt* st, const Person& p) {
   int i = 1;
   sqlite3_bind_text(st, i++, p.id.c_str(), -1, SQLITE_TRANSIENT);
-  sqlite3_bind_text(st, i++, p.lineage_id.c_str(), -1, SQLITE_TRANSIENT);
   bind_opt_text(st, i++, p.branch_id);
   sqlite3_bind_text(st, i++, p.family_name.c_str(), -1, SQLITE_TRANSIENT);
   sqlite3_bind_text(st, i++, p.given_name.c_str(), -1, SQLITE_TRANSIENT);

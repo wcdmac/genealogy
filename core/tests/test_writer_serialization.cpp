@@ -16,7 +16,6 @@
 
 #include <genealogy/error.hpp>
 #include <genealogy/model/person.hpp>
-#include <genealogy/repository/bootstrap.hpp>
 #include <genealogy/repository/database.hpp>
 #include <genealogy/repository/transaction.hpp>
 #include <genealogy/service/person_service.hpp>
@@ -48,7 +47,6 @@ TEST_CASE("写串行化：50 并发写（独立连接）零错误零 locked") {
   {
     auto opened = Database::open(path);
     REQUIRE(opened);
-    REQUIRE(ensure_default_lineage(*opened));
   }  // 初始化连接先关——写线程各自开新连接（真实部署形态）
 
   std::atomic<int> failures{0};
@@ -68,7 +66,6 @@ TEST_CASE("写串行化：50 并发写（独立连接）零错误零 locked") {
         PersonService svc(*opened);
         for (int i = 0; i < kPerWriter; ++i) {
           Person p;
-          p.lineage_id = kDefaultLineageId;
           p.family_name = "并发";
           p.given_name = "写者" + std::to_string(w) + "-" + std::to_string(i);
           p.gender = Gender::Male;
@@ -114,7 +111,6 @@ TEST_CASE("写串行化：共享连接跨线程不搭车（F2 回归）") {
   {
     auto opened = Database::open(path);
     REQUIRE(opened);
-    REQUIRE(ensure_default_lineage(*opened));
   }
   {
   auto db = Database::open(path);
@@ -151,7 +147,6 @@ TEST_CASE("写串行化：共享连接跨线程不搭车（F2 回归）") {
     if (tx.error()) return;
     Person p;
     p.id = generate_ulid();
-    p.lineage_id = kDefaultLineageId;
     p.family_name = "搭车";
     p.given_name = "回归";
     p.gender = Gender::Male;

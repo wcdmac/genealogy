@@ -16,16 +16,14 @@
 #include <nlohmann/json.hpp>
 
 #include <genealogy/error.hpp>
-#include <genealogy/repository/bootstrap.hpp>
 #include <genealogy/model/branch.hpp>
 #include <genealogy/model/event.hpp>
-#include <genealogy/model/lineage.hpp>
 #include <genealogy/model/place.hpp>
 #include <genealogy/model/union.hpp>
 #include <genealogy/repository/database.hpp>
 #include <genealogy/service/branch_service.hpp>
 #include <genealogy/service/event_service.hpp>
-#include <genealogy/service/lineage_service.hpp>
+#include <genealogy/service/book_service.hpp>
 #include <genealogy/service/place_service.hpp>
 #include <genealogy/service/union_service.hpp>
 
@@ -79,7 +77,7 @@ int usage(const std::string& msg) {
 
 // ---------- 文本行打印器 ----------
 
-void print_lineage_text(const Lineage& v) {
+void print_book_text(const Lineage& v) {
   std::cout << v.id << "\t" << v.surname << "氏·" << v.name;
   if (v.commandery) std::cout << "\t[" << *v.commandery << "]";
   if (v.hall_name) std::cout << "\t" << *v.hall_name;
@@ -125,11 +123,11 @@ void print_event_text(const Event& v) {
 
 }  // namespace
 
-// ---------- lineage ----------
+// ---------- book（单谱单库：谱元数据，恒单行） ----------
 
-int cmd_lineage(const std::vector<std::string>& args,
-                const std::string& db_path, const std::string& format) {
-  if (args.empty()) return usage("genea lineage <add|list|show|remove> ...");
+int cmd_book(const std::vector<std::string>& args,
+             const std::string& db_path, const std::string& format) {
+  if (args.empty()) return usage("genea book <show|update> ...");
   const std::string sub = args[0];
   const std::vector<std::string> rest(args.begin() + 1, args.end());
 
@@ -138,91 +136,35 @@ int cmd_lineage(const std::vector<std::string>& args,
     print_error(db.error());
     return exit_code_for(db.error());
   }
-  LineageService svc(*db);
+  BookService svc(*db);
 
-  if (sub == "add") {
-    cxxopts::Options opts("genea lineage add", "新增宗族");
+  if (sub == "show") {
+    return print_one(svc.get_book(), format, print_book_text);
+  }
+
+  if (sub == "update") {
+    cxxopts::Options opts("genea book update", "更新谱元数据");
     opts.add_options()
       ("name", "谱名", cxxopts::value<std::string>())
-      ("surname", "姓", cxxopts::value<std::string>())
+      ("surname", "主姓", cxxopts::value<std::string>())
       ("surname-origin", "姓氏源流", cxxopts::value<std::string>())
       ("commandery", "郡望", cxxopts::value<std::string>())
       ("hall", "堂号", cxxopts::value<std::string>())
-      ("poem", "派语联句原文", cxxopts::value<std::string>())
       ("note", "备注", cxxopts::value<std::string>());
     const auto r = parse_args(opts, rest);
-    Lineage l;
-    if (r.count("name")) l.name = r["name"].as<std::string>();
-    if (r.count("surname")) l.surname = r["surname"].as<std::string>();
+    Book b = svc.get_book();
+    if (r.count("name")) b.name = r["name"].as<std::string>();
+    if (r.count("surname")) b.surname = r["surname"].as<std::string>();
     if (r.count("surname-origin"))
-      l.surname_origin = r["surname-origin"].as<std::string>();
+      b.surname_origin = r["surname-origin"].as<std::string>();
     if (r.count("commandery"))
-      l.commandery = r["commandery"].as<std::string>();
-    if (r.count("hall")) l.hall_name = r["hall"].as<std::string>();
-    if (r.count("poem")) l.generation_poem = r["poem"].as<std::string>();
-    if (r.count("note")) l.note = r["note"].as<std::string>();
-    // 单谱单库（2026-11-21 定位收口）：一个数据库文件只承载一部家谱。
-    // 库内已有家谱（默认宗族占位除外）即拒绝——不同家的谱各开各的库，
-    // 检索/校验/备份恢复才不会把两家人搅在一起。
-    {
-      LineageFilter existing_filter;
-      existing_filter.limit = 100;
-      auto existing = svc.list_lineages(existing_filter);
-      if (!existing) {
-        print_error(existing.error());
-        return exit_code_for(existing.error());
-      }
-      for (const auto& row : *existing) {
-        if (row.id == kDefaultLineageId) continue;  // 启动占位宗族不算
-        std::cerr << "单谱单库：本库已承载家谱「" << row.name << "」（"
-                  << row.id << "）。\n"
-                  << "一部家谱一个数据库文件——新建谱请换一个 --db 路径：\n"
-                  << "  genea db init --db <新库文件> && genea lineage add --db <新库文件> ...\n";
-        return exit_code_for(Error{ErrorCode::Conflict, "单谱单库限制"});
-      }
-    }
-    return print_one(svc.create_lineage(l), format, print_lineage_text);
+      b.commandery = r["commandery"].as<std::string>();
+    if (r.count("hall")) b.hall_name = r["hall"].as<std::string>();
+    if (r.count("note")) b.note = r["note"].as<std::string>();
+    return print_one(svc.update_book(b), format, print_book_text);
   }
 
-  if (sub == "list") {
-    cxxopts::Options opts("genea lineage list", "宗族列表");
-    opts.add_options()
-      ("surname", "按姓筛选", cxxopts::value<std::string>())
-      ("limit", "每页条数", cxxopts::value<int>()->default_value("50"))
-      ("cursor", "游标", cxxopts::value<std::string>());
-    const auto r = parse_args(opts, rest);
-    LineageFilter f;
-    if (r.count("surname")) f.surname = r["surname"].as<std::string>();
-    if (r.count("cursor")) f.cursor = r["cursor"].as<std::string>();
-    f.limit = r["limit"].as<int>();
-    return print_list(svc.list_lineages(f), format, print_lineage_text);
-  }
-
-  if (sub == "show" || sub == "remove") {
-    cxxopts::Options opts("genea lineage " + sub, "宗族详情/删除");
-    opts.add_options()("id", "宗族 ID", cxxopts::value<std::string>());
-    opts.parse_positional({"id"});
-    const auto r = parse_args(opts, rest);
-    if (!r.count("id")) return usage("genea lineage " + sub + " <id>");
-    const std::string id = r["id"].as<std::string>();
-    if (sub == "show") {
-      return print_one(svc.get_lineage(id), format, print_lineage_text);
-    }
-    auto removed = svc.remove_lineage(id);
-    if (!removed) {
-      print_error(removed.error());
-      return exit_code_for(removed.error());
-    }
-    if (format == "json") {
-      std::cout << nlohmann::json{{"removed", id}}.dump(2) << "\n";
-    } else {
-      std::cout << "已删除: " << id << "\n";
-    }
-    return 0;
-  }
-
-  return usage("未知子命令: lineage " + sub +
-               "（支持: add|list|show|remove）");
+  return usage("genea book <show|update> ...");
 }
 
 // ---------- branch ----------
@@ -251,7 +193,6 @@ int cmd_branch(const std::vector<std::string>& args,
       ("note", "备注", cxxopts::value<std::string>());
     const auto r = parse_args(opts, rest);
     Branch b;
-    if (r.count("lineage")) b.lineage_id = r["lineage"].as<std::string>();
     if (r.count("name")) b.name = r["name"].as<std::string>();
     if (r.count("founder"))
       b.founder_person_id = r["founder"].as<std::string>();
@@ -266,12 +207,10 @@ int cmd_branch(const std::vector<std::string>& args,
   if (sub == "list") {
     cxxopts::Options opts("genea branch list", "支派列表");
     opts.add_options()
-      ("lineage", "按宗族筛选", cxxopts::value<std::string>())
       ("limit", "每页条数", cxxopts::value<int>()->default_value("50"))
       ("cursor", "游标", cxxopts::value<std::string>());
     const auto r = parse_args(opts, rest);
     BranchFilter f;
-    if (r.count("lineage")) f.lineage_id = r["lineage"].as<std::string>();
     if (r.count("cursor")) f.cursor = r["cursor"].as<std::string>();
     f.limit = r["limit"].as<int>();
     return print_list(svc.list_branches(f), format, print_branch_text);

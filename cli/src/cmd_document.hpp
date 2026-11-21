@@ -3,7 +3,7 @@
 //   genea document add --type preface --title "嘉庆四年修谱序"
 //                     [--author 陈文远] [--date 嘉庆四年] [--edition 嘉庆四年修]
 //                     [--content 正文全文] [--seq 1]
-//   genea document list [--type preface] [--lineage <id>]
+//   genea document list [--type preface]
 //   genea document show <id>
 //   genea document search --query 正文片段   # trigram FTS 中文子串命中，
 //                                        # 1-2 字查询回退 LIKE（验收门）

@@ -75,7 +75,6 @@ struct MappingLoss {
 };
 
 struct ImportOptions {
-  std::string lineage_id;             // 导入落到哪个宗族（必填）
   std::string default_surname;        // NAME 无 /姓/ 结构时的兜底姓（可空）
   bool create_places = true;          // 按名称自动建地点
 };

@@ -40,7 +40,6 @@
 #include <genealogy/model/genealogy_date.hpp>
 #include <genealogy/model/person.hpp>
 #include <genealogy/model/person_name.hpp>
-#include <genealogy/repository/bootstrap.hpp>
 #include <genealogy/repository/database.hpp>
 #include <genealogy/service/person_name_service.hpp>
 #include <genealogy/service/person_service.hpp>
@@ -57,7 +56,8 @@ const char* kSubcommandsHelp =
     "子命令:\n"
     "  db       init|seed|backup|restore\n"
     "  person   add|list|show|relation|tree\n"
-    "  lineage  add|list|show|remove\n"
+    "  book     show|update
+"
     "  branch   add|list|show|remove\n"
     "  place    add|list|show|remove\n"
     "  union    add|list|show|remove\n"
@@ -69,7 +69,7 @@ const char* kSubcommandsHelp =
     "  bench";
 
 // 退出码映射 / 错误输出 / cxxopts 适配 / 开库 / 日期解析见 cli_util.hpp
-// （与 cmd_entity.cpp 共用）。kDefaultLineageId 见 bootstrap.hpp。
+// （与 cmd_entity.cpp 共用）。
 using genea_cli::exit_code_for;
 using genea_cli::open_db;
 using genea_cli::parse_args;
@@ -189,7 +189,6 @@ int cmd_person_name(const std::vector<std::string>& args,
     }
     n.is_primary = r["primary"].as<bool>();
     if (r.count("note")) n.note = r["note"].as<std::string>();
-    auto made = svc.create_person_name(n);
     if (!made) {
       print_error(made.error());
       return exit_code_for(made.error());
@@ -197,7 +196,6 @@ int cmd_person_name(const std::vector<std::string>& args,
     if (format == "json") {
       std::cout << to_json(*made).dump(2) << "\n";
     } else {
-      std::cout << "已登记名号: " << made->id << "	"
                 << to_string(made->type) << "	" << made->name
                 << (made->is_primary ? "	[主名]" : "") << "\n";
     }
@@ -266,7 +264,6 @@ int cmd_person_add(const std::vector<std::string>& args,
       ("birth-order", "行几", cxxopts::value<int>())
       ("father", "父亲 ID", cxxopts::value<std::string>())
       ("mother", "母亲 ID", cxxopts::value<std::string>())
-      ("lineage", "宗族 ID（缺省落入占位宗族）", cxxopts::value<std::string>())
       ("biography", "世系录 / 行传", cxxopts::value<std::string>())
       ("living", "在世标记",
        cxxopts::value<bool>()->default_value("false")->implicit_value("true"));
@@ -280,8 +277,6 @@ int cmd_person_add(const std::vector<std::string>& args,
   PersonService svc(*db);
 
   Person p;
-  p.lineage_id =
-      r.count("lineage") ? r["lineage"].as<std::string>() : kDefaultLineageId;
   if (r.count("family-name")) p.family_name = r["family-name"].as<std::string>();
   if (r.count("given-name")) p.given_name = r["given-name"].as<std::string>();
   if (r.count("courtesy-name")) p.courtesy_name = r["courtesy-name"].as<std::string>();
@@ -1041,8 +1036,8 @@ int run(std::vector<std::string> raw_args) {
     }
     // 实体命令组内部自己拆子命令（add/list/show/remove），故传 rest
     // （含子命令）；person/db 系列直接消费 options，传 args（不含子命令）。
-    if (command == "lineage")
-      return genea_cli::cmd_lineage(rest, db_path, format);
+    if (command == "book")
+      return genea_cli::cmd_book(rest, db_path, format);
     if (command == "branch")
       return genea_cli::cmd_branch(rest, db_path, format);
     if (command == "place")

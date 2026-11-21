@@ -27,7 +27,6 @@ std::optional<DocumentType> document_type_from_string(const std::string& s) {
 nlohmann::json to_json(const Document& v) {
   nlohmann::json j;
   j["id"] = v.id;
-  j["lineage_id"] = v.lineage_id;
   j["type"] = to_string(v.type);
   j["title"] = v.title;
   if (v.author) j["author"] = *v.author;

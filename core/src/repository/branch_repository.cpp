@@ -19,7 +19,7 @@ using repo_internal::col_opt_text;
 using repo_internal::col_text;
 
 constexpr const char* kCols =
-    "id, lineage_id, name, founder_person_id, parent_branch_id,"
+    "id, name, founder_person_id, parent_branch_id,"
     " generation_char, note, rev";
 
 enum Col {
@@ -36,7 +36,6 @@ enum Col {
 Branch row_to_branch(sqlite3_stmt* st) {
   Branch b;
   b.id = col_text(st, kId);
-  b.lineage_id = col_text(st, kLineageId);
   b.name = col_text(st, kName);
   b.founder_person_id = col_opt_text(st, kFounderPersonId);
   b.parent_branch_id = col_opt_text(st, kParentBranchId);
@@ -49,7 +48,6 @@ Branch row_to_branch(sqlite3_stmt* st) {
 void bind_branch(sqlite3_stmt* st, const Branch& b) {
   int i = 1;
   sqlite3_bind_text(st, i++, b.id.c_str(), -1, SQLITE_TRANSIENT);
-  sqlite3_bind_text(st, i++, b.lineage_id.c_str(), -1, SQLITE_TRANSIENT);
   sqlite3_bind_text(st, i++, b.name.c_str(), -1, SQLITE_TRANSIENT);
   bind_opt_text(st, i++, b.founder_person_id);
   bind_opt_text(st, i++, b.parent_branch_id);
@@ -66,7 +64,7 @@ Result<std::vector<Branch>> BranchRepository::list(
     const BranchFilter& filter) const {
   const std::string sql = std::string("SELECT ").append(kCols) +
                           " FROM branch"
-                          " WHERE (?1 IS NULL OR lineage_id = ?1)"
+                          " WHERE 1=1"
                           "   AND (?2 IS NULL OR id > ?2)"
                           " ORDER BY id LIMIT ?3";
   Stmt st(db_.raw(), sql.c_str());
@@ -74,7 +72,6 @@ Result<std::vector<Branch>> BranchRepository::list(
     return Error{ErrorCode::Internal,
                  std::string("准备查询失败: ") + sqlite3_errmsg(db_.raw())};
   }
-  bind_opt_text(st.get(), 1, filter.lineage_id);
   bind_opt_text(st.get(), 2, filter.cursor);
   sqlite3_bind_int(st.get(), 3, filter.limit > 0 ? filter.limit : 50);
 
@@ -135,16 +132,14 @@ Result<Branch> BranchRepository::update(const Branch& branch) {
 
   Stmt st(db_.raw(),
           "UPDATE branch SET"
-          " lineage_id=?1, name=?2, founder_person_id=?3, parent_branch_id=?4,"
-          " generation_char=?5, note=?6, rev=rev+1"
-          " WHERE id=?7 AND rev=?8");
+          " name=?1, founder_person_id=?2, parent_branch_id=?3,"
+          " generation_char=?4, note=?5, rev=rev+1"
+          " WHERE id=?6 AND rev=?7");
   if (!st.ok()) {
     return Error{ErrorCode::Internal,
                  std::string("准备 UPDATE 失败: ") + sqlite3_errmsg(db_.raw())};
   }
   int i = 1;
-  sqlite3_bind_text(st.get(), i++, branch.lineage_id.c_str(), -1,
-                    SQLITE_TRANSIENT);
   sqlite3_bind_text(st.get(), i++, branch.name.c_str(), -1, SQLITE_TRANSIENT);
   bind_opt_text(st.get(), i++, branch.founder_person_id);
   bind_opt_text(st.get(), i++, branch.parent_branch_id);

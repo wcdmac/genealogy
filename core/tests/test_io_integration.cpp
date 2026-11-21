@@ -13,11 +13,8 @@
 #include <genealogy/error.hpp>
 #include <genealogy/io/gedcom.hpp>
 #include <genealogy/io/synthetic.hpp>
-#include <genealogy/model/lineage.hpp>
-#include <genealogy/repository/bootstrap.hpp>
 #include <genealogy/repository/database.hpp>
 #include <genealogy/service/event_service.hpp>
-#include <genealogy/service/lineage_service.hpp>
 #include <genealogy/service/person_service.hpp>
 #include <genealogy/service/place_service.hpp>
 #include <genealogy/service/union_service.hpp>
@@ -80,22 +77,13 @@ TEST_CASE("GEDCOM 集成：文件 → 库 → 文件 → 库 闭环，回流零�
   DbGuard guard{temp_db_path()};
   auto db = Database::open(guard.p.string());
   REQUIRE(db.has_value());
-  REQUIRE(ensure_default_lineage(*db));
 
-  LineageService lineages(*db);
-  Lineage lineage;
-  lineage.name = "集成谱";
-  lineage.surname = "陈";
-  auto made_lineage = lineages.create_lineage(lineage);
-  REQUIRE(made_lineage.has_value());
-  const std::string lid = made_lineage->id;
 
   auto doc = io::parse_gedcom(kGed);
   REQUIRE(doc.has_value());
 
   // ---- 第一轮导入 ----
   io::ImportOptions opt;
-  opt.lineage_id = lid;
   opt.default_surname = "陈";
   auto first = io::import_gedcom(*doc, opt);
   REQUIRE(first.has_value());
@@ -108,12 +96,10 @@ TEST_CASE("GEDCOM 集成：文件 → 库 → 文件 → 库 闭环，回流零�
   // 落库顺序：地点 → 人物（父母先于子女）→ 结合 → 事件。
   // 地点必须最先：person/union/event 都有 place_id 外键。
   for (const auto& pl : first->places) {
-    auto made = places.create_place(pl);
     REQUIRE(made.has_value());
   }
   // 依赖排序：父母先于子女（GEDCOM 里子记录可以排在父记录前）
   for (const auto& p : io::order_by_dependency(first->persons)) {
-    auto made = persons.create_person(p);
     if (!made.has_value()) {
       INFO("建档 " << p.family_name << p.given_name
                    << " 失败: " << made.error().to_string());
@@ -121,11 +107,9 @@ TEST_CASE("GEDCOM 集成：文件 → 库 → 文件 → 库 闭环，回流零�
     REQUIRE(made.has_value());
   }
   for (const auto& u : first->unions) {
-    auto made = unions.create_union(u);
     REQUIRE(made.has_value());
   }
   for (const auto& e : first->events) {
-    auto made = events.create_event(e);
     REQUIRE(made.has_value());
   }
   REQUIRE(first->persons.size() == 3);
@@ -138,7 +122,6 @@ TEST_CASE("GEDCOM 集成：文件 → 库 → 文件 → 库 闭环，回流零�
   REQUIRE(listed.has_value());
   std::vector<Person> rows;
   for (auto& p : *listed) {
-    if (p.lineage_id == lid) rows.push_back(p);
   }
   REQUIRE(rows.size() == 3);
 
@@ -171,18 +154,11 @@ TEST_CASE("GEDCOM 集成：文件 → 库 → 文件 → 库 闭环，回流零�
   DbGuard guard2{temp_db_path()};
   auto db2 = Database::open(guard2.p.string());
   REQUIRE(db2.has_value());
-  REQUIRE(ensure_default_lineage(*db2));
-  LineageService lineages2(*db2);
-  Lineage l2;
-  l2.name = "回流谱";
-  l2.surname = "陈";
-  auto made2 = lineages2.create_lineage(l2);
   REQUIRE(made2.has_value());
 
   auto doc2 = io::parse_gedcom(text);
   REQUIRE(doc2.has_value());
   io::ImportOptions opt2;
-  opt2.lineage_id = made2->id;
   opt2.default_surname = "陈";
   auto second = io::import_gedcom(*doc2, opt2);
   REQUIRE(second.has_value());
@@ -241,7 +217,6 @@ TEST_CASE("GEDCOM 集成：2000 条规模往返（性能回归哨兵）") {
   io::SyntheticOptions so;
   so.persons = kN;
   so.generations = 12;
-  so.lineage_id = kDefaultLineageId;
   auto synth = io::generate_synthetic(so);
   REQUIRE(synth.has_value());
   const io::SyntheticData& data = *synth;
@@ -259,7 +234,6 @@ TEST_CASE("GEDCOM 集成：2000 条规模往返（性能回归哨兵）") {
   auto doc = io::parse_gedcom(text);
   REQUIRE(doc.has_value());
   io::ImportOptions opt;
-  opt.lineage_id = kDefaultLineageId;
   opt.default_surname = "陈";
   auto back = io::import_gedcom(*doc, opt);
   REQUIRE(back.has_value());

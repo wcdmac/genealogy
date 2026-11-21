@@ -29,7 +29,6 @@ struct SyntheticOptions {
   std::size_t persons = 100000;   // 目标人物数（实际会有少量偏差）
   int generations = 14;           // 世代数（十代子孙树要 10 层以上）
   std::uint64_t seed = 20261013;  // 固定种子 → 可复现
-  std::string lineage_id;         // 必填
   std::string surname = "陈";     // 主姓
   int founder_year = 1500;        // 始祖生年（合法域 40..2000，见 generate_synthetic）
   // 每人事件数（第三轮新-C8：bench 的 --events-per-person 此前注册了
@@ -46,7 +45,7 @@ struct SyntheticData {
   std::string founder_id;   // 始祖 id（十代树的起点）
 };
 
-// 生成一批自洽的合成谱数据。参数非法（lineage_id 空、founder_year/
+// 生成一批自洽的合成谱数据。参数非法（founder_year/
 // generations 越界——派生年会撞 from_iso 合法域）返回 InvalidArgument。
 Result<SyntheticData> generate_synthetic(const SyntheticOptions& opt);
 

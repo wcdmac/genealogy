@@ -11,7 +11,6 @@ EventService::EventService(Database& db)
       persons_(db),
       unions_(db),
       branches_(db),
-      lineages_(db),
       places_(db) {}
 
 Error EventService::validate(const Event& e) {
@@ -38,8 +37,7 @@ Error EventService::validate(const Event& e) {
       break;
     }
     case EventSubjectType::Lineage: {
-      auto subject = lineages_.get(e.subject_id);
-      if (!subject) return not_found("事件主体（宗族）不存在: " + e.subject_id);
+      // 单谱单库：谱本体事件无主体表可查（历史兼容保留枚举）
       break;
     }
   }

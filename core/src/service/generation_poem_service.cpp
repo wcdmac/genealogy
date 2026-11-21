@@ -7,7 +7,8 @@
 #include <genealogy/lineage/generation.hpp>
 #include <genealogy/lineage/graph.hpp>
 #include <genealogy/model/branch.hpp>
-#include <genealogy/model/lineage.hpp>
+#include <genealogy/model/book.hpp>
+#include <genealogy/repository/book_repository.hpp>
 #include <genealogy/model/person.hpp>
 #include <genealogy/model/union.hpp>
 #include <genealogy/repository/union_repository.hpp>
@@ -16,7 +17,7 @@ namespace genealogy {
 
 GenerationPoemService::GenerationPoemService(Database& db)
     : poems_(db),
-      lineages_(db),
+      books_(db),
       branches_(db),
       persons_(db),
       unions_(db) {}
@@ -25,9 +26,8 @@ Result<std::vector<GenerationPoemEntry>> GenerationPoemService::set_poem(
     PoemOwner owner, const std::string& owner_id, const std::string& text) {
   // 归属必须存在——派语挂在幽灵宗族上，后续校验全部跑偏
   if (owner == PoemOwner::Lineage) {
-    auto l = lineages_.get(owner_id);
-    if (!l) return not_found("宗族不存在: " + owner_id);
-  } else {
+    auto b = books_.get();
+      } else {
     auto b = branches_.get(owner_id);
     if (!b) return not_found("支派不存在: " + owner_id);
   }
@@ -54,11 +54,11 @@ Result<std::vector<GenerationPoemEntry>> GenerationPoemService::set_poem(
 
   // 原文留档：结构化条目是权威，原文给谱师校对、也给重新生成用
   if (owner == PoemOwner::Lineage) {
-    auto l = lineages_.get(owner_id);
-    if (l) {
-      Lineage updated = *l;
+    auto b = books_.get();
+    if (b) {
+      Book updated = *b;
       updated.generation_poem = text;
-      if (auto r = lineages_.update(updated); !r) return r.error();
+      if (auto r = books_.update(*b); !r) return r.error();
     }
   }
   return entries;
@@ -93,11 +93,9 @@ GenerationPoemService::check_consistency(PoemOwner owner,
   pf.limit = 200000;
   std::unordered_set<std::string> branch_members;
   if (owner == PoemOwner::Lineage) {
-    pf.lineage_id = owner_id;
   } else {
     auto b = branches_.get(owner_id);
     if (!b) return not_found("支派不存在: " + owner_id);
-    pf.lineage_id = b->lineage_id;
   }
   auto persons = persons_.list(pf);
   if (!persons) return persons.error();

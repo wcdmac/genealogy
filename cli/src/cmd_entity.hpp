@@ -7,7 +7,7 @@
 
 namespace genea_cli {
 
-int cmd_lineage(const std::vector<std::string>& args,
+int cmd_book(const std::vector<std::string>& args,
                 const std::string& db_path, const std::string& format);
 int cmd_branch(const std::vector<std::string>& args, const std::string& db_path,
                const std::string& format);

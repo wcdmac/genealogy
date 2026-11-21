@@ -19,7 +19,6 @@ enum class PrivacyLevel { Public, Kin, Private };
 // 行映射在仓储层，JSON 映射在此（供 API DTO 边界复用）。
 struct Person {
   std::string id;                   // ULID
-  std::string lineage_id;           // 所属宗族
   std::optional<std::string> branch_id;
   std::string family_name;
   std::string given_name;

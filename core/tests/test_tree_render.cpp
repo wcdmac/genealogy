@@ -14,7 +14,6 @@
 #include <genealogy/io/tree_render.hpp>
 #include <genealogy/lineage/graph.hpp>
 #include <genealogy/lineage/tree.hpp>
-#include <genealogy/repository/bootstrap.hpp>
 #include <genealogy/repository/database.hpp>
 #include <genealogy/service/person_service.hpp>
 #include <genealogy/service/tree_service.hpp>
@@ -33,7 +32,6 @@ Person make_person(const std::string& family, const std::string& given,
                    const std::string& father) {
   Person p;
   p.id = generate_ulid();
-  p.lineage_id = std::string(26, '0');
   p.family_name = family;
   p.given_name = given;
   p.gender = Gender::Male;
@@ -93,11 +91,9 @@ TEST_CASE("TreeService：export_tree 端到端（防悬空回归）", "[service]
   const auto path = temp_db_path();
   auto opened = Database::open(path);
   REQUIRE(opened);
-  REQUIRE(ensure_default_lineage(*opened));
 
   PersonService persons(*opened);
   Person draft;
-  draft.lineage_id = std::string(26, '0');
   draft.family_name = "陈";
   draft.given_name = "始祖";
   draft.gender = Gender::Male;
@@ -105,7 +101,6 @@ TEST_CASE("TreeService：export_tree 端到端（防悬空回归）", "[service]
   REQUIRE(made_root.has_value());
 
   Person child_draft;
-  child_draft.lineage_id = std::string(26, '0');
   child_draft.family_name = "陈";
   child_draft.given_name = "二世";
   child_draft.gender = Gender::Male;

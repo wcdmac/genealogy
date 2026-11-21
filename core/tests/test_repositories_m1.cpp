@@ -7,15 +7,13 @@
 #include <genealogy/error.hpp>
 #include <genealogy/model/event.hpp>
 #include <genealogy/model/genealogy_date.hpp>
-#include <genealogy/model/lineage.hpp>
 #include <genealogy/model/person.hpp>
 #include <genealogy/model/place.hpp>
 #include <genealogy/model/union.hpp>
-#include <genealogy/repository/bootstrap.hpp>
 #include <genealogy/repository/branch_repository.hpp>
 #include <genealogy/repository/database.hpp>
+#include <genealogy/repository/book_repository.hpp>
 #include <genealogy/repository/event_repository.hpp>
-#include <genealogy/repository/lineage_repository.hpp>
 #include <genealogy/repository/person_repository.hpp>
 #include <genealogy/repository/place_repository.hpp>
 #include <genealogy/repository/union_repository.hpp>
@@ -40,85 +38,44 @@ void cleanup_db(const std::filesystem::path& path) {
 
 }  // namespace
 
-TEST_CASE("宗族仓储：CRUD 与游标", "[repo][lineage]") {
+TEST_CASE("谱元数据仓储：单行 get/update", "[repo][book]") {
   const auto path = temp_db_path();
   auto opened = Database::open(path);
   REQUIRE(opened);
-  REQUIRE(ensure_default_lineage(*opened));
-  LineageRepository repo(*opened);
+  BookRepository repo(*opened);
 
-  Lineage l;
-  l.name = "中湘陈氏六修族谱";
-  l.surname = "陈";
-  l.commandery = "颍川";
-  l.hall_name = "德星堂";
-  l.generation_poem = "明德崇仁厚，乾坤万世昌";
-  const auto created = repo.insert(l);
-  REQUIRE(created);
-  REQUIRE(is_valid_ulid(created->id));
-  REQUIRE(created->rev == 1);
-  REQUIRE(created->commandery.value() == "颍川");
-
-  const auto got = repo.get(created->id);
+  const auto got = repo.get();
   REQUIRE(got);
-  REQUIRE(got->name == "中湘陈氏六修族谱");
-  REQUIRE(got->generation_poem.value() == "明德崇仁厚，乾坤万世昌");
+  CHECK(got->name.empty());
 
-  LineageFilter by_surname;
-  by_surname.surname = "陈";
-  const auto list = repo.list(by_surname);
-  REQUIRE(list);
-  REQUIRE(list->size() == 1);  // 默认宗族 surname 为空串，不命中
+  Book b = *got;
+  b.name = "中湘陈氏六修族谱";
+  b.surname = "陈";
+  b.commandery = "颍川";
+  b.hall_name = "德星堂";
+  b.generation_poem = "明德崇仁厚，乾坤万世昌";
+  const auto updated = repo.update(b);
+  REQUIRE(updated);
+  CHECK(updated->name == "中湘陈氏六修族谱");
+  CHECK(updated->generation_poem.value() == "明德崇仁厚，乾坤万世昌");
+  CHECK(updated->rev == got->rev + 1);
 
-  // 空串姓筛选命中默认宗族（占位宗族，M1.2 上线 lineage 管理后淡化）
-  LineageFilter by_empty;
-  by_empty.surname = "";
-  const auto defaults = repo.list(by_empty);
-  REQUIRE(defaults);
-  REQUIRE(defaults->size() == 1);
-  REQUIRE(defaults->at(0).id == std::string(kDefaultLineageId));
-
-  LineageFilter none;
-  none.surname = "李";
-  const auto empty = repo.list(none);
-  REQUIRE(empty);
-  REQUIRE(empty->empty());
-
-  // 更新：入库时 rev=1，created.rev 亦为 1，故可更新
-  // （注意：insert 按值传入，id/rev 只回写在 created 上，原 l.id 为空）
-  const auto stale = repo.update(*created);
-  REQUIRE(stale);
-  REQUIRE(stale->rev == 2);
-
-  Lineage bad_rev = *stale;
-  bad_rev.rev = 1;
-  const auto conflict = repo.update(bad_rev);
-  REQUIRE_FALSE(conflict);
-  REQUIRE(conflict.error().code() == ErrorCode::Conflict);
-
-  REQUIRE(repo.remove(created->id));
-  REQUIRE_FALSE(repo.get(created->id));
-  REQUIRE_FALSE(repo.remove(created->id));
+  const auto stale = *updated;
+  Book bad_rev = stale;
+  bad_rev.rev = stale.rev;  // 同 rev 再 update 不会冲突（单行表无并发）
+  const auto again = repo.update(bad_rev);
+  REQUIRE(again);
+  CHECK(again->rev > stale.rev);
 
   cleanup_db(path);
 }
-
-TEST_CASE("支派仓储：归属与外键约束", "[repo][branch]") {
+TEST_CASE("支派仓储：CRUD", "[repo][branch]") {
   const auto path = temp_db_path();
   auto opened = Database::open(path);
   REQUIRE(opened);
-  REQUIRE(ensure_default_lineage(*opened));
-  LineageRepository lineages(*opened);
   BranchRepository repo(*opened);
 
-  Lineage l;
-  l.name = "测试宗族";
-  l.surname = "陈";
-  const auto lineage = lineages.insert(l);
-  REQUIRE(lineage);
-
   Branch b;
-  b.lineage_id = lineage->id;
   b.name = "长房";
   b.generation_char = "明";
   const auto created = repo.insert(b);
@@ -131,16 +88,9 @@ TEST_CASE("支派仓储：归属与外键约束", "[repo][branch]") {
   REQUIRE(got->generation_char.value() == "明");
 
   BranchFilter filter;
-  filter.lineage_id = lineage->id;
   const auto list = repo.list(filter);
   REQUIRE(list);
   REQUIRE(list->size() == 1);
-
-  Branch bogus = b;
-  bogus.lineage_id = std::string(26, 'Z');  // 不存在的宗族
-  const auto bad = repo.insert(bogus);
-  REQUIRE_FALSE(bad);
-  REQUIRE(bad.error().code() == ErrorCode::Internal);  // 外键失败
 
   REQUIRE(repo.remove(created->id));
   REQUIRE_FALSE(repo.get(created->id));
@@ -206,12 +156,10 @@ TEST_CASE("婚姻结合仓储：成员事务/替换/级联删除", "[repo][union
   const auto path = temp_db_path();
   auto opened = Database::open(path);
   REQUIRE(opened);
-  REQUIRE(ensure_default_lineage(*opened));
   PersonService persons(*opened);
   UnionRepository repo(*opened);
 
   Person husband;
-  husband.lineage_id = kDefaultLineageId;
   husband.family_name = "陈";
   husband.given_name = "文远";
   husband.gender = Gender::Male;
@@ -219,7 +167,6 @@ TEST_CASE("婚姻结合仓储：成员事务/替换/级联删除", "[repo][union
   REQUIRE(h);
 
   Person wife;
-  wife.lineage_id = kDefaultLineageId;
   wife.family_name = "王";
   wife.given_name =  "婉娘";
   wife.gender = Gender::Female;
@@ -292,12 +239,10 @@ TEST_CASE("事件仓储：筛选与删除", "[repo][event]") {
   const auto path = temp_db_path();
   auto opened = Database::open(path);
   REQUIRE(opened);
-  REQUIRE(ensure_default_lineage(*opened));
   PersonService persons(*opened);
   EventRepository repo(*opened);
 
   Person p;
-  p.lineage_id = kDefaultLineageId;
   p.family_name = "陈";
   p.given_name = "文远";
   const auto person = persons.create_person(p);

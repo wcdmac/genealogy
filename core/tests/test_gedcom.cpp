@@ -281,7 +281,7 @@ TEST_CASE("GEDCOM 语法：level 跳级容忍，不报废整份文件") {
 TEST_CASE("GEDCOM 映射：人名三种形态") {
   const auto doc = parse_gedcom(kSample);
   REQUIRE(doc.has_value());
-  const auto r = import_gedcom(*doc, ImportOptions{"L1", "陈", true});
+  const auto r = import_gedcom(*doc, ImportOptions{"陈", true});
   REQUIRE(r.has_value());
   CHECK(r->persons.size() == 5);
 
@@ -317,7 +317,7 @@ TEST_CASE("GEDCOM 映射：无 /姓/ 结构时按默认姓拆分") {
   const auto doc = parse_gedcom(s);
   REQUIRE(doc.has_value());
   // 给了默认姓：前缀命中则拆开
-  auto r = import_gedcom(*doc, ImportOptions{"L1", "陈", true});
+  auto r = import_gedcom(*doc, ImportOptions{"陈", true});
   REQUIRE(r.has_value());
   const Person* p1 = nullptr;
   for (const auto& p : r->persons) {
@@ -328,7 +328,7 @@ TEST_CASE("GEDCOM 映射：无 /姓/ 结构时按默认姓拆分") {
   CHECK(p1->given_name == "文远");
 
   // 不给默认姓：整串记名 + 记 Info 损失
-  auto r2 = import_gedcom(*doc, ImportOptions{"L1", "", true});
+  auto r2 = import_gedcom(*doc, ImportOptions{"", true});
   REQUIRE(r2.has_value());
   bool found_loss = false;
   for (const auto& l : r2->losses) {
@@ -365,7 +365,7 @@ TEST_CASE("GEDCOM 映射：日期的各种形态") {
                         "0 TRLR\n";
   const auto doc = parse_gedcom(s);
   REQUIRE(doc.has_value());
-  const auto r = import_gedcom(*doc, ImportOptions{"L1", "陈", true});
+  const auto r = import_gedcom(*doc, ImportOptions{"陈", true});
   REQUIRE(r.has_value());
 
   auto by_given = [&](const std::string& g) -> const Person* {
@@ -441,7 +441,7 @@ TEST_CASE("GEDCOM 映射：地点去重与经纬度") {
                         "0 TRLR\n";
   const auto doc = parse_gedcom(s);
   REQUIRE(doc.has_value());
-  const auto r = import_gedcom(*doc, ImportOptions{"L1", "陈", true});
+  const auto r = import_gedcom(*doc, ImportOptions{"陈", true});
   REQUIRE(r.has_value());
   CHECK(r->places.size() == 1);   // 同名去重
   CHECK(r->places.front().name == "中湘");
@@ -465,7 +465,7 @@ TEST_CASE("GEDCOM 映射：地点去重与经纬度") {
 TEST_CASE("GEDCOM 映射：家族关系、多任与妾") {
   const auto doc = parse_gedcom(kSample);
   REQUIRE(doc.has_value());
-  const auto r = import_gedcom(*doc, ImportOptions{"L1", "陈", true});
+  const auto r = import_gedcom(*doc, ImportOptions{"陈", true});
   REQUIRE(r.has_value());
 
   // F2：夫妻 + 两个子女
@@ -541,7 +541,7 @@ TEST_CASE("GEDCOM 映射：损失显式化，绝不静默丢弃") {
                         "0 TRLR\n";
   const auto doc = parse_gedcom(s);
   REQUIRE(doc.has_value());
-  const auto r = import_gedcom(*doc, ImportOptions{"L1", "陈", true});
+  const auto r = import_gedcom(*doc, ImportOptions{"陈", true});
   REQUIRE(r.has_value());
 
   auto has = [&](const std::string& tag, LossSeverity sev) {
@@ -579,7 +579,7 @@ TEST_CASE("GEDCOM 映射：损失显式化，绝不静默丢弃") {
 TEST_CASE("GEDCOM 映射：死亡标记与性别") {
   const auto doc = parse_gedcom(kSample);
   REQUIRE(doc.has_value());
-  const auto r = import_gedcom(*doc, ImportOptions{"L1", "陈", true});
+  const auto r = import_gedcom(*doc, ImportOptions{"陈", true});
   REQUIRE(r.has_value());
   for (const auto& p : r->persons) {
     if (p.given_name == "门查氏") {
@@ -614,7 +614,7 @@ TEST_CASE("GEDCOM 映射：DEAT N 显式在世") {
 0 TRLR)GED";
   const auto doc = parse_gedcom(doc_text);
   REQUIRE(doc.has_value());
-  const auto r = import_gedcom(*doc, ImportOptions{"L1", "陈", true});
+  const auto r = import_gedcom(*doc, ImportOptions{"陈", true});
   REQUIRE(r.has_value());
   for (const auto& p : r->persons) {
     if (p.given_name == "现存") {
@@ -629,14 +629,12 @@ TEST_CASE("GEDCOM 映射：DEAT N 显式在世") {
 TEST_CASE("GEDCOM 写出：在世写 DEAT N，未知不写") {
   Person living;
   living.id = "01J00000000000000000000LA";
-  living.lineage_id = "L1";
   living.family_name = "陈";
   living.given_name = "在世";
   living.gender = Gender::Male;
   living.is_living = true;
   Person unknown;
   unknown.id = "01J00000000000000000000DB";
-  unknown.lineage_id = "L1";
   unknown.family_name = "陈";
   unknown.given_name = "未知";
   unknown.gender = Gender::Male;   // is_living 默认 false，无 death_date
@@ -651,7 +649,7 @@ TEST_CASE("GEDCOM 写出：在世写 DEAT N，未知不写") {
   // 往返：DEAT N 导入回在世保护
   const auto doc = parse_gedcom(out_living);
   REQUIRE(doc.has_value());
-  const auto back = import_gedcom(*doc, ImportOptions{"L1", "陈", true});
+  const auto back = import_gedcom(*doc, ImportOptions{"陈", true});
   REQUIRE(back.has_value());
   REQUIRE(back->persons.size() == 1);
   CHECK(back->persons[0].is_living);
@@ -667,7 +665,6 @@ TEST_CASE("GEDCOM 写出：结构与 255 字节切行") {
   std::vector<Person> persons;
   Person p;
   p.id = "01J0000000000000000000001";
-  p.lineage_id = "L1";
   p.family_name = "陈";
   p.given_name = "文远";
   p.gender = Gender::Male;
@@ -727,12 +724,10 @@ TEST_CASE("GEDCOM 往返：导出再导入，信息不丢") {
 
   Place pl;
   pl.id = "P1";
-  pl.name = "中湘";
   places.push_back(pl);
 
   Person father;
   father.id = "I-FATHER";
-  father.lineage_id = "L1";
   father.family_name = "陈";
   father.given_name = "文远";
   father.gender = Gender::Male;
@@ -742,7 +737,6 @@ TEST_CASE("GEDCOM 往返：导出再导入，信息不丢") {
 
   Person mother;
   mother.id = "I-MOTHER";
-  mother.lineage_id = "L1";
   mother.family_name = "王";
   mother.given_name = "门查氏";
   mother.gender = Gender::Female;
@@ -750,7 +744,6 @@ TEST_CASE("GEDCOM 往返：导出再导入，信息不丢") {
 
   Person child;
   child.id = "I-CHILD";
-  child.lineage_id = "L1";
   child.family_name = "陈";
   child.given_name = "承嗣";
   child.gender = Gender::Male;
@@ -760,7 +753,6 @@ TEST_CASE("GEDCOM 往返：导出再导入，信息不丢") {
 
   Person concubine;
   concubine.id = "I-CONC";
-  concubine.lineage_id = "L1";
   concubine.family_name = "李";
   concubine.given_name = "姨娘";
   concubine.gender = Gender::Female;
@@ -802,7 +794,7 @@ TEST_CASE("GEDCOM 往返：导出再导入，信息不丢") {
   // 反向导入
   const auto doc = parse_gedcom(out);
   REQUIRE(doc.has_value());
-  const auto back = import_gedcom(*doc, ImportOptions{"L1", "陈", true});
+  const auto back = import_gedcom(*doc, ImportOptions{"陈", true});
   REQUIRE(back.has_value());
 
   CHECK(back->persons.size() == persons.size());
@@ -886,20 +878,17 @@ TEST_CASE("GEDCOM 导出：部分导出的损失台账") {
   std::vector<Person> persons;
   Person a;
   a.id = "A1";
-  a.lineage_id = "L1";
   a.family_name = "陈";
   a.given_name = "甲";
   a.gender = Gender::Male;
   Person b;
   b.id = "B2";
-  b.lineage_id = "L1";
   b.family_name = "李";
   b.given_name = "乙";
   b.gender = Gender::Female;
   b.is_living = true;
   Person c;
   c.id = "C3";
-  c.lineage_id = "L1";
   c.family_name = "陈";
   c.given_name = "丙";
   c.gender = Gender::Male;
@@ -946,10 +935,9 @@ TEST_CASE("GEDCOM 导出：部分导出的损失台账") {
   CHECK(losses.size() >= 3);
 }
 
-TEST_CASE("GEDCOM 映射：缺 lineage_id 直接拒绝") {
   const auto doc = parse_gedcom(kSample);
   REQUIRE(doc.has_value());
-  const auto r = import_gedcom(*doc, ImportOptions{"", "陈", true});
+  const auto r = import_gedcom(*doc, ImportOptions{"陈", true});
   REQUIRE(!r.has_value());
   CHECK(r.error().code() == ErrorCode::InvalidArgument);
 }
@@ -976,7 +964,7 @@ TEST_CASE("GEDCOM 映射：世系环拒绝并点名，不报误导性的「父�
 )GED";
   const auto doc = parse_gedcom(kCycle);
   REQUIRE(doc.has_value());
-  const auto r = import_gedcom(*doc, ImportOptions{"L1", "陈", true});
+  const auto r = import_gedcom(*doc, ImportOptions{"陈", true});
   REQUIRE(!r.has_value());
   CHECK(r.error().code() == ErrorCode::InvalidArgument);
   const std::string msg = r.error().message();
@@ -995,14 +983,14 @@ TEST_CASE("GEDCOM 映射：世系环拒绝并点名，不报误导性的「父�
 )GED";
   const auto doc2 = parse_gedcom(kSelf);
   REQUIRE(doc2.has_value());
-  const auto r2 = import_gedcom(*doc2, ImportOptions{"L1", "陈", true});
+  const auto r2 = import_gedcom(*doc2, ImportOptions{"陈", true});
   REQUIRE(!r2.has_value());
   CHECK(r2.error().message().find("世系环") != std::string::npos);
 
   // 无环的正常谱不受影响（回归守护：别把拦截做宽）
   const auto ok_doc = parse_gedcom(kSample);
   REQUIRE(ok_doc.has_value());
-  const auto ok = import_gedcom(*ok_doc, ImportOptions{"L1", "陈", true});
+  const auto ok = import_gedcom(*ok_doc, ImportOptions{"陈", true});
   CHECK(ok.has_value());
 }
 
@@ -1016,7 +1004,7 @@ TEST_CASE("GEDCOM 出处链：QUAY/PAGE 映射 + 往返零损失") {
       "0 TRLR\n";
   const auto doc = parse_gedcom(s);
   REQUIRE(doc.has_value());
-  const auto r = import_gedcom(*doc, ImportOptions{"L1", "陈", true});
+  const auto r = import_gedcom(*doc, ImportOptions{"陈", true});
   REQUIRE(r.has_value());
 
   // 事实级 2 SOUR → 事件引用（QUAY 3→high、PAGE→locator）；
@@ -1061,7 +1049,7 @@ TEST_CASE("GEDCOM 出处链：QUAY/PAGE 映射 + 往返零损失") {
 
   const auto doc2 = parse_gedcom(out);
   REQUIRE(doc2.has_value());
-  const auto r2 = import_gedcom(*doc2, ImportOptions{"L1", "陈", true});
+  const auto r2 = import_gedcom(*doc2, ImportOptions{"陈", true});
   REQUIRE(r2.has_value());
   CHECK(r2->sources.size() == 1);
   CHECK(r2->sources[0].title == "中湘陈氏族谱");
@@ -1091,7 +1079,6 @@ TEST_CASE("GEDCOM 7.0：写出 HEAD/SPEC + 无 CONC + 往返零损失") {
   std::vector<Person> persons;
   Person p;
   p.id = "P7";
-  p.lineage_id = "L1";
   p.family_name = "陈";
   p.given_name = "七世";
   p.gender = Gender::Male;
@@ -1118,7 +1105,7 @@ TEST_CASE("GEDCOM 7.0：写出 HEAD/SPEC + 无 CONC + 往返零损失") {
   const auto doc = parse_gedcom(out);
   REQUIRE(doc.has_value());
   CHECK(doc->gedcom_version == "7.0");
-  const auto r = import_gedcom(*doc, ImportOptions{"L1", "陈", true});
+  const auto r = import_gedcom(*doc, ImportOptions{"陈", true});
   REQUIRE(r.has_value());
   REQUIRE(r->persons.size() == 1);
   CHECK(r->persons[0].note.has_value());
@@ -1131,7 +1118,6 @@ TEST_CASE("GEDCOM：导出拒绝不支持的版本") {
   persons.push_back([] {
     Person p;
     p.id = "P";
-    p.lineage_id = "L1";
     p.family_name = "陈";
     p.given_name = "甲";
     p.gender = Gender::Male;

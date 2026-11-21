@@ -21,11 +21,10 @@ using repo_internal::quote_fts;
 using repo_internal::Stmt;
 
 constexpr const char* kCols =
-    "id, lineage_id, type, title, author, date_text, edition, content, seq";
+    "id, type, title, author, date_text, edition, content, seq";
 
 enum Col {
   kId = 0,
-  kLineageId,
   kType,
   kTitle,
   kAuthor,
@@ -38,7 +37,6 @@ enum Col {
 Document row_to_document(sqlite3_stmt* st) {
   Document d;
   d.id = col_text(st, kId);
-  d.lineage_id = col_text(st, kLineageId);
   d.type = document_type_from_string(col_text(st, kType))
                .value_or(DocumentType::Preface);
   d.title = col_text(st, kTitle);
@@ -55,7 +53,6 @@ Document row_to_document(sqlite3_stmt* st) {
 void bind_document(sqlite3_stmt* st, const Document& d) {
   int i = 1;
   sqlite3_bind_text(st, i++, d.id.c_str(), -1, SQLITE_TRANSIENT);
-  sqlite3_bind_text(st, i++, d.lineage_id.c_str(), -1, SQLITE_TRANSIENT);
   sqlite3_bind_text(st, i++, to_string(d.type).c_str(), -1, SQLITE_TRANSIENT);
   sqlite3_bind_text(st, i++, d.title.c_str(), -1, SQLITE_TRANSIENT);
   bind_opt_text(st, i++, d.author);
@@ -97,7 +94,6 @@ Result<std::vector<Document>> DocumentRepository::list(
     const DocumentFilter& filter) const {
   const std::string sql = std::string("SELECT ").append(kCols) +
                           " FROM document"
-                          " WHERE (?1 IS NULL OR lineage_id = ?1)"
                           "   AND (?2 IS NULL OR type = ?2)"
                           "   AND (?3 IS NULL OR id > ?3)"
                           " ORDER BY id LIMIT ?4";
@@ -106,7 +102,6 @@ Result<std::vector<Document>> DocumentRepository::list(
     return Error{ErrorCode::Internal,
                  std::string("准备查询失败: ") + sqlite3_errmsg(db_.raw())};
   }
-  bind_opt_text(st.get(), 1, filter.lineage_id);
   if (filter.type) {
     sqlite3_bind_text(st.get(), 2, to_string(*filter.type).c_str(), -1,
                       SQLITE_TRANSIENT);
@@ -129,8 +124,7 @@ Result<std::vector<Document>> DocumentRepository::list(
 }
 
 Result<std::vector<Document>> DocumentRepository::search(
-    std::string_view keyword, int limit, const std::string& after_id,
-    const std::string& lineage_id) const {
+    std::string_view keyword, int limit, const std::string& after_id) const {
   if (keyword.empty()) return invalid_argument("检索关键词不能为空");
   const int cap = limit > 0 ? limit : 50;
 
@@ -146,7 +140,6 @@ Result<std::vector<Document>> DocumentRepository::search(
           " ON document_fts.rowid = document.rowid"
           " WHERE document_fts MATCH ?1";
     if (!after_id.empty()) sql += " AND document.id > ?3";
-    if (!lineage_id.empty()) sql += " AND document.lineage_id = ?4";
     sql += " ORDER BY document.id LIMIT ?2";
   } else {
     // 1-2 字查询（「家训」「凡例」）：trigram 需 ≥3 字符，回退 LIKE
@@ -155,7 +148,6 @@ Result<std::vector<Document>> DocumentRepository::search(
           " WHERE (title LIKE '%' || ?1 || '%' ESCAPE '\\'"
           "    OR content LIKE '%' || ?1 || '%' ESCAPE '\\')";
     if (!after_id.empty()) sql += " AND id > ?3";
-    if (!lineage_id.empty()) sql += " AND lineage_id = ?4";
     sql += " ORDER BY id LIMIT ?2";
   }
   Stmt st(db_.raw(), sql.c_str());
@@ -173,9 +165,6 @@ Result<std::vector<Document>> DocumentRepository::search(
   sqlite3_bind_int(st.get(), 2, cap);
   if (!after_id.empty()) {
     sqlite3_bind_text(st.get(), 3, after_id.c_str(), -1, SQLITE_TRANSIENT);
-  }
-  if (!lineage_id.empty()) {
-    sqlite3_bind_text(st.get(), 4, lineage_id.c_str(), -1, SQLITE_TRANSIENT);
   }
 
   std::vector<Document> out;
@@ -209,7 +198,7 @@ Result<Document> DocumentRepository::insert(Document doc) {
 
   const std::string sql =
       "INSERT INTO document"
-      " (id, lineage_id, type, title, author, date_text, edition, content, seq)"
+      " (id, type, title, author, date_text, edition, content, seq)"
       " VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9)";
   Stmt st(db_.raw(), sql.c_str());
   if (!st.ok()) return internal("准备 INSERT 失败");
@@ -228,13 +217,12 @@ Result<Document> DocumentRepository::update(const Document& d) {
   // 手工按列对齐绑定。
   const std::string sql =
       "UPDATE document SET"
-      " lineage_id=?1, type=?2, title=?3, author=?4, date_text=?5,"
-      " edition=?6, content=?7, seq=?8"
-      " WHERE id=?9";
+      " type=?1, title=?2, author=?3, date_text=?4,"
+      " edition=?5, content=?6, seq=?7"
+      " WHERE id=?8";
   Stmt st(db_.raw(), sql.c_str());
   if (!st.ok()) return internal("准备 UPDATE 失败");
   int i = 1;
-  sqlite3_bind_text(st.get(), i++, d.lineage_id.c_str(), -1, SQLITE_TRANSIENT);
   sqlite3_bind_text(st.get(), i++, to_string(d.type).c_str(), -1,
                     SQLITE_TRANSIENT);
   sqlite3_bind_text(st.get(), i++, d.title.c_str(), -1, SQLITE_TRANSIENT);

@@ -11,7 +11,6 @@
 namespace genealogy {
 
 struct BranchFilter {
-  std::optional<std::string> lineage_id;
   int limit = 50;
   std::optional<std::string> cursor;
 };

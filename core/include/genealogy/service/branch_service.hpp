@@ -7,7 +7,6 @@
 #include <genealogy/model/branch.hpp>
 #include <genealogy/repository/branch_repository.hpp>
 #include <genealogy/repository/database.hpp>
-#include <genealogy/repository/lineage_repository.hpp>
 #include <genealogy/repository/person_repository.hpp>
 
 namespace genealogy {
@@ -31,7 +30,6 @@ class BranchService {
   Error validate(const Branch& b);
 
   BranchRepository repo_;
-  LineageRepository lineages_;
   PersonRepository persons_;
 };
 

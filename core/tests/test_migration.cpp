@@ -10,7 +10,6 @@
 #include <genealogy/model/migration.hpp>
 #include <genealogy/model/person.hpp>
 #include <genealogy/model/place.hpp>
-#include <genealogy/repository/bootstrap.hpp>
 #include <genealogy/repository/database.hpp>
 #include <genealogy/repository/migration_repository.hpp>
 #include <genealogy/repository/person_repository.hpp>
@@ -45,7 +44,7 @@ struct Fixture {
   MigrationRepository migrations{db};
   MigrationService service{db};
 
-  Fixture() { REQUIRE(ensure_default_lineage(db)); }
+  Fixture() { }
   ~Fixture() {
     std::error_code ec;
     std::filesystem::remove(path, ec);
@@ -64,7 +63,6 @@ struct Fixture {
 
   Person make_person(const std::string& given) {
     Person p;
-    p.lineage_id = std::string(26, '0');
     p.family_name = "陈";
     p.given_name = given;
     p.gender = Gender::Male;

@@ -14,7 +14,7 @@
 #include <genealogy/repository/database.hpp>
 #include <genealogy/repository/branch_repository.hpp>
 #include <genealogy/repository/generation_poem_repository.hpp>
-#include <genealogy/repository/lineage_repository.hpp>
+#include <genealogy/repository/book_repository.hpp>
 #include <genealogy/repository/person_repository.hpp>
 #include <genealogy/repository/union_repository.hpp>
 
@@ -41,7 +41,7 @@ class GenerationPoemService {
 
  private:
   GenerationPoemRepository poems_;
-  LineageRepository lineages_;
+  BookRepository books_;
   BranchRepository branches_;
   PersonRepository persons_;
   UnionRepository unions_;

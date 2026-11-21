@@ -95,7 +95,6 @@ Result<void> BulkLoader::add_place(const Place& p) {
 Result<void> BulkLoader::add_person(const Person& p) {
   if (auto r = ensure_started(); !r) return r.error();
   if (p.id.empty()) return invalid_argument("灌库人物必须带 id");
-  if (p.lineage_id.empty()) return invalid_argument("灌库人物必须带 lineage_id");
   bind_person(impl_->person->get(), p);
   if (auto r = step(impl_->person->get(), "person"); !r) return r.error();
   ++persons_;

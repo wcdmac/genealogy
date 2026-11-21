@@ -12,7 +12,6 @@
 
 #include <genealogy/error.hpp>
 #include <genealogy/model/document.hpp>
-#include <genealogy/repository/bootstrap.hpp>
 #include <genealogy/repository/database.hpp>
 #include <genealogy/service/document_service.hpp>
 #include <genealogy/ulid.hpp>
@@ -36,7 +35,6 @@ void cleanup_db(const std::filesystem::path& path) {
 Document mk(const std::string& title, const std::string& content,
             DocumentType type = DocumentType::Preface) {
   Document d;
-  d.lineage_id = kDefaultLineageId;
   d.type = type;
   d.title = title;
   d.content = content;
@@ -58,7 +56,6 @@ TEST_CASE("文档：CRUD 闭环 + 更新触发 FTS 同步") {
   auto opened = Database::open(path);
   REQUIRE(opened);
   REQUIRE(opened->schema_version() >= 4);  // 0004 document_fts 已应用
-  REQUIRE(ensure_default_lineage(*opened));
 
   DocumentService svc(*opened);
 
@@ -116,7 +113,6 @@ TEST_CASE("文档：中文正文检索——全词/子串/两字回退/无命中
   const auto path = temp_db_path();
   auto opened = Database::open(path);
   REQUIRE(opened);
-  REQUIRE(ensure_default_lineage(*opened));
 
   DocumentService svc(*opened);
   auto made = svc.create_document(
@@ -161,12 +157,10 @@ TEST_CASE("文档：服务层校验——lineage 必须存在、标题必填") {
   const auto path = temp_db_path();
   auto opened = Database::open(path);
   REQUIRE(opened);
-  REQUIRE(ensure_default_lineage(*opened));
 
   DocumentService svc(*opened);
 
   Document bad_lineage = mk("序", "正文");
-  bad_lineage.lineage_id = "01NOTEXIST00000000000000000";
   auto r1 = svc.create_document(bad_lineage);
   CHECK_FALSE(r1.has_value());
   CHECK(r1.error().code() == ErrorCode::NotFound);
@@ -177,7 +171,6 @@ TEST_CASE("文档：服务层校验——lineage 必须存在、标题必填") {
   CHECK(r2.error().code() == ErrorCode::InvalidArgument);
 
   Document no_lineage = mk("序", "正文");
-  no_lineage.lineage_id = "";
   auto r3 = svc.create_document(no_lineage);
   CHECK_FALSE(r3.has_value());
   CHECK(r3.error().code() == ErrorCode::InvalidArgument);

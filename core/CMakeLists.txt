@@ -76,7 +76,7 @@ target_sources(genealogy-core
     src/util/utf8.cpp
     src/model/genealogy_date.cpp
     src/model/person.cpp
-    src/model/lineage.cpp
+    src/model/book.cpp
     src/model/branch.cpp
     src/model/place.cpp
     src/model/source.cpp
@@ -91,8 +91,7 @@ target_sources(genealogy-core
     src/repository/transaction.cpp
     src/repository/database.cpp
     src/repository/person_repository.cpp
-    src/repository/bootstrap.cpp
-    src/repository/lineage_repository.cpp
+    src/repository/book_repository.cpp
     src/repository/branch_repository.cpp
     src/repository/place_repository.cpp
     src/repository/source_repository.cpp
@@ -104,12 +103,12 @@ target_sources(genealogy-core
     src/repository/migration_repository.cpp
     src/repository/generation_poem_repository.cpp
     src/service/person_service.cpp
-    src/service/lineage_service.cpp
     src/service/graph_service.cpp
     src/service/tree_service.cpp
     src/service/branch_service.cpp
     src/service/place_service.cpp
     src/service/source_service.cpp
+    src/service/book_service.cpp
     src/service/citation_service.cpp
     src/service/provenance_migration.cpp
     src/service/document_service.cpp
