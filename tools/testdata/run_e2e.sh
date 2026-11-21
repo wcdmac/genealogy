@@ -22,6 +22,20 @@ check_has() { case "$2" in *"$3"*) ok "$1";; *) bad "$1（未包含[$3]）";; es
 jid()     { $PY -c "import sys,json;print(json.load(sys.stdin).get('id',''))"; }
 jlen()    { $PY -c "import sys,json;print(len(json.load(sys.stdin)))"; }
 jval()    { $PY -c 'import sys,json;print(json.load(sys.stdin)[sys.argv[1]])' "$1" ; }
+
+# 跨平台超时：GNU coreutils 的 timeout 在 macOS 默认不存在（只有 gtimeout
+# 需另装 coreutils）。有 timeout 用它；没有则直接执行（macOS runner 上
+# import 是正常的毫秒级操作，超时保护是 Windows MSYS 管道的历史兜底）。
+run_timeout() {
+  local secs="$1"; shift
+  if command -v timeout >/dev/null 2>&1; then
+    timeout "$secs" "$@"
+  elif command -v gtimeout >/dev/null 2>&1; then
+    gtimeout "$secs" "$@"
+  else
+    "$@"
+  fi
+}
 # 带重试：Windows 下 MSYS 管道+原生 exe 偶发丢字节（2026-10-23 曾致
 # 「show 陈德明」间歇 FAIL——管道丢字节使 python 解析不到 id）
 pid_of()  {
@@ -155,7 +169,7 @@ check_eq "restore 拒绝覆盖（exit 4）" 4 $?
 echo "== 16. 脏数据导入与校验规则命中 =="
 DB2="$OUT/broken.db"
 $GENE db init --db "$DB2" >/dev/null 2>&1
-timeout 60 $GENE io import gedcom tools/testdata/broken_gedcom.ged --db "$DB2" > "$OUT/broken_import.txt" 2>&1
+run_timeout 60 $GENE io import gedcom tools/testdata/broken_gedcom.ged --db "$DB2" > "$OUT/broken_import.txt" 2>&1
 BROKEN_IMPORT_RC=$?
 check_eq "broken 导入未挂起（60s 超时保护）" "ok" $([ $BROKEN_IMPORT_RC -eq 124 ] && echo hung || echo ok)
 if [ $BROKEN_IMPORT_RC -eq 0 ]; then
@@ -174,7 +188,7 @@ fi
 echo "== 16b. 世系环导入（应明确拒绝，非挂起非误导报错） =="
 DB4="$OUT/cycle.db"
 $GENE db init --db "$DB4" >/dev/null 2>&1
-timeout 60 $GENE io import gedcom tools/testdata/cycle_gedcom.ged --db "$DB4" > "$OUT/cycle_import.txt" 2>&1
+run_timeout 60 $GENE io import gedcom tools/testdata/cycle_gedcom.ged --db "$DB4" > "$OUT/cycle_import.txt" 2>&1
 CYCLE_RC=$?
 check_eq "环导入未挂起" "ok" $([ $CYCLE_RC -eq 124 ] && echo hung || echo ok)
 check_eq "环导入被拒绝（InvalidArgument=2）" 2 $CYCLE_RC
