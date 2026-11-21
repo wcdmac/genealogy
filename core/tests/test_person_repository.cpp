@@ -9,6 +9,7 @@
 #include <genealogy/model/genealogy_date.hpp>
 #include <genealogy/repository/bootstrap.hpp>
 #include <genealogy/repository/database.hpp>
+#include <genealogy/repository/lineage_repository.hpp>
 #include <genealogy/repository/person_repository.hpp>
 #include <genealogy/service/person_service.hpp>
 #include <genealogy/ulid.hpp>
@@ -201,4 +202,57 @@ TEST_CASE("用例：建档校验", "[service]") {
   REQUIRE(r4.error().code() == ErrorCode::InvalidArgument);
 
   cleanup_db(path);
+}
+
+TEST_CASE("检索：lineage_id 限定单谱（多谱隔离）") {
+  // 两谱各有同名者：无过滤跨谱命中两行；按谱过滤只命中本谱
+  const auto path = std::filesystem::temp_directory_path() /
+                    ("genealogy-test-" + generate_ulid() + ".db");
+  auto opened = Database::open(path);
+  REQUIRE(opened);
+  REQUIRE(ensure_default_lineage(*opened));
+  Database& db = *opened;
+
+  LineageRepository lineages(db);
+  Lineage wu;
+  wu.name = "长林吴氏（乾隆四年刻本）";
+  wu.surname = "吴";
+  auto wu_made = lineages.insert(wu);
+  REQUIRE(wu_made);
+
+  PersonRepository persons(db);
+  Person li;
+  li.lineage_id = kDefaultLineageId;
+  li.family_name = "李";
+  li.given_name = "大明";
+  li.gender = Gender::Male;
+  auto li_made = persons.insert(li);
+  Person wu_p;
+  wu_p.lineage_id = wu_made->id;
+  wu_p.family_name = "吴";
+  wu_p.given_name = "大明";
+  wu_p.gender = Gender::Male;
+  auto wu_made2 = persons.insert(wu_p);
+  REQUIRE(li_made);
+  REQUIRE(wu_made2);
+
+  // 全库（无谱过滤）：两行都命中
+  auto all = persons.search("大明", 50);
+  REQUIRE(all);
+  CHECK(all->size() == 2);
+  // 限李谱：只命中李大明
+  auto only_li = persons.search("大明", 50, {}, kDefaultLineageId);
+  REQUIRE(only_li);
+  CHECK(only_li->size() == 1);
+  CHECK(only_li->front().lineage_id == kDefaultLineageId);
+  // 限吴谱：只命中吴大明
+  auto only_wu = persons.search("大明", 50, {}, wu_made->id);
+  REQUIRE(only_wu);
+  CHECK(only_wu->size() == 1);
+  CHECK(only_wu->front().lineage_id == wu_made->id);
+
+  std::error_code ec;
+  std::filesystem::remove(path, ec);
+  std::filesystem::remove(path.string() + "-wal", ec);
+  std::filesystem::remove(path.string() + "-shm", ec);
 }

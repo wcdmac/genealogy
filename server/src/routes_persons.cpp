@@ -169,8 +169,9 @@ void persons_list(const drogon::HttpRequestPtr& req, Callback&& cb) {
 
   const std::string q = req->getParameter("q");
   if (!q.empty()) {
-    // 全文检索走 FTS，与结构化筛选互斥（openapi 未定义组合语义）
-    auto got = svc.search_persons(q, f.limit);
+    // 全文检索走 FTS，与结构化筛选互斥（openapi 未定义组合语义）；
+    // lineage_id 筛选透传（多谱同库检索谱内化）
+    auto got = svc.search_persons(q, f.limit, {}, f.lineage_id.value_or(std::string{}));
     if (!got) {
       cb(error_to_response(got.error(), instance));
       return;

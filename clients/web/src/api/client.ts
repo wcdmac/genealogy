@@ -616,6 +616,7 @@ export class GenealogyClient {
     params: {
       q: string;
       scope?: "person" | "document" | "all";
+      lineage_id?: string;
       limit?: number;
       cursor?: string;
     },

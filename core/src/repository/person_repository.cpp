@@ -167,17 +167,21 @@ Result<Person> PersonRepository::get(const std::string& id) const {
 }
 
 Result<std::vector<Person>> PersonRepository::search(
-    std::string_view keyword, int limit, const std::string& after_id) const {
+    std::string_view keyword, int limit, const std::string& after_id,
+    const std::string& lineage_id) const {
   if (keyword.empty()) return invalid_argument("检索关键词不能为空");
   // after_id 非空时加 keyset 划分（第三轮新-3）：/search 的游标翻页。
   // 排序必须与划分键同源（ORDER BY p.id）：此前 ORDER BY rank 配
   // id 划分，高 rank 低 id 的命中会跨页重复——e2e 游标翻页当场抓出。
   // 相关性排序让位于确定性翻页（本地工具命中集小，id 序足够）。
+  // lineage_id 非空时限定单谱：多谱同库下检索必须谱内化，否则
+  // 不同家的同名者互相命中（2026-11-21 多谱隔离审计）。
   std::string sql = "SELECT " + qualify_cols(kSelectCols, "p") +
                     " FROM person p JOIN person_fts"
                     " ON person_fts.rowid = p.rowid"
                     " WHERE person_fts MATCH ?1";
   if (!after_id.empty()) sql += " AND p.id > ?3";
+  if (!lineage_id.empty()) sql += " AND p.lineage_id = ?4";
   sql += " ORDER BY p.id LIMIT ?2";
   Stmt st(db_.raw(), sql.c_str());
   if (!st.ok()) {
@@ -189,6 +193,9 @@ Result<std::vector<Person>> PersonRepository::search(
   sqlite3_bind_int(st.get(), 2, limit > 0 ? limit : 50);
   if (!after_id.empty()) {
     sqlite3_bind_text(st.get(), 3, after_id.c_str(), -1, SQLITE_TRANSIENT);
+  }
+  if (!lineage_id.empty()) {
+    sqlite3_bind_text(st.get(), 4, lineage_id.c_str(), -1, SQLITE_TRANSIENT);
   }
 
   std::vector<Person> out;

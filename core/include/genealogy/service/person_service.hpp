@@ -34,7 +34,8 @@ class PersonService {
   Result<std::vector<Person>> list_persons(const PersonFilter& filter);
   Result<std::vector<Person>> search_persons(std::string_view keyword,
                                              int limit,
-                                             const std::string& after_id = {});
+                                             const std::string& after_id = {},
+                                             const std::string& lineage_id = {});
 
  private:
   // 事件/迁徙的级联清理需要各自的仓储（remove_person）

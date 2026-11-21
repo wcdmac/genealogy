@@ -5,6 +5,7 @@
 #include <string>
 
 #include <genealogy/model/person.hpp>
+#include <genealogy/repository/lineage_repository.hpp>
 
 namespace genealogy::gui {
 
@@ -16,7 +17,12 @@ void SearchPanel::run_search(DbSession& session) {
     searched_ = false;
     return;
   }
-  auto got = session.persons().search_persons(q, limit_);
+  // 谱筛选：0 = 全部；>0 限定单谱（多谱同库下跨谱同名不该互相命中）
+  const std::string lineage_id =
+      lineage_filter_ > 0 && lineage_filter_ <= static_cast<int>(lineage_options_.size())
+          ? lineage_options_[static_cast<std::size_t>(lineage_filter_ - 1)].first
+          : std::string{};
+  auto got = session.persons().search_persons(q, limit_, {}, lineage_id);
   if (!got) {
     state_.set_status("检索失败: " + got.error().message(), true);
     searched_ = false;
@@ -45,6 +51,38 @@ void SearchPanel::draw(DbSession& session) {
     ImGui::TextDisabled("（未打开数据库）");
     return;
   }
+
+  // 谱筛选下拉（2026-11-21 多谱隔离）：换库后刷新谱列表
+  if (!loaded_lineages_for_) {
+    lineage_options_.clear();
+    if (auto rows = session.lineages().list_lineages(LineageFilter{})) {
+      for (const auto& l : *rows) {
+        lineage_options_.emplace_back(l.id, l.name);
+      }
+    }
+    loaded_lineages_for_ = true;
+    lineage_filter_ = 0;
+  }
+  std::string preview = "全部谱";
+  if (lineage_filter_ > 0 &&
+      lineage_filter_ <= static_cast<int>(lineage_options_.size())) {
+    preview = lineage_options_[static_cast<std::size_t>(lineage_filter_ - 1)].second;
+  }
+  ImGui::SetNextItemWidth(150);
+  if (ImGui::BeginCombo("##谱", preview.c_str())) {
+    if (ImGui::Selectable("全部谱")) {
+      lineage_filter_ = 0;
+      loaded_lineages_for_ = false;
+    }
+    for (std::size_t i = 0; i < lineage_options_.size(); ++i) {
+      if (ImGui::Selectable(lineage_options_[i].second.c_str())) {
+        lineage_filter_ = static_cast<int>(i) + 1;
+        loaded_lineages_for_ = false;
+      }
+    }
+    ImGui::EndCombo();
+  }
+  ImGui::SameLine();
 
   ImGui::SetNextItemWidth(280);
   // InputText with hint：回车直接搜（谱师输入姓名后习惯回车）

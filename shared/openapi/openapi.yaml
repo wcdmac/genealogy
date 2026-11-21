@@ -1127,6 +1127,12 @@ paths:
             中文子串可命中，1-2 字查询回退 LIKE）；all=两者合并（items
             带 kind 判别字段，人物在前）。未知 scope 返回 400。
           schema: { enum: [person, document, all], default: all }
+        - name: lineage_id
+          in: query
+          description: |
+            限定单谱（多谱同库检索谱内化）：提供时只命中该宗族的
+            人物/文档；省略则跨全部宗族。
+          schema: { type: string }
         - $ref: "#/components/parameters/Limit"
         - $ref: "#/components/parameters/Cursor"
       responses:

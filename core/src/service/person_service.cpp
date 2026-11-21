@@ -178,8 +178,9 @@ Result<void> PersonService::remove_person(const std::string& id) {
 }
 
 Result<std::vector<Person>> PersonService::search_persons(
-    std::string_view keyword, int limit, const std::string& after_id) {
-  return repo_.search(keyword, limit, after_id);
+    std::string_view keyword, int limit, const std::string& after_id,
+    const std::string& lineage_id) {
+  return repo_.search(keyword, limit, after_id, lineage_id);
 }
 
 }  // namespace genealogy

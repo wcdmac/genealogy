@@ -95,6 +95,9 @@ void search(const drogon::HttpRequestPtr& req, Callback&& cb) {
                         "scope 应为 person / document / all", instance));
     return;
   }
+  // lineage_id（可选）：限定单谱。多谱同库下检索必须可谱内化——
+  // 不同家的同名者不该互相命中（2026-11-21 多谱隔离审计）。
+  const std::string lineage_filter = req->getParameter("lineage_id");
 
   const bool want_person = scope == "person" || scope == "all";
   const bool want_document = scope == "document" || scope == "all";
@@ -138,7 +141,8 @@ void search(const drogon::HttpRequestPtr& req, Callback&& cb) {
 
   if (want_person && cursor_scope != "d") {
     PersonService svc(*db);
-    auto got = svc.search_persons(q, page.limit + 1, person_after);
+    auto got = svc.search_persons(q, page.limit + 1, person_after,
+                                  lineage_filter);
     if (!got) {
       cb(error_to_response(got.error(), instance));
       return;
@@ -164,7 +168,7 @@ void search(const drogon::HttpRequestPtr& req, Callback&& cb) {
         scope == "document"
             ? page.limit + 1
             : static_cast<int>(page.limit) - static_cast<int>(items.size()) + 1;
-    auto doc_hits = docs.search(q, doc_want, doc_after);
+    auto doc_hits = docs.search(q, doc_want, doc_after, lineage_filter);
     if (!doc_hits) {
       cb(error_to_response(doc_hits.error(), instance));
       return;

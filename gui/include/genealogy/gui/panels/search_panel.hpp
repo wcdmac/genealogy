@@ -28,10 +28,13 @@ class SearchPanel : public Panel {
   const char* title() const override { return "检索"; }
   void draw(DbSession& session) override;
   // 关库/换库清结果（复核 2.13：旧库命中不再展示；查询词保留，
-  // 与人物表保留筛选词同口径）
+  // 与人物表保留筛选词同口径）+ 谱筛选列表重载
   void on_database_closed() override {
     hits_.clear();
     searched_ = false;
+    lineage_options_.clear();
+    loaded_lineages_for_ = false;
+    lineage_filter_ = 0;
   }
   // 面板是否持有任何缓存数据（换库清理断言的观测缝）
   bool has_cached_data() const { return searched_ || !hits_.empty(); }
@@ -44,6 +47,10 @@ class SearchPanel : public Panel {
   int limit_ = 100;
   std::vector<SearchHit> hits_;
   bool searched_ = false;   // 有没有跑过一次（决定显示提示还是结果）
+  // 谱筛选（2026-11-21 多谱隔离：0 = 全部谱，>0 = 谱列表下标）
+  int lineage_filter_ = 0;
+  bool loaded_lineages_for_ = false;  // 谱列表按库装载标记
+  std::vector<std::pair<std::string, std::string>> lineage_options_;  // id/名
 };
 
 }  // namespace genealogy::gui

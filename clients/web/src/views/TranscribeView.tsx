@@ -500,6 +500,7 @@ export function TranscribeView() {
             try {
               const found = (await client.search({
                 q: entry.fatherName,
+                lineage_id: lineageId ?? undefined,
                 limit: 5,
               })) as { data?: Array<{ given_name?: string; id?: string }> };
               const hits = (found.data ?? []).filter(
@@ -544,8 +545,11 @@ export function TranscribeView() {
         // 重复名预警（同宗族同名）：不阻断，附在条目消息里
         let dupWarn = "";
         try {
+          // 重复名预警限定本谱：多谱同库下别家的同名者不是重复
+          //（2026-11-21 多谱隔离审计）
           const found = (await client.search({
             q: entry.given_name,
+            lineage_id: lineageId ?? undefined,
             limit: 5,
           })) as { data?: Array<{ given_name?: string }> };
           const hits = (found.data ?? []).filter(

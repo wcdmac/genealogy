@@ -129,7 +129,8 @@ Result<std::vector<Document>> DocumentRepository::list(
 }
 
 Result<std::vector<Document>> DocumentRepository::search(
-    std::string_view keyword, int limit, const std::string& after_id) const {
+    std::string_view keyword, int limit, const std::string& after_id,
+    const std::string& lineage_id) const {
   if (keyword.empty()) return invalid_argument("检索关键词不能为空");
   const int cap = limit > 0 ? limit : 50;
 
@@ -145,6 +146,7 @@ Result<std::vector<Document>> DocumentRepository::search(
           " ON document_fts.rowid = document.rowid"
           " WHERE document_fts MATCH ?1";
     if (!after_id.empty()) sql += " AND document.id > ?3";
+    if (!lineage_id.empty()) sql += " AND document.lineage_id = ?4";
     sql += " ORDER BY document.id LIMIT ?2";
   } else {
     // 1-2 字查询（「家训」「凡例」）：trigram 需 ≥3 字符，回退 LIKE
@@ -153,6 +155,7 @@ Result<std::vector<Document>> DocumentRepository::search(
           " WHERE (title LIKE '%' || ?1 || '%' ESCAPE '\\'"
           "    OR content LIKE '%' || ?1 || '%' ESCAPE '\\')";
     if (!after_id.empty()) sql += " AND id > ?3";
+    if (!lineage_id.empty()) sql += " AND lineage_id = ?4";
     sql += " ORDER BY id LIMIT ?2";
   }
   Stmt st(db_.raw(), sql.c_str());
@@ -170,6 +173,9 @@ Result<std::vector<Document>> DocumentRepository::search(
   sqlite3_bind_int(st.get(), 2, cap);
   if (!after_id.empty()) {
     sqlite3_bind_text(st.get(), 3, after_id.c_str(), -1, SQLITE_TRANSIENT);
+  }
+  if (!lineage_id.empty()) {
+    sqlite3_bind_text(st.get(), 4, lineage_id.c_str(), -1, SQLITE_TRANSIENT);
   }
 
   std::vector<Document> out;

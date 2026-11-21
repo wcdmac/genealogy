@@ -217,16 +217,19 @@ void check_duplicate_person(const RuleDef& r, const PersonGraph& g,
                             const std::vector<Event>*, const std::vector<Citation>*,
                             std::vector<ValidationIssue>* out) {
   const long long tol = param_of(r, "year_tolerance", 0);
-  // 同名的人生年比对：按 (姓,名) 分桶，桶内两两比对——此前是全库
+  // 同名的人生年比对：按 (谱,姓,名) 分桶，桶内两两比对——此前是全库
   // 两两比对，O(n²) 在 20 万级 ≈ 2×10¹⁰ 次，校验直接不可用；分桶后退
-  // 化为同名簇内的小规模比对（同名本就罕见）。输出经入口处的
-  // (rule_id, entity_id) 终排序，遍历顺序不影响确定性。
+  // 化为同名簇内的小规模比对（同名本就罕见）。分桶键含 lineage_id
+  // （2026-11-21 多谱隔离）：不同家谱的同名同年者互不相关，跨谱比对
+  // 只会产出误报。输出经入口处的 (rule_id, entity_id) 终排序，遍历
+  // 顺序不影响确定性。
   std::unordered_set<std::string> reported;
   std::unordered_map<std::string, std::vector<const Person*>> buckets;
   buckets.reserve(g.nodes().size());
   for (const auto& [id, p] : g.nodes()) {
     (void)id;
-    buckets[p->family_name + '\x1F' + p->given_name].push_back(p);
+    buckets[p->lineage_id + '\x1F' + p->family_name + '\x1F' + p->given_name]
+        .push_back(p);
   }
   for (auto& [key, group] : buckets) {
     (void)key;
