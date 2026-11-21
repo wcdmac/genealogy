@@ -126,9 +126,7 @@ void sources_create(const drogon::HttpRequestPtr& req, Callback&& cb) {
   try {
     body = nlohmann::json::parse(req->body());
   } catch (const std::exception& e) {
-    cb(problem_response(400, 1001, "参数校验失败",
-                        std::string("请求体不是合法 JSON: ") + e.what(),
-                        instance));
+    cb(bad_json_body(e.what(), instance));
     return;
   }
 
@@ -205,9 +203,7 @@ void source_patch(const drogon::HttpRequestPtr& req, Callback&& cb) {
   try {
     body = nlohmann::json::parse(req->body());
   } catch (const std::exception& e) {
-    cb(problem_response(400, 1001, "参数校验失败",
-                        std::string("请求体不是合法 JSON: ") + e.what(),
-                        instance));
+    cb(bad_json_body(e.what(), instance));
     return;
   }
 
@@ -334,9 +330,7 @@ void citations_create(const drogon::HttpRequestPtr& req, Callback&& cb) {
   try {
     body = nlohmann::json::parse(req->body());
   } catch (const std::exception& e) {
-    cb(problem_response(400, 1001, "参数校验失败",
-                        std::string("请求体不是合法 JSON: ") + e.what(),
-                        instance));
+    cb(bad_json_body(e.what(), instance));
     return;
   }
 
@@ -426,9 +420,7 @@ void citation_patch(const drogon::HttpRequestPtr& req, Callback&& cb) {
   try {
     body = nlohmann::json::parse(req->body());
   } catch (const std::exception& e) {
-    cb(problem_response(400, 1001, "参数校验失败",
-                        std::string("请求体不是合法 JSON: ") + e.what(),
-                        instance));
+    cb(bad_json_body(e.what(), instance));
     return;
   }
 

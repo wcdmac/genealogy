@@ -1,6 +1,7 @@
 #include <genealogy/server/body_guard.hpp>
 
 #include <string>
+#include <string_view>
 
 #include <genealogy/server/problem.hpp>
 
@@ -77,12 +78,26 @@ void install_body_guard(drogon::HttpAppFramework& app) {
         }
         if (ctype.find("application/json") == std::string::npos) {
           // multipart 是 GEDCOM 导入的合法载体（文件自带字符集检测，
-          // 不能按 UTF-8 强校验）；其余带体请求的媒体类型 API 一律不
-          // 消费——统一 415。此前非 JSON 头直接放行，改个请求头就能
-          // 带着非法字节绕过本守卫直达 json::parse（2026-11 静态审查
-          // H1 记录的绕过路径）。
+          // 不能按 UTF-8 强校验）；且仅此一个端点消费 multipart——
+          // 其余端点即便带 multipart 头也一律 415。此前对任何路径的
+          // multipart 都放行，构造 `multipart/form-data` 头 + 非法
+          // UTF-8 body 可绕过守卫直达各 JSON 端点的 json::parse，
+          // 进程级终止路径仍可达（复核 2.5 残余）。
           if (ctype.find("multipart/") != std::string::npos) {
-            accb();
+            // 只认以 /imports/gedcom 结尾的路径（base 前缀 /api/v1 不参与
+            // 匹配，前缀调整不会破坏该判定）。
+            static constexpr std::string_view kMultipartPath =
+                "/imports/gedcom";
+            const std::string path = req->path();
+            if (path.size() >= kMultipartPath.size() &&
+                path.compare(path.size() - kMultipartPath.size(),
+                             kMultipartPath.size(), kMultipartPath) == 0) {
+              accb();
+              return;
+            }
+            acb(problem_response(415, 1002, "不支持的媒体类型",
+                                 "multipart 请求体仅 GEDCOM 导入端点消费",
+                                 path));
             return;
           }
           acb(problem_response(415, 1002, "不支持的媒体类型",

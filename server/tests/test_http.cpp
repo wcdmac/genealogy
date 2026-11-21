@@ -194,7 +194,7 @@ void start_server_once(std::uint16_t* port_out) {
           body["type"] = "https://genealogy.local/problems/not-found";
           body["title"] = "资源不存在";
           body["status"] = 404;
-          body["detail"] = req->path() + " 没有对应处理函数";
+          body["detail"] = "没有对应处理函数";  // 同 main.cpp：路径只在 instance
           body["instance"] = req->path();
           auto resp = drogon::HttpResponse::newHttpResponse();
           resp->setBody(body.dump());

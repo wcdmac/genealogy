@@ -149,22 +149,24 @@ export function TranscribeView() {
 
   // ---- 宗族列表
   useEffect(() => {
-    if (!connectionReady(client)) return;
+    // signal + aborted 守卫（M13 stale-response guard）：在途响应不再
+    // 覆盖新状态；abort 引起的失败静默
+    const controller = new AbortController();
     client
-      .listLineages({ limit: 50 })
+      .listLineages({ limit: 50 }, { signal: controller.signal })
       .then((page) => {
+        if (controller.signal.aborted) return;
         const rows = (page.data ?? []) as unknown as Lineage[];
         setLineages(rows);
         if (rows.length > 0 && !lineageId) setLineageId(rows[0].id);
       })
       .catch(() => undefined);
+    return () => controller.abort();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [client]);
 
-  function connectionReady(_c: unknown): boolean {
-    // useClient 的 connected 状态由外层 App 保证进入本视图时已连接
-    return true;
-  }
+  // useClient 的 connected 状态由外层 App 保证进入本视图时已连接
+  //（原 connectionReady 前置判断恒为 true，effect 改造后已无存在必要）
 
   // ---- 支派列表（选定宗族后拉取）
   useEffect(() => {
@@ -172,14 +174,24 @@ export function TranscribeView() {
       setBranches([]);
       return;
     }
+    // signal + aborted 守卫：切换宗族时在途响应作废
+    const controller = new AbortController();
     client
-      .request("GET", "/branches", { query: { limit: 100 } })
+      .request("GET", "/branches", {
+        query: { limit: 100 },
+        signal: controller.signal,
+      })
       .then((page: unknown) => {
+        if (controller.signal.aborted) return;
         const rows =
           (page as { data?: Array<{ id: string; name: string }> }).data ?? [];
         setBranches(rows);
       })
-      .catch(() => setBranches([]));
+      .catch(() => {
+        // abort 引起的失败不清空（已切到别的宗族，别覆盖新请求）
+        if (!controller.signal.aborted) setBranches([]);
+      });
+    return () => controller.abort();
   }, [client, lineageId]);
 
   // ---- 文档渲染（PDF 页 / 图片）
@@ -352,7 +364,8 @@ export function TranscribeView() {
     }
     const stagedKey = formKeyRef.current;
     // 父亲解析：表单父亲名与链上父亲一致 → 用链上 key；手动改过名字
-    // （自由跳录）→ 置 null，提交时按名回查
+    // （自由跳录）→ 置 null，提交时按名回查（本批暂存 → 库内检索，
+    // commitAll 里实现）
     const fatherName = form.fatherName.trim();
     const fatherKey =
       fatherName !== "" && formFather.name === fatherName
@@ -437,20 +450,83 @@ export function TranscribeView() {
         .sort((a, b) => a.e.generation_no - b.e.generation_no || a.i - b.i)
         .map((x) => x.e);
       const failedKeys = new Set<string>();
+      // 失败跳过的统一出口：标记条目 + 记入 failedKeys（依赖它的子孙
+      // 由父亲守卫拦下）
+      const failEntry = (victim: Staged, why: string) => {
+        failedKeys.add(victim.key);
+        setStaged((prev) =>
+          prev.map((e) =>
+            e.key === victim.key ? { ...e, status: "failed", message: why } : e,
+          ),
+        );
+      };
       for (const entry of pending) {
+        // 父亲回查（复核 2.11）：手动改过父亲名的条目（fatherKey = null、
+        // fatherName 非空）提交时按名回查——先本批暂存（连书改名的父亲
+        // 通常就是前一条；同名者优先取上一世；此前批次已入库的条目带
+        // committedId，committedIds 同样按 key 收录），再查库。命中多条
+        // 或两边都没有都显式失败跳过，绝不静默置 null 丢父子关系。
+        let fatherKey = entry.fatherKey;
+        let fatherIdDirect: string | null = null;
+        if (fatherKey == null && entry.fatherName !== "") {
+          const candidates = staged.filter(
+            (e) => e.given_name === entry.fatherName && e.key !== entry.key,
+          );
+          const prevGen = candidates.filter(
+            (e) => e.generation_no === entry.generation_no - 1,
+          );
+          const pool = prevGen.length > 0 ? prevGen : candidates;
+          if (pool.length === 1) {
+            fatherKey = pool[0].key;
+          } else if (pool.length > 1) {
+            failEntry(
+              entry,
+              `父亲名「${entry.fatherName}」在本批命中 ${pool.length} 条，请修正名字或改用连书链`,
+            );
+            continue;
+          } else {
+            // 暂存没有 → 库内回查（与重复名预警同款检索，精确比对名讳）
+            try {
+              const found = (await client.search({
+                q: entry.fatherName,
+                limit: 5,
+              })) as { data?: Array<{ given_name?: string; id?: string }> };
+              const hits = (found.data ?? []).filter(
+                (p) => p.given_name === entry.fatherName,
+              );
+              if (hits.length === 1 && hits[0].id) {
+                fatherIdDirect = hits[0].id;
+              } else if (hits.length > 1) {
+                failEntry(
+                  entry,
+                  `父亲名「${entry.fatherName}」在库中命中 ${hits.length} 人，父子关系未建立——请先确认是哪一位`,
+                );
+                continue;
+              } else {
+                failEntry(
+                  entry,
+                  `父亲「${entry.fatherName}」不在暂存与库中，父子关系未建立`,
+                );
+                continue;
+              }
+            } catch {
+              failEntry(
+                entry,
+                `父名「${entry.fatherName}」检索失败，请重试或改用连书链`,
+              );
+              continue;
+            }
+          }
+        }
         // 父条目尚未入库：标记失败并跳过（不再中断整批）——前序失败
-        // 的子孙同样跳过，绝不造孤儿（2026-11 静态审查 H9）
-        if (entry.fatherKey && !committedIds.get(entry.fatherKey)) {
-          const reason = failedKeys.has(entry.fatherKey)
-            ? "父条目未入库（前序失败），跳过"
-            : "父条目尚未入库";
-          failedKeys.add(entry.key);
-          setStaged((prev) =>
-            prev.map((e) =>
-              e.key === entry.key
-                ? { ...e, status: "failed", message: reason }
-                : e,
-            ),
+        // 的子孙同样跳过，绝不造孤儿（2026-11 静态审查 H9）。回查命中
+        // 的 key 走同一条守卫。
+        if (fatherKey && !committedIds.get(fatherKey)) {
+          failEntry(
+            entry,
+            failedKeys.has(fatherKey)
+              ? "父条目未入库（前序失败），跳过"
+              : "父条目尚未入库",
           );
           continue;
         }
@@ -477,10 +553,13 @@ export function TranscribeView() {
           if (entry.chuSi) noteBits.push("[出嗣]");
           if (entry.noteExtra) noteBits.push(entry.noteExtra);
           if (dupWarn) noteBits.push(dupWarn);
+          // 库内回查直接命中的 id 优先（该父亲不在本批暂存里）；
+          // 其余走 fatherKey → committedIds 常规链
           const fatherId =
-            entry.fatherKey != null
-              ? (committedIds.get(entry.fatherKey) ?? null)
-              : null;
+            fatherIdDirect ??
+            (fatherKey != null
+              ? (committedIds.get(fatherKey) ?? null)
+              : null);
           const created = await client.createPerson({
             lineage_id: lineageId,
             branch_id: branchId || undefined,
@@ -538,16 +617,9 @@ export function TranscribeView() {
           );
         } catch (e) {
           const message = e instanceof Error ? e.message : String(e);
-          failedKeys.add(entry.key);
-          setStaged((prev) =>
-            prev.map((e) =>
-              e.key === entry.key
-                ? { ...e, status: "failed", message }
-                : e,
-            ),
-          );
           // 失败跳过不中断：后续无依赖条目照常入库，依赖它的子孙由
           // failedKeys 守卫拦下（此前 break 会丢弃整批后半段）
+          failEntry(entry, message);
         }
       }
     } finally {

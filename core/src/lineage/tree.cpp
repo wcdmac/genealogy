@@ -34,6 +34,10 @@ Result<TreeNode> descendants_tree(const PersonGraph& graph,
   TreeNode out;
   out.person = root;
   std::unordered_set<const Person*> visited;
+  // root 必须先入 visited（与 descendants_list 同口径）：环数据里 child
+  // 回指 root 时，root 会作为某子孙的子节点再次入树——不无限递归
+  // （root 已 visited 会挡住再展开），但结果树出现重复节点（复核 2.7）。
+  visited.insert(root);
   expand(graph, root, 1, max_depth, &out, visited);
   return out;
 }

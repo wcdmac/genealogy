@@ -33,7 +33,11 @@ jobs:
             cpack_gen: TGZ
             genea_bin: build/bin/genea
     steps:
-      - uses: actions/checkout@v4
+      # actions 一律固定 commit SHA（L6）——git ls-remote 匿名可达，
+      # 「API 限额拿不到 SHA」是误判；上游移动 tag 即改变 CI 输入，
+      # 与 vcpkg baseline/pip 版本固定同一纪律。升级时改 SHA，行尾
+      # 注释保留标签名便于识别。
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
 
       # Python 解释器探测：Windows runner 的 python3 是 MS Store 存根
       # （六跑许可证步骤在 Windows 单独挂、Ubuntu 同脚本通过的差异点），
@@ -52,7 +56,7 @@ jobs:
       # 装出来的，链接必炸；显式装载 MSVC 环境让 cl 成为默认编译器。
       - name: 装载 MSVC 环境（Windows）
         if: runner.os == 'Windows'
-        uses: ilammy/msvc-dev-cmd@v1
+        uses: ilammy/msvc-dev-cmd@0b201ec74fa43914dc39ae48a89fd1d8cb592756 # v1
 
       # vcpkg 不用 runner 预装版：预装版本随 runner 镜像漂移，git 历史不
       # 含 manifest 的 builtin-baseline 时要现场 fetch，且「哪天镜像换了
@@ -60,7 +64,7 @@ jobs:
       # builtin-baseline 精确检出同一份 vcpkg，三平台同源。
       # 改 vcpkg.json 的 builtin-baseline 时同步改这里。
       - name: 检出 vcpkg（pin 到 vcpkg.json 的 builtin-baseline）
-        uses: actions/checkout@v4
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
         with:
           repository: microsoft/vcpkg
           ref: e456309491fd875487bf02b8a0dca76c1b1b00cc
@@ -78,7 +82,7 @@ jobs:
       # 端口产物按依赖指纹缓存：vcpkg.json / overlay 没变就不重编端口
       # （首跑 Windows 全量编 40+ 分钟；命中后 Configure 阶段降到几分钟）。
       - name: 缓存 vcpkg 端口产物
-        uses: actions/cache@v4
+        uses: actions/cache@0057852bfaa89a56745cba8c7296529d2fc39830 # v4
         with:
           path: vcpkg-bincache
           key: vcpkg-${{ matrix.os }}-${{ hashFiles('vcpkg.json', 'tools/vcpkg-ports/**', 'tools/vcpkg-triplets/**') }}
@@ -148,7 +152,7 @@ jobs:
           ls -la *.zip *.dmg *.tar.gz 2>/dev/null || true
 
       - name: 上传打包产物
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
         with:
           name: genealogy-${{ matrix.os }}
           path: |
@@ -175,7 +179,15 @@ jobs:
         run: |
           set -o pipefail
           $PY tools/license_check.py 2>&1 | tee "$GITHUB_WORKSPACE/license.log" \
-            && echo license >> "$GITHUB_WORKSPACE/_ok.txt"
+            || exit 1
+          # 复核 2.2 的 CI 断言：前端后缀必须真的在扫描集内——此前
+          # TEXT_SUFFIXES 缺 .ts/.tsx 等，clients/web 完全不扫而卡点假绿。
+          # license_check 成功时会打「扫描覆盖: bat=4 ... tsx=12 ...」行，
+          # 断言 tsx 计数非零，后缀集再被删改时当天红。
+          grep -Eq "tsx=[1-9]" "$GITHUB_WORKSPACE/license.log" \
+            || { echo "许可证扫描未覆盖任何 .tsx 文件——TEXT_SUFFIXES 疑缺前端后缀" \
+                 | tee -a "$GITHUB_WORKSPACE/license.log"; exit 1; }
+          echo license >> "$GITHUB_WORKSPACE/_ok.txt"
 
       # M6-3 验收硬指标：「备份恢复演练通过」。灌合成谱 → 备份 →
       # 删库（模拟事故）→ 恢复 → 核对人物数一致，另验 --force 保护。

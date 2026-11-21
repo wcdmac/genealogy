@@ -43,8 +43,12 @@ class EventBus {
   // 安装全局 ping 定时器（15s 一条注释帧，防代理/浏览器断空闲连接）
   void install(drogon::HttpAppFramework& app);
 
-  // SSE 连接登记（持有强引用保活；发送失败时自动移除）
-  void subscribe(std::shared_ptr<drogon::ResponseStream> stream);
+  // SSE 连接登记（持有强引用保活；发送失败时自动移除）。
+  // 返回 false = 订阅数已达 kMaxStreams，拒绝登记（stream 随引用析构
+  // 断开）。上限判定与 push_back 在锁内原子完成——「请求线程先查计数、
+  // 异步回调再登记」的两段式有 TOCTOU 窗口，并发请求可集体穿过检查
+  // 突破上限（复核 2.10），故判定必须收进本函数。
+  bool subscribe(std::shared_ptr<drogon::ResponseStream> stream);
 
   // 广播一条变更。type 形如 person.updated / union.created；
   // rev 对无版本表的实体（event/place）留空。

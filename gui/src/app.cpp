@@ -246,9 +246,14 @@ bool GenealogyApp::run(std::string* err) {
       ImGui::InputText("路径", path_buf_, sizeof(path_buf_));
       if (ImGui::Button("打开")) {
         std::string why;
+        // open() 会先 close() 旧库（新库打开失败旧库也已不在）：
+        // 换库前后各面板缓存一律清掉，检索/关系/校验面板不得展示
+        // 旧库的命中、路径与校验结论（复核 2.13，与「关闭数据库」
+        // 菜单项同口径）。
+        for (auto& p : panels_) p->on_database_closed();
+        state_.selected_person_id.clear();
         if (session_.open(path_buf_, &why)) {
           state_.db_path = path_buf_;
-          state_.selected_person_id.clear();
           state_.set_status(std::string("已打开 ") + path_buf_);
           ImGui::CloseCurrentPopup();
         } else {

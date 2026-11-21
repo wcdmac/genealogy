@@ -122,6 +122,18 @@ drogon::HttpResponsePtr problem_response(int status, int code,
   return resp;
 }
 
+drogon::HttpResponsePtr bad_json_body(const std::string& parser_what,
+                                      const std::string& instance) {
+  // 解析器原文只进服务端日志（同 M10 的 Internal 脱敏纪律），响应里的
+  // detail 是固定文案（复核 2.3：此前 12 处把 e.what() 直拼进 detail）。
+  std::fputs((std::string("[bad-json] ") + instance + ": " + parser_what +
+              std::string(1, static_cast<char>(10)))
+                 .c_str(),
+             stderr);
+  return problem_response(400, 1001, "参数校验失败",
+                          "请求体不是合法 JSON", instance);
+}
+
 drogon::HttpResponsePtr validation_problem(
     const std::string& instance, const std::vector<FieldError>& errors,
     const std::string& detail) {

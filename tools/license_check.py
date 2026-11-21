@@ -22,10 +22,19 @@ MANIFEST = ROOT / "vcpkg.json"
 # 「vcpkg」必须跳过：CI 在工作区里同时检出 pinned vcpkg 工具链克隆
 # （ci.yml「检出 vcpkg」步骤），ports 树内有海量 Qt 引用，不是项目内容；
 # 本地开发机 vcpkg 在仓库外（D:\vcpkg），所以本机跑不出来这个问题。
-SKIP_DIR_PARTS = {".git", "vcpkg", "vcpkg_installed", "out", "__pycache__", "node_modules"}
+# 「.data」是 gitignore 的本地资料工作区（下载的原始转换表等）；
+# 「dist」是前端构建产物（vite 打包的压缩 JS）——都是第三方/生成内容，
+# 不是本仓项目源码。目录豁免一律精确目录名匹配（见扫描循环处）。
+SKIP_DIR_PARTS = {
+    ".git", "vcpkg", "vcpkg_installed", "out", "__pycache__", "node_modules",
+    "build", ".data", "dist",
+}
 TEXT_SUFFIXES = {
     ".json", ".cmake", ".txt", ".cpp", ".hpp", ".cxx", ".cc", ".h",
     ".py", ".yml", ".yaml", ".md", ".sql",
+    # 前端源码与平台脚本（复核 2.2：此前缺失，clients/web 与脚本目录
+    # 完全不扫，许可与「禁 Qt」卡点对半个仓库假绿）
+    ".ts", ".tsx", ".js", ".mjs", ".sh", ".ps1", ".bat",
 }
 QT_PATTERN = re.compile(r"Qt[56]?::|find_package\s*\(\s*Qt|#include\s*<Q[tT]")
 
@@ -58,14 +67,19 @@ def main() -> int:
         if dep not in allowed:
             violations.append(f"依赖不在白名单: {dep}")
 
+    scan_counts: dict[str, int] = {}
     for path in sorted(ROOT.rglob("*")):
         if not path.is_file() or path.suffix not in TEXT_SUFFIXES:
             continue
         if path.resolve() == Path(__file__).resolve():
             continue  # 豁免自身（QT_PATTERN 的定义文本）
         rel = path.relative_to(ROOT)
-        if any(part in SKIP_DIR_PARTS or part.startswith("build") for part in rel.parts):
+        # 只对目录段做精确名豁免（复核 2.2：此前 part.startswith("build")
+        # 连文件名也匹配——build-notes.md 这类文件被静默跳过，且任何以
+        # build 开头的目录整树豁免，为「禁 Qt」扫描留了隐形口子）。
+        if any(part in SKIP_DIR_PARTS for part in rel.parts[:-1]):
             continue
+        scan_counts[path.suffix] = scan_counts.get(path.suffix, 0) + 1
         try:
             text = path.read_text(encoding="utf-8")
         except (UnicodeDecodeError, OSError):
@@ -83,6 +97,12 @@ def main() -> int:
         return 1
 
     print(f"许可证白名单检查通过（{len(allowed)} 项登记依赖，全仓无 Qt 引用）")
+    # 扫描覆盖行：CI 断言（ci.yml 许可证步骤）以此验证前端后缀真的进了
+    # 扫描集——「tsx=非零」证明 clients/web 的 .tsx 文件被扫描过，
+    # TEXT_SUFFIXES 再被删改时卡点当天红。
+    covered = ", ".join(f"{k.lstrip('.')}={scan_counts[k]}"
+                        for k in sorted(scan_counts))
+    print(f"扫描覆盖: {covered}")
     return 0
 
 

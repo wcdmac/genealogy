@@ -27,6 +27,12 @@ class SearchPanel : public Panel {
 
   const char* title() const override { return "检索"; }
   void draw(DbSession& session) override;
+  // 关库/换库清结果（复核 2.13：旧库命中不再展示；查询词保留，
+  // 与人物表保留筛选词同口径）
+  void on_database_closed() override {
+    hits_.clear();
+    searched_ = false;
+  }
 
  private:
   void run_search(DbSession& session);

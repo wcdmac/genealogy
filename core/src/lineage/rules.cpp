@@ -136,7 +136,14 @@ const std::vector<AppellationRule>& appellation_rules() {
     std::vector<AppellationRule> out;
     const auto j =
         nlohmann::json::parse(rules_data::kAppellationJson, nullptr, false);
-    if (j.is_discarded() || !j.is_object()) return out;
+    if (j.is_discarded() || !j.is_object()) {
+      // 与五服表同纪律（2026-11 静态审查 H14）：静默空表让称谓全量
+      // 降级成组合描述，运维无可见信号（复核 2.8 残余——前两处已加
+      // 告警，此处漏改）
+      std::fputs("[rules] 称谓规则表解析失败：称谓表为空，匹配将全部落空\n",
+                 stderr);
+      return out;
+    }
     for (const auto& r : j.value("terms", nlohmann::json::array())) {
       AppellationRule rule;
       rule.path = r.value("path", std::string());

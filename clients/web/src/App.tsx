@@ -31,6 +31,38 @@ const NAV: Array<{ key: ViewKey; label: string; hint: string }> = [
   { key: "transcribe", label: "转录工作台", hint: "老谱扫描件 → 结构化录入" },
 ];
 
+// 服务器地址的轻量源边界（M13，复核裁定为轻量版而非硬白名单——
+// README 明确支持跨端口填 http://127.0.0.1:8080/api/v1 这类局域网
+// 地址，硬白名单会误伤）。三件事：scheme 只认 http/https 或同源
+// 相对路径；外域（hostname 不同）连接前显式确认；换址清旧令牌在
+// context.connect。
+function isConnectableAddress(target: string): boolean {
+  if (target.startsWith("/")) return true;  // 同源相对路径
+  try {
+    const url = new URL(target);
+    return url.protocol === "http:" || url.protocol === "https:";
+  } catch {
+    return false;  // 「localhost:8080/api/v1」这类无 scheme 会被 URL
+                   // 解析成伪协议——此前静默产出坏 URL，一并堵掉
+  }
+}
+
+function isSameHost(target: string): boolean {
+  if (target.startsWith("/")) return true;
+  if (typeof window === "undefined") return true;  // 非浏览器环境不拦
+  try {
+    // 按 hostname 比较（不含端口）：README 明确支持同机跨端口部署
+    // （vite 代理端口 → server 端口），硬按 origin 会误伤这一场景；
+    // 「外域」= hostname 不同，才需要确认。
+    return (
+      new URL(target, window.location.origin).hostname ===
+      window.location.hostname
+    );
+  } catch {
+    return false;
+  }
+}
+
 export function App() {
   const { connection, connect, disconnect } = useClient();
   const [view, setView] = useState<ViewKey>("persons");
@@ -39,9 +71,32 @@ export function App() {
   // 部署下无法登录也无法轮换凭据）
   const [userInput, setUserInput] = useState("web");
   const [passInput, setPassInput] = useState("web");
+  const [addressNotice, setAddressNotice] = useState<string | null>(null);
 
   async function onConnect() {
-    await connect(serverInput.trim() || "/api/v1", userInput.trim(), passInput);
+    const target = serverInput.trim() || "/api/v1";
+    if (!isConnectableAddress(target)) {
+      setAddressNotice(
+        "地址需为 http(s):// 开头的完整地址，或 / 开头的同源路径",
+      );
+      return;
+    }
+    // 外域 = hostname 不同的地址：凭据与数据都会发往该主机。诱导粘贴
+    // 外部地址是真实外发路径，连接前让用户看清去向；同主机跨端口
+    // （局域网多端口部署）与同地址重连（如重登）不打扰。
+    if (
+      !isSameHost(target) &&
+      target !== connection.baseUrl &&
+      typeof window !== "undefined" &&
+      !window.confirm(
+        `即将连接外部服务器：${new URL(target, window.location.origin).origin}\n` +
+          "输入的凭据与后续数据都会发往该地址。确定继续吗？",
+      )
+    ) {
+      return;
+    }
+    setAddressNotice(null);
+    await connect(target, userInput.trim(), passInput);
   }
 
   return (
@@ -86,6 +141,9 @@ export function App() {
 
       {connection.error && (
         <div className="banner banner-error">连接失败：{connection.error}</div>
+      )}
+      {addressNotice && (
+        <div className="banner banner-error">{addressNotice}</div>
       )}
       {connection.connected && <EventFeed />}
       {!connection.connected && !connection.error && (

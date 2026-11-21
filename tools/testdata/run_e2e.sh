@@ -213,6 +213,18 @@ check_eq "无命中不报错（空结果）" 0 "$($GENE document search --db "$D
 $GENE document remove --db "$DB" "$DOC" >/dev/null
 check_eq "document remove 退出码" 0 $?
 
+echo "== 19. bench 不污染用户库（复核 2.1/F1 验收门） =="
+# bench 的灌库/并发写此前会把基准数据写进 --db 指定的业务库——修复后
+# 全部落临时基准库。断言：跑一轮小规模 bench（含 --writers 4 并发写）
+# 前后，用户库人物计数必须不变。
+BEFORE=$($GENE person list --db "$DB" --format json | jlen)
+$GENE bench --db "$DB" --persons 50 --writers 4 --events-per-person 3 \
+  --depth 3 --repeat 1 --gedcom-records 20 --format json > "$OUT/bench.json" 2>&1
+check_eq "bench 退出码（指标全 PASS）" 0 $?
+check_has "bench 自述不触碰业务库" "$(cat "$OUT/bench.json")" "临时"
+AFTER=$($GENE person list --db "$DB" --format json | jlen)
+check_eq "bench 前后用户库人物计数不变" "$BEFORE" "$AFTER"
+
 echo
 echo "=========================================="
 echo "端到端结果: PASS=$PASS FAIL=$FAIL"

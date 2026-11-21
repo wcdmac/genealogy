@@ -34,36 +34,50 @@ export function PersonsView() {
   const [showLineageCreate, setShowLineageCreate] = useState(false);
   const [selected, setSelected] = useState<string | null>(null);
 
-  // 宗族列表：连上就拉一次
+  // 宗族列表：连上就拉一次。signal + aborted 守卫：卸载/重连时在途
+  // 响应作废，旧结果不再覆盖新状态（M13 stale-response guard）
   useEffect(() => {
+    const controller = new AbortController();
     client
-      .listLineages({ limit: 50 })
+      .listLineages({ limit: 50 }, { signal: controller.signal })
       .then((page) => {
+        if (controller.signal.aborted) return;
         const list = (page.data ?? []) as unknown as Lineage[];
         setLineages(list);
         if (list.length > 0) setLineageId((prev) => prev || list[0].id);
       })
-      .catch(setError);
+      .catch((caught) => {
+        // abort 引起的失败不进错误条（连接已换址/已卸载）
+        if (!controller.signal.aborted) setError(caught);
+      });
+    return () => controller.abort();
   }, [client]);
 
   const reload = useCallback(
-    async (nextCursor?: string) => {
+    async (nextCursor?: string, signal?: AbortSignal) => {
       if (!lineageId) return;
       try {
         setError(null);
-        const page = await client.listPersons({
-          lineage_id: lineageId,
-          q: applied.q || undefined,
-          gender: applied.gender || undefined,
-          is_living:
-            applied.living === "" ? undefined : applied.living === "yes",
-          cursor: nextCursor,
-          limit: 50,
-        });
+        const page = await client.listPersons(
+          {
+            lineage_id: lineageId,
+            q: applied.q || undefined,
+            gender: applied.gender || undefined,
+            is_living:
+              applied.living === "" ? undefined : applied.living === "yes",
+            cursor: nextCursor,
+            limit: 50,
+          },
+          { signal },
+        );
+        // 过滤条件已再次变化（本轮请求被 cleanup abort）→ 结果作废，
+        // 不覆盖新一轮请求的输出
+        if (signal?.aborted) return;
         setPersons((page.data ?? []) as unknown as Person[]);
         setCursor(page.page?.next_cursor ?? undefined);
         setHasMore(Boolean(page.page?.has_more));
       } catch (caught) {
+        if (signal?.aborted) return;
         setError(caught);
       }
     },
@@ -71,7 +85,9 @@ export function PersonsView() {
   );
 
   useEffect(() => {
-    void reload(undefined);
+    const controller = new AbortController();
+    void reload(undefined, controller.signal);
+    return () => controller.abort();
   }, [reload]);
 
   return (

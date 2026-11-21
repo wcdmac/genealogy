@@ -143,6 +143,27 @@ check_has "SSE 收到 change 帧" "$(cat "$OUT/sse.txt")" "change"
 echo "== 9. 删除 =="
 check_eq "DELETE /persons/{id} 204" 204 "$(code_only -X DELETE "$BASE/persons/$NEWID")"
 
+echo "== 10. multipart 守卫与 GEDCOM 导入（复核 2.5/H1 验收门） =="
+# 10a. multipart 头 + 非法 UTF-8 body 打 JSON 端点：必须 415 拒收，且
+# 进程存活。此前 multipart 任意端点放行，GBK 字节直进 json::parse 是
+# 进程级终止路径（2026-11-12 GBK 请求体排查记录的同款场景）。
+printf '\xC4\xE3\xBA\xC3' > "$OUT/bad_utf8.bin"
+check_eq "multipart+非法UTF-8 打 /persons -> 415" 415 \
+  "$(code_only -X POST "$BASE/persons" -H 'Content-Type: multipart/form-data; boundary=e2e' --data-binary @"$OUT/bad_utf8.bin")"
+check_eq "server 仍存活（/health 200）" 200 "$(code_only "$BASE/health")"
+# 10b. 合法载体不受影响：/imports/gedcom 收 multipart 正常导入
+BOUND=e2eboundary
+printf -- "--%s\r\n" "$BOUND" > "$OUT/mp.f"
+printf 'Content-Disposition: form-data; name="lineage_id"\r\n\r\n%s\r\n' "$L" >> "$OUT/mp.f"
+printf -- "--%s\r\n" "$BOUND" >> "$OUT/mp.f"
+printf 'Content-Disposition: form-data; name="file"; filename="t.ged"\r\n' >> "$OUT/mp.f"
+printf 'Content-Type: application/octet-stream\r\n\r\n' >> "$OUT/mp.f"
+cat tools/testdata/family_gedcom.ged >> "$OUT/mp.f"
+printf -- "\r\n--%s--\r\n" "$BOUND" >> "$OUT/mp.f"
+req -X POST "$BASE/imports/gedcom" -H "Content-Type: multipart/form-data; boundary=$BOUND" --data-binary @"$OUT/mp.f" > "$OUT/import_mp.json"
+check_eq "multipart 导入 GEDCOM 200" 200 "$CODE"
+check_has "导入结果含 imported" "$(cat "$OUT/import_mp.json")" "imported"
+
 echo
 echo "=========================================="
 echo "HTTP 端到端结果: PASS=$PASS FAIL=$FAIL"

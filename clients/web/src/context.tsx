@@ -48,6 +48,9 @@ export function ClientProvider({ children }: { children: ReactNode }) {
 
   const connect = useCallback(
   async (baseUrl: string, username = "web", password = "web") => {
+    // 换址前清旧令牌（M13 轻量源边界）：旧实例可能还挂着上一台 server
+    // 签发的 Bearer——显式清空，不依赖实例替换的 GC 时序。
+    clientRef.current.clearToken();
     const client = new GenealogyClient(baseUrl);
     // 401 → 置断连态提示重登（M13；server --require-auth 下凭据
     // 可从 UI 输入轮换，不再硬编码 web/web——2026-11 静态审查 H10）
@@ -72,6 +75,8 @@ export function ClientProvider({ children }: { children: ReactNode }) {
   []);
 
   const disconnect = useCallback(() => {
+    // 同上：断开显式清令牌，再重置实例
+    clientRef.current.clearToken();
     clientRef.current = new GenealogyClient(DEFAULT_BASE);
     setConnection({ baseUrl: DEFAULT_BASE, connected: false });
   }, []);

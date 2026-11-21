@@ -106,6 +106,15 @@ export class GenealogyClient {
     return this.token;
   }
 
+  /**
+   * 显式清空令牌（M13 轻量源边界：换址重连/断开时调用）。替换 client
+   * 实例虽会丢弃旧令牌，但显式清空不依赖 GC 时序，杜绝旧 Bearer 以
+   * 任何路径发往新地址。
+   */
+  clearToken(): void {
+    this.token = null;
+  }
+
   // ---------------------------------------------------------------- 基础
 
   /**
@@ -119,6 +128,20 @@ export class GenealogyClient {
     const base =
       typeof window !== "undefined" ? window.location.origin : "http://localhost";
     return new URL(this.baseUrl + path, base);
+  }
+
+  /**
+   * 401 统一处理（复核 2.12）：令牌失效/过期——清令牌并通知宿主
+   * （context 置断连态，提示重新登录）。request / requestWithHeaders /
+   * importGedcom / subscribe 四条请求路径共用：此前 multipart 导入与
+   * SSE 订阅绕过这里，过期后导入只报错、SSE 空转重连，顶栏仍显示
+   * 「已连接」，要等某个普通 request 撞上 401 才提示重登。
+   */
+  private handleUnauthorized(status: number): void {
+    if (status === 401) {
+      this.token = null;
+      this.onUnauthorized?.();
+    }
   }
 
   /**
@@ -154,13 +177,7 @@ export class GenealogyClient {
     });
 
     if (!response.ok) {
-      // 401 = 令牌失效/过期：清令牌并通知宿主（context 置断连态，
-      // 提示重新登录）——此前过期后 UI 仍显示在线，请求全部 401
-      // 空转（2026-11 静态审查 M13）。
-      if (response.status === 401) {
-        this.token = null;
-        this.onUnauthorized?.();
-      }
+      this.handleUnauthorized(response.status);
       // 错误体一律 problem+json（server 连默认 404 都走它）；
       // 解析失败时退化成裸状态码，不吞原始信息。
       let problem: Problem | undefined;
@@ -202,10 +219,7 @@ export class GenealogyClient {
       body: options.body === undefined ? undefined : JSON.stringify(options.body),
     });
     if (!response.ok) {
-      if (response.status === 401) {
-        this.token = null;
-        this.onUnauthorized?.();
-      }
+      this.handleUnauthorized(response.status);
       let problem: Problem | undefined;
       try {
         problem = (await response.json()) as Problem;
@@ -246,11 +260,14 @@ export class GenealogyClient {
 
   // ---------------------------------------------------------------- 宗族
 
-  async listLineages(params?: {
-    limit?: number;
-    cursor?: string;
-  }): Promise<PageEnvelope> {
-    return this.request("GET", "/lineages", { query: { ...params } });
+  async listLineages(
+    params?: { limit?: number; cursor?: string },
+    options?: { signal?: AbortSignal },
+  ): Promise<PageEnvelope> {
+    return this.request("GET", "/lineages", {
+      query: { ...params },
+      signal: options?.signal,
+    });
   }
 
   async createLineage(body: LineageCreate): Promise<Lineage> {
@@ -279,12 +296,18 @@ export class GenealogyClient {
 
   // ---------------------------------------------------------------- 支派
 
-  async listBranches(params?: {
-    lineage_id?: string;
-    limit?: number;
-    cursor?: string;
-  }): Promise<PageEnvelope> {
-    return this.request("GET", "/branches", { query: { ...params } });
+  async listBranches(
+    params?: {
+      lineage_id?: string;
+      limit?: number;
+      cursor?: string;
+    },
+    options?: { signal?: AbortSignal },
+  ): Promise<PageEnvelope> {
+    return this.request("GET", "/branches", {
+      query: { ...params },
+      signal: options?.signal,
+    });
   }
 
   async createBranch(body: {
@@ -340,8 +363,11 @@ export class GenealogyClient {
     birth_year_to?: number;
     limit?: number;
     cursor?: string;
-  }): Promise<PageEnvelope> {
-    return this.request("GET", "/persons", { query: { ...params } });
+  }, options?: { signal?: AbortSignal }): Promise<PageEnvelope> {
+    return this.request("GET", "/persons", {
+      query: { ...params },
+      signal: options?.signal,
+    });
   }
 
   async createPerson(body: PersonCreate): Promise<Person> {
@@ -570,13 +596,19 @@ export class GenealogyClient {
 
   // ------------------------------------------------------- 检索/统计/校验
 
-  async search(params: {
-    q: string;
-    scope?: "person" | "document" | "all";
-    limit?: number;
-    cursor?: string;
-  }): Promise<PageEnvelope> {
-    return this.request("GET", "/search", { query: { ...params } });
+  async search(
+    params: {
+      q: string;
+      scope?: "person" | "document" | "all";
+      limit?: number;
+      cursor?: string;
+    },
+    options?: { signal?: AbortSignal },
+  ): Promise<PageEnvelope> {
+    return this.request("GET", "/search", {
+      query: { ...params },
+      signal: options?.signal,
+    });
   }
 
   async getStats(): Promise<{
@@ -623,6 +655,7 @@ export class GenealogyClient {
     // Content-Type 不设：fetch 会按 FormData 自动带 boundary
     const response = await fetch(url, { method: "POST", headers, body: form });
     if (!response.ok) {
+      this.handleUnauthorized(response.status);
       let problem: Problem | undefined;
       try {
         problem = (await response.json()) as Problem;
@@ -742,6 +775,10 @@ export class GenealogyClient {
     (async () => {
       const response = await fetch(url, { headers, signal: controller.signal });
       if (!response.ok || !response.body) {
+        // 令牌过期也会走到这里（复核 2.12）：先走统一的 401 处理
+        // （清令牌 + 触发重登提示），再照常报错——否则 SSE 每 3 秒
+        // 空转重连、顶栏一直「已连接」，用户得不到重登信号。
+        this.handleUnauthorized(response.status);
         throw new ApiError(response.status);
       }
       const reader = response.body.getReader();

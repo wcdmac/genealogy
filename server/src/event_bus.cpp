@@ -39,9 +39,14 @@ void EventBus::install(drogon::HttpAppFramework& app) {
   app.getLoop()->runEvery(15.0, [this]() { broadcast(": ping\n\n"); });
 }
 
-void EventBus::subscribe(std::shared_ptr<drogon::ResponseStream> stream) {
+bool EventBus::subscribe(std::shared_ptr<drogon::ResponseStream> stream) {
   std::lock_guard<std::mutex> lock(mutex_);
+  // 上限在锁内判定：与登记原子，杜绝并发订阅集体穿过检查的竞态
+  // （复核 2.10——请求线程的预检查只是让超限请求尽早 503 的快路径，
+  // 不是权威判定）。
+  if (streams_.size() >= kMaxStreams) return false;
   streams_.push_back(std::move(stream));
+  return true;
 }
 
 void EventBus::publish(const std::string& type,

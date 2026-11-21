@@ -26,6 +26,16 @@ class ValidationPanel : public Panel {
 
   const char* title() const override { return "校验"; }
   void draw(DbSession& session) override;
+  // 关库/换库清结果（复核 2.13：旧库的校验结论不再展示）
+  void on_database_closed() override {
+    issues_.clear();
+    error_count_ = 0;
+    warning_count_ = 0;
+    info_count_ = 0;
+    rules_run_ = 0;
+    rules_total_ = 0;
+    ran_ = false;
+  }
 
  private:
   void run(DbSession& session);

@@ -345,6 +345,71 @@ async function main(): Promise<number> {
     }
     check("分页迭代器遍历", visited >= 3, `visited=${visited}`);
 
+    // ---- 401 状态机覆盖（复核 2.12/M13）：--require-auth 实例上，
+    // 过期令牌打「multipart 导入」与「SSE 订阅」必须触发 onUnauthorized
+    // （宿主置断连态、提示重登）——这两路曾绕过统一 401 处理，过期后
+    // 顶栏仍显示在线。importGedcom/subscribe 现与 request 共用
+    // handleUnauthorized，这里断言的就是这条链。
+    const authPort = port + 1;
+    const authBase = `http://127.0.0.1:${authPort}/api/v1`;
+    const authDbPath = join(tmpdir(), `genealogy-smoke-auth-${process.pid}.db`);
+    const authServer = spawn(
+      serverBin,
+      ["--port", String(authPort), "--db", authDbPath, "--threads", "2",
+       "--require-auth"],
+      {
+        stdio: ["ignore", "pipe", "pipe"],
+        env: {
+          ...process.env,
+          PATH: `${vcpkgBin};${process.env.PATH ?? ""}`,
+          GENEALOGY_AUTH_PASSWORD: "smoke-pass",
+          GENEALOGY_JWT_SECRET: "smoke-secret",
+        },
+      },
+    );
+    authServer.stderr.on("data", (chunk: Buffer) =>
+      process.stderr.write(`[auth-server] ${chunk}`));
+    try {
+      if (!(await waitReady(authBase))) {
+        check("require-auth server 就绪", false, "15s 未就绪");
+      } else {
+        const stale = new GenealogyClient(authBase, "expired-token");
+        let unauthorized = 0;
+        stale.onUnauthorized = () => {
+          unauthorized += 1;
+        };
+        await expectApiError(
+          "过期令牌 multipart 导入得 401",
+          () =>
+            stale.importGedcom(new Blob(["0 HEAD\n1 CHAR UTF-8\n0 TRLR\n"]),
+              { filename: "t.ged" }),
+          401,
+        );
+        check("导入 401 触发重登提示", unauthorized === 1, unauthorized);
+        // SSE：401 后 handleUnauthorized 触发，随后 ApiError 走 onError
+        await new Promise<void>((resolve) => {
+          const timer = setTimeout(resolve, 3000);
+          stale.subscribe(
+            () => undefined,
+            () => {
+              clearTimeout(timer);
+              resolve();
+            },
+          );
+        });
+        check("SSE 401 触发重登提示", unauthorized === 2, unauthorized);
+      }
+    } finally {
+      authServer.kill();
+      for (const suffix of ["", "-wal", "-shm"]) {
+        try {
+          rmSync(authDbPath + suffix, { force: true });
+        } catch {
+          // 清不掉不致命
+        }
+      }
+    }
+
     console.log(failures === 0 ? "\n[smoke] 全部通过" : `\n[smoke] ${failures} 项失败`);
     return failures === 0 ? 0 : 1;
   } finally {

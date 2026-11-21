@@ -46,6 +46,13 @@ drogon::HttpResponsePtr problem_response(int status, int code,
                                          const std::string& instance,
                                          const std::string& type = "");
 
+// 请求体 JSON 解析失败的统一出口（复核 2.3）：detail 用固定文案——
+// e.what() 会带出解析器内部细节（字节偏移、解析栈、库版本指纹等），
+// 与 M10「内部细节走服务端日志」同一纪律；原文只写 stderr，不进响应。
+// 全部 handler 的 catch 块都走这里，不许再散写 problem_response(400,…)。
+drogon::HttpResponsePtr bad_json_body(const std::string& parser_what,
+                                      const std::string& instance);
+
 // 字段级校验错误（code 1001 时附带 errors[]）。
 struct FieldError {
   std::string field;

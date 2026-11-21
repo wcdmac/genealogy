@@ -79,9 +79,7 @@ nlohmann::json parse_body(const drogon::HttpRequestPtr& req,
     return nlohmann::json::parse(req->body());
   } catch (const std::exception& e) {
     *ok = false;
-    cb(problem_response(400, 1001, "参数校验失败",
-                        std::string("请求体不是合法 JSON: ") + e.what(),
-                        instance));
+    cb(bad_json_body(e.what(), instance));
     return nullptr;
   }
 }

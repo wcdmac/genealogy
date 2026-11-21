@@ -19,6 +19,30 @@ class RelationPanel : public Panel {
 
   const char* title() const override { return "关系"; }
   void draw(DbSession& session) override;
+  // 关库/换库清计算结果（复核 2.13：旧库的路径/五服/称谓不再展示）
+  void on_database_closed() override {
+    computed_ = false;
+    has_path_ = false;
+    path_text_.clear();
+    path_desc_.clear();
+    generation_gap_ = 0;
+    ego_gen_ = 0;
+    alter_gen_ = 0;
+    mourning_garment_.clear();
+    mourning_period_.clear();
+    mourning_months_ = 0;
+    mourning_rule_.clear();
+    app_standard_.clear();
+    app_colloquial_.clear();
+    app_formal_.clear();
+    app_basis_.clear();
+    app_path_.clear();
+    app_elder_ = false;
+    app_fallback_ = false;
+    via_mother_ = false;
+    via_marriage_ = false;
+    error_.clear();
+  }
 
  private:
   void compute(DbSession& session);

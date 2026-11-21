@@ -97,22 +97,23 @@ bool parse_depth(const drogon::HttpRequestPtr& req, int* out,
 
 // 世系算法的公共前置：装载全库快照。M1 规模足够；
 // 更大规模下改为按需子图装载（设计文档 4.4.1 预留）。
-lineage::PersonGraph load_graph(Database& db, std::string* why) {
+// 返回 Result 让调用方统一走 problem_response(Error)：sqlite 失败是
+// Internal，中心函数脱敏（表/列名不回显）+ 原文进日志——此前把
+// error().message() 经 std::string* 直拼进 500 detail（复核 2.4）。
+Result<lineage::PersonGraph> load_graph(Database& db) {
   PersonRepository persons(db);
   PersonFilter pf;
   pf.limit = 200000;
   auto rows = persons.list(pf);
   if (!rows) {
-    *why = rows.error().message();
-    return {};
+    return rows.error();
   }
   UnionRepository unions(db);
   UnionFilter uf;
   uf.limit = 200000;
   auto urows = unions.list(uf);
   if (!urows) {
-    *why = urows.error().message();
-    return {};
+    return urows.error();
   }
   // 零拷贝移入：图自持数据（见 graph.hpp 生命周期说明与 routes_misc 同款注释）。
   // 曾经的 build(*rows, *urows) 让图里全是悬空指针。
@@ -229,9 +230,7 @@ void persons_create(const drogon::HttpRequestPtr& req, Callback&& cb) {
   try {
     body = nlohmann::json::parse(req->body());
   } catch (const std::exception& e) {
-    cb(problem_response(400, 1001, "参数校验失败",
-                        std::string("请求体不是合法 JSON: ") + e.what(),
-                        instance));
+    cb(bad_json_body(e.what(), instance));
     return;
   }
 
@@ -388,9 +387,7 @@ void person_patch(const drogon::HttpRequestPtr& req, Callback&& cb) {
   try {
     body = nlohmann::json::parse(req->body());
   } catch (const std::exception& e) {
-    cb(problem_response(400, 1001, "参数校验失败",
-                        std::string("请求体不是合法 JSON: ") + e.what(),
-                        instance));
+    cb(bad_json_body(e.what(), instance));
     return;
   }
 
@@ -513,11 +510,12 @@ void person_ancestors(const drogon::HttpRequestPtr& req, Callback&& cb) {
     return;
   }
 
-  const lineage::PersonGraph graph = load_graph(*db, &why);
-  if (!why.empty()) {
-    cb(problem_response(500, 9001, "内部错误", why, instance));
+  auto loaded_graph = load_graph(*db);
+  if (!loaded_graph) {
+    cb(problem_response(loaded_graph.error(), instance));
     return;
   }
+  const lineage::PersonGraph& graph = loaded_graph.value();
 
   // 规范 AncestorTree：{person, generations:[{depth, persons:[…]}]}
   nlohmann::json out;
@@ -577,11 +575,12 @@ void person_descendants(const drogon::HttpRequestPtr& req, Callback&& cb) {
     return;
   }
 
-  const lineage::PersonGraph graph = load_graph(*db, &why);
-  if (!why.empty()) {
-    cb(problem_response(500, 9001, "内部错误", why, instance));
+  auto loaded_graph = load_graph(*db);
+  if (!loaded_graph) {
+    cb(problem_response(loaded_graph.error(), instance));
     return;
   }
+  const lineage::PersonGraph& graph = loaded_graph.value();
 
   auto tree = lineage::descendants_tree(graph, id, depth);
   if (!tree) {
@@ -649,11 +648,12 @@ void person_tree(const drogon::HttpRequestPtr& req, Callback&& cb) {
     return;
   }
 
-  const lineage::PersonGraph graph = load_graph(*db, &why);
-  if (!why.empty()) {
-    cb(problem_response(500, 9001, "内部错误", why, instance));
+  auto loaded_graph = load_graph(*db);
+  if (!loaded_graph) {
+    cb(problem_response(loaded_graph.error(), instance));
     return;
   }
+  const lineage::PersonGraph& graph = loaded_graph.value();
 
   // five_generation：本人 + 上下各两代（五世一图的传统版式）
   const int effective_depth = mode == "five_generation" ? 2 : depth;
@@ -756,11 +756,12 @@ void person_mourning(const drogon::HttpRequestPtr& req, Callback&& cb) {
     return;
   }
 
-  const lineage::PersonGraph graph = load_graph(*db, &why);
-  if (!why.empty()) {
-    cb(problem_response(500, 9001, "内部错误", why, instance));
+  auto loaded_graph = load_graph(*db);
+  if (!loaded_graph) {
+    cb(problem_response(loaded_graph.error(), instance));
     return;
   }
+  const lineage::PersonGraph& graph = loaded_graph.value();
 
   lineage::MourningQuery q;
   q.ego = id;
@@ -813,11 +814,12 @@ void person_appellation(const drogon::HttpRequestPtr& req, Callback&& cb) {
     return;
   }
 
-  const lineage::PersonGraph graph = load_graph(*db, &why);
-  if (!why.empty()) {
-    cb(problem_response(500, 9001, "内部错误", why, instance));
+  auto loaded_graph = load_graph(*db);
+  if (!loaded_graph) {
+    cb(problem_response(loaded_graph.error(), instance));
     return;
   }
+  const lineage::PersonGraph& graph = loaded_graph.value();
 
   lineage::AppellationQuery q;
   q.ego = id;
@@ -885,9 +887,7 @@ void person_names_create(const drogon::HttpRequestPtr& req, Callback&& cb) {
   try {
     body = nlohmann::json::parse(req->body());
   } catch (const std::exception& e) {
-    cb(problem_response(400, 1001, "参数校验失败",
-                        std::string("请求体不是合法 JSON: ") + e.what(),
-                        instance));
+    cb(bad_json_body(e.what(), instance));
     return;
   }
 

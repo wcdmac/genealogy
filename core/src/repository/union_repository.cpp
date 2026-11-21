@@ -168,12 +168,22 @@ Result<Union> UnionRepository::get(const std::string& id) const {
                  std::string("准备查询失败: ") + sqlite3_errmsg(db_.raw())};
   }
   sqlite3_bind_text(st.get(), 1, id.c_str(), -1, SQLITE_TRANSIENT);
-  if (sqlite3_step(st.get()) != SQLITE_ROW) return not_found("婚姻结合不存在: " + id);
-  Union u = row_to_union(st.get());
-  auto members = load_members(db_.raw(), id);
-  if (!members) return members.error();
-  u.members = std::move(*members);
-  return u;
+  // 三段式（同 person_repository::get，复核 2.9 残余）：ROW → 命中、
+  // DONE → 不存在、其它 → Internal。此前「非 ROW 一律 not_found」把
+  // 磁盘错误/BUSY 报成 404，上层可能据此重复创建。
+  const int rc = sqlite3_step(st.get());
+  if (rc == SQLITE_ROW) {
+    Union u = row_to_union(st.get());
+    auto members = load_members(db_.raw(), id);
+    if (!members) return members.error();
+    u.members = std::move(*members);
+    return u;
+  }
+  if (rc != SQLITE_DONE) {
+    return Error{ErrorCode::Internal,
+                 std::string("查询执行失败: ") + sqlite3_errmsg(db_.raw())};
+  }
+  return not_found("婚姻结合不存在: " + id);
 }
 
 Result<Union> UnionRepository::insert(const Union& u) {

@@ -227,6 +227,27 @@ int cmd_db_restore(const std::vector<std::string>& args,
   // 残留的旧 WAL 会在新库首次打开时被重放，恢复出的数据被旧事务污染）。
   fs::path moved_main, moved_wal, moved_shm;
   bool moved = false;
+  // 补偿：把旧库（含旁车）移回原位。主库搬移之后的任何一步失败——
+  // 旁车 rename、快照拷贝——都必须走这里，否则旧库滞留 .bak、新库未
+  // 落地，用户库"凭空消失"（复核 2.6：此前仅拷贝失败分支有补偿，
+  // 旁车 rename 失败直接 return 1，无回滚）。
+  auto rollback_moved = [&]() {
+    if (!moved) return;
+    std::error_code rec;
+    fs::rename(moved_main, db_path, rec);
+    for (const auto& [src, dst] :
+         {std::pair{moved_wal, fs::path(db_path).string() + "-wal"},
+          {moved_shm, fs::path(db_path).string() + "-shm"}}) {
+      std::error_code ec4;
+      if (fs::exists(src, ec4)) fs::rename(src, dst, ec4);
+    }
+    if (!rec) {
+      std::cout << "已回滚: 旧库从 " << moved_main.string() << " 移回原位\n";
+    } else {
+      std::cout << "回滚失败: 旧库留在 " << moved_main.string()
+                << "，请手动移回原位\n";
+    }
+  };
   if (fs::exists(db_path, ec)) {
     const std::string stamp = ".bak-" + timestamp_now();
     moved_main = fs::path(db_path).string() + stamp;
@@ -247,6 +268,7 @@ int cmd_db_restore(const std::vector<std::string>& args,
         if (ec2) {
           print_error(Error{ErrorCode::IoError,
                             "移开旧库旁车文件失败: " + ec2.message()});
+          rollback_moved();
           return 1;
         }
       }
@@ -260,17 +282,7 @@ int cmd_db_restore(const std::vector<std::string>& args,
                       "恢复失败: " + ec.message() + "（目标: " + db_path + "）"});
     if (moved) {
       // 补偿：新库没落地，把旧库移回原位——恢复失败不留两头都空的最坏态
-      std::error_code ec3;
-      fs::rename(moved_main, db_path, ec3);
-      for (const auto& [src, dst] :
-           {std::pair{moved_wal, fs::path(db_path).string() + "-wal"},
-            {moved_shm, fs::path(db_path).string() + "-shm"}}) {
-        std::error_code ec4;
-        if (fs::exists(src, ec4)) fs::rename(src, dst, ec4);
-      }
-      if (!ec3) {
-        std::cout << "已回滚: 旧库从 " << moved_main.string() << " 移回原位\n";
-      }
+      rollback_moved();
     }
     return 1;
   }

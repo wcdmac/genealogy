@@ -280,7 +280,9 @@ int main(int argc, char** argv) {
         body["type"] = "https://genealogy.local/problems/not-found";
         body["title"] = "资源不存在";
         body["status"] = 404;
-        body["detail"] = req->path() + " 没有对应处理函数";
+        // detail 固定文案，不带请求路径——路径已在 instance 字段（RFC 9457
+        // 的本职），拼进 detail 是路径反射（复核 2.4）。
+        body["detail"] = "没有对应处理函数";
         body["instance"] = req->path();
         auto resp = drogon::HttpResponse::newHttpResponse();
         resp->setBody(body.dump(-1, ' ', false, nlohmann::json::error_handler_t::replace));

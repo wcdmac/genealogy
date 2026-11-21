@@ -1033,7 +1033,9 @@ int cmd_bench(const std::vector<std::string>& args, const std::string& db_path,
       threads.reserve(static_cast<std::size_t>(writers));
       for (int w = 0; w < writers; ++w) {
         threads.emplace_back([&, w] {
-          auto wdb = open_db(db_path);
+          // 并发写也必须落在基准库上：此前写线程仍开 --db（用户业务库），
+          // 5 × writers 条"并发写测试"人物灌进真实库且不清理（复核 2.1 残余）。
+          auto wdb = open_db(bench_db);
           if (!wdb) {
             ++failures;
             return;

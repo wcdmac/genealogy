@@ -9,7 +9,9 @@
 namespace genealogy::server {
 
 void stream_events(const drogon::HttpRequestPtr& req, Callback&& cb) {
-  // 订阅上限（2026-11 静态审查 M12）：超限拒绝，不无限堆积
+  // 订阅上限快路径（2026-11 静态审查 M12）：超限尽早 503。这只是
+  // 预检查——权威判定在 EventBus::subscribe 锁内与登记原子完成，
+  // 两段式检查之间的 TOCTOU 窗口不能靠这里堵（复核 2.10）。
   if (EventBus::instance().connection_count() >= EventBus::kMaxStreams) {
     cb(problem_response(503, 9002, "订阅数已达上限",
                         "SSE 订阅数已达上限，请稍后重试", req->path()));
@@ -31,7 +33,12 @@ void stream_events(const drogon::HttpRequestPtr& req, Callback&& cb) {
             !shared->send(std::string(hello, sizeof(hello) - 1))) {
           return;  // 秒断的连接：不登记，让 unique_ptr 析构清理
         }
-        EventBus::instance().subscribe(std::move(shared));
+        if (!EventBus::instance().subscribe(std::move(shared))) {
+          // 锁内判定拒绝（预检查与登记之间插进了并发订阅）：不登记，
+          // shared 析构即断开——初始帧已发，客户端按 retry 间隔退避，
+          // 下次连接会在快路径拿到 503。
+          return;
+        }
       },
       true);  // disableKickoffTimeout：SSE 是长连接，禁掉默认踢闲置
   resp->setContentTypeString("text/event-stream; charset=utf-8");

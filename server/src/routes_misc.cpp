@@ -248,9 +248,7 @@ void validate_run(const drogon::HttpRequestPtr& req, Callback&& cb) {
         }
       }
     } catch (const std::exception& e) {
-      cb(problem_response(400, 1001, "参数校验失败",
-                          std::string("请求体不是合法 JSON: ") + e.what(),
-                          instance));
+      cb(bad_json_body(e.what(), instance));
       return;
     }
   }
@@ -372,9 +370,7 @@ void import_gedcom(const drogon::HttpRequestPtr& req, Callback&& cb) {
         lineage_id = body["lineage_id"].get<std::string>();
       }
     } catch (const std::exception& e) {
-      cb(problem_response(400, 1001, "参数校验失败",
-                          std::string("请求体不是合法 JSON: ") + e.what(),
-                          instance));
+      cb(bad_json_body(e.what(), instance));
       return;
     }
   }
@@ -412,53 +408,55 @@ void import_gedcom(const drogon::HttpRequestPtr& req, Callback&& cb) {
   {
     Transaction tx(*db);
     if (tx.error()) {
-      cb(problem_response(500, 9001, "内部错误",
-                          "开启导入事务失败: " + tx.error()->to_string(),
-                          instance));
+      cb(problem_response(*tx.error(), instance));
       return;
     }
     BulkLoader loader(*db);
-    std::string fail;
+    // 失败保留 Error 原对象，响应统一走 problem_response(Error)：
+    // 灌库/提交失败都是 Internal，sqlite errmsg（表/列/约束名）在中心
+    // 函数里脱敏、原文进服务端日志——此前把 to_string() 拼进 detail
+    // 直给客户端，可探测 schema（复核 2.4）。
+    std::optional<Error> fail;
     for (const auto& pl : data.places) {
-      if (auto e = loader.add_place(pl); !e) { fail = e.error().to_string(); break; }
+      if (auto e = loader.add_place(pl); !e) { fail = e.error(); break; }
       ++created;
     }
-    if (fail.empty()) {
+    if (!fail) {
       for (const auto& p : io::order_by_dependency(data.persons)) {
-        if (auto e = loader.add_person(p); !e) { fail = e.error().to_string(); break; }
+        if (auto e = loader.add_person(p); !e) { fail = e.error(); break; }
         ++created;
       }
     }
-    if (fail.empty()) {
+    if (!fail) {
       for (const auto& u : data.unions) {
-        if (auto e = loader.add_union(u); !e) { fail = e.error().to_string(); break; }
+        if (auto e = loader.add_union(u); !e) { fail = e.error(); break; }
         ++created;
       }
     }
-    if (fail.empty()) {
+    if (!fail) {
       for (const auto& ev : data.events) {
-        if (auto e = loader.add_event(ev); !e) { fail = e.error().to_string(); break; }
+        if (auto e = loader.add_event(ev); !e) { fail = e.error(); break; }
         ++created;
       }
     }
     // 出处链（M7.5）：来源先于引用（citation.source_id 外键）
-    if (fail.empty()) {
+    if (!fail) {
       for (const auto& s : data.sources) {
-        if (auto e = loader.add_source(s); !e) { fail = e.error().to_string(); break; }
+        if (auto e = loader.add_source(s); !e) { fail = e.error(); break; }
         ++created;
       }
     }
-    if (fail.empty()) {
+    if (!fail) {
       for (const auto& c : data.citations) {
-        if (auto e = loader.add_citation(c); !e) { fail = e.error().to_string(); break; }
+        if (auto e = loader.add_citation(c); !e) { fail = e.error(); break; }
         ++created;
       }
     }
-    if (!fail.empty() || !tx.commit()) {
-      cb(problem_response(500, 9001, "内部错误",
-                          "导入落库失败（已回滚，库中无残留）: " +
-                              (fail.empty() ? std::string("提交失败") : fail),
-                          instance));
+    if (!fail) {
+      if (auto cr = tx.commit(); !cr) fail = cr.error();
+    }
+    if (fail) {
+      cb(problem_response(*fail, instance));
       return;
     }
   }

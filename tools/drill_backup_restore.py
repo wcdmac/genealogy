@@ -18,6 +18,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import os
 import shutil
 import subprocess
 import sys
@@ -132,6 +133,51 @@ def main() -> int:
         check("--force 后旧库留 .bak", any(workdir.glob("family.db.bak-*")))
         after_force = person_count(genea, db)
         check("--force 恢复后数据仍一致", after_force == baseline, f"{after_force} vs {baseline}")
+
+        # 7. H3 旁车纪律 + 复核 2.6 回滚注入
+        # 7a. 旁车随迁：主库带 -wal/-shm 时 --force 恢复，旁车必须一起
+        #     移开为 .bak——残留的旧 WAL 会在新库首次打开时被重放，
+        #     恢复出的数据被旧事务污染（2026-11 静态审查 H3）。
+        wal = Path(str(db) + "-wal")
+        shm = Path(str(db) + "-shm")
+        wal.write_bytes(b"drill")   # 内容无关紧要：恢复是整文件搬移，不重放
+        shm.write_bytes(b"drill")
+        result = run(genea, "db", "restore", "--db", str(db), "--from",
+                     str(backup_dir), "--force")
+        check("带旁车 --force 恢复成功", result.returncode == 0, result.stderr.strip())
+        check("wal 旁车随迁为 .bak",
+              any(workdir.glob("family.db-wal.bak-*")) and not wal.exists())
+        check("shm 旁车随迁为 .bak",
+              any(workdir.glob("family.db-shm.bak-*")) and not shm.exists())
+        after_sidecar = person_count(genea, db)
+        check("旁车恢复后数据一致", after_sidecar == baseline,
+              f"{after_sidecar} vs {baseline}")
+
+        # 7b. 回滚注入（仅 Windows：Python os.open 不给 FILE_SHARE_DELETE，
+        #     占住 -wal 时 std::filesystem::rename 必失败）。旁车搬移失败
+        #     必须回滚已移开的主库——此前直接 return 1，旧库滞留 .bak、
+        #     新库未落地，用户库"凭空消失"（复核 2.6）。
+        if sys.platform == "win32":
+            # 清掉 7a 留下的 .bak，回滚断言才看得清「失败批次没留新 .bak」
+            for stale_bak in workdir.glob("family.db.bak-*"):
+                stale_bak.unlink()
+            wal.write_bytes(b"drill")
+            lock_fd = os.open(str(wal), os.O_RDWR)
+            try:
+                result = run(genea, "db", "restore", "--db", str(db),
+                             "--from", str(backup_dir), "--force")
+                check("旁车 rename 失败 → restore 报错退出",
+                      result.returncode != 0, result.returncode)
+                check("失败后主库回滚回原位（无新 .bak 残留）",
+                      db.exists() and not list(workdir.glob("family.db.bak-*")))
+            finally:
+                os.close(lock_fd)
+            # 回滚后原位是旧库本体；哑 wal 与本次失败无关，删掉再验数据
+            wal.unlink(missing_ok=True)
+            shm.unlink(missing_ok=True)
+            after_rollback = person_count(genea, db)
+            check("回滚后旧库数据可读且一致", after_rollback == baseline,
+                  f"{after_rollback} vs {baseline}")
 
         print("\n[drill] 全部通过" if failures == 0 else f"\n[drill] {failures} 项失败")
         return 0 if failures == 0 else 1
