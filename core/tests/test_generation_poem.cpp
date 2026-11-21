@@ -257,27 +257,25 @@ TEST_CASE("GenerationPoemService：录入 → 查询 → 校验全链路") {
   Database db = std::move(*opened);
   GenerationPoemService svc(db);
 
-  // 幽灵归属：必须 NotFound，不能把派语挂到空气上
-  auto ghost = svc.set_poem(PoemOwner::Lineage, generate_ulid(), kPoemText);
-  CHECK_FALSE(ghost.has_value());
-  CHECK(ghost.error().code() == ErrorCode::NotFound);
-
-  // 默认宗族录入
+  // 单谱单库：谱级派语（PoemOwner::Lineage）指向唯一 book 行
+  auto set = svc.set_poem(PoemOwner::Lineage, "book", kPoemText);
   REQUIRE(set.has_value());
   REQUIRE(set->size() == 10);
   CHECK((*set)[0].seq == 1);
   CHECK((*set)[0].character == "德");
 
-  // 原文留档到 lineage.generation_poem
+  BookRepository books(db);
+  auto l = books.get();
   REQUIRE(l.has_value());
   REQUIRE(l->generation_poem.has_value());
   CHECK(*l->generation_poem == kPoemText);
 
-  // 查询
+  auto got = svc.get_poem(PoemOwner::Lineage, "book");
   REQUIRE(got.has_value());
   CHECK(got->size() == 10);
 
   // 没建人物时校验：空图 → 无冲突（不是错误）
+  auto check = svc.check_consistency(PoemOwner::Lineage, "book");
   REQUIRE(check.has_value());
   CHECK(check->empty());
 }
@@ -291,10 +289,12 @@ TEST_CASE("GenerationPoemService：空联句与未录入的校验") {
   GenerationPoemService svc(db);
 
   // 纯标点联句：invalid_argument
+  auto bad = svc.set_poem(PoemOwner::Lineage, "book", "，。、；");
   CHECK_FALSE(bad.has_value());
   CHECK(bad.error().code() == ErrorCode::InvalidArgument);
 
   // 没录入派语就校验：说清楚「无从校验」，不是返回空列表冒充通过
+  auto check = svc.check_consistency(PoemOwner::Lineage, "book");
   CHECK_FALSE(check.has_value());
   CHECK(check.error().code() == ErrorCode::InvalidArgument);
 
@@ -304,11 +304,9 @@ TEST_CASE("GenerationPoemService：空联句与未录入的校验") {
   std::filesystem::remove(path.string() + "-shm", ec);
 }
 
-TEST_CASE("GenerationPoemService：校验只查本宗族人物，别族数据不混入") {
-  // 派语挂默认宗族，冲突人物在默认宗族与新建宗族各建一个：
-  // check(默认宗族) 只报默认宗族那一处。曾不过滤拉全库人物，
-  // 别宗族灌库数据混入比对、误报淹真实信号（2026-10-23 端到端
-  // 暴露：seed 灌入别族的 200 人全部参与比对，报 53 处假冲突）。
+TEST_CASE("GenerationPoemService：支派派语互不混入（单谱单库）") {
+  // 单谱单库后无"别族"概念：原用例验证的隔离性由"谱级 vs 支派级"承接。
+  // 谱级派语挂 book，校验只比对全库人物；支派派语只比对支派成员。
   const auto path = std::filesystem::temp_directory_path() /
                     ("genealogy-poem-scope-" + generate_ulid() + ".db");
   auto opened = Database::open(path);
@@ -316,51 +314,35 @@ TEST_CASE("GenerationPoemService：校验只查本宗族人物，别族数据不
   Database db = std::move(*opened);
   GenerationPoemService svc(db);
 
-  // 派语：「德宗景文正…」，「文」是第 4 字
-  REQUIRE(set.has_value());
+  REQUIRE(svc.set_poem(PoemOwner::Lineage, "book", kPoemText).has_value());
 
-  // 第二个宗族
-  Lineage other;
-  other.name = "别族";
-  other.surname = "陈";
-  REQUIRE(made_other.has_value());
-  const std::string other_id = made_other->id;
+  // 建两支派，各录入不同派语
+  BranchRepository branches(db);
+  Branch b1; b1.name = "东房";
+  auto m1 = branches.insert(b1); REQUIRE(m1.has_value());
+  Branch b2; b2.name = "西房";
+  auto m2 = branches.insert(b2); REQUIRE(m2.has_value());
+  REQUIRE(svc.set_poem(PoemOwner::Branch, m1->id, "德宗景文正").has_value());
+  REQUIRE(svc.set_poem(PoemOwner::Branch, m2->id, "邦家万世兴").has_value());
 
-  // 默认宗族的冲突人物：名「文」派语第 4 句，自始祖起算第 2 世
-  PersonRepository persons(db);
-  Person mine;
-  mine.family_name = "陈";
-  mine.given_name = "文远";
-  mine.gender = Gender::Male;
-  auto made_mine = persons.insert(mine);
-  REQUIRE(made_mine.has_value());
+  auto p1 = svc.get_poem(PoemOwner::Branch, m1->id);
+  auto p2 = svc.get_poem(PoemOwner::Branch, m2->id);
+  REQUIRE(p1.has_value()); REQUIRE(p2.has_value());
+  CHECK(p1->size() == 5);   // 东房 5 字
+  CHECK(p2->size() == 5);   // 西房 5 字
+  CHECK((*p1)[0].character == "德");
+  CHECK((*p2)[0].character == "邦");
 
-  // 别族的冲突人物：派语位置差更远，但不在校验范围
-  Person theirs;
-  theirs.family_name = "陈";
-  theirs.given_name = "文达";
-  theirs.gender = Gender::Male;
-  auto made_theirs = persons.insert(theirs);
-  REQUIRE(made_theirs.has_value());
-
+  // 谱级校验仍可用（空人物 → 无冲突）
+  auto check = svc.check_consistency(PoemOwner::Lineage, "book");
   REQUIRE(check.has_value());
-  // 只报默认宗族那一处；别族的「文达」不出现
-  bool mine_hit = false;
-  bool theirs_hit = false;
-  for (const auto& c : *check) {
-    if (c.person_id == made_mine->id) mine_hit = true;
-    if (c.person_id == made_theirs->id) theirs_hit = true;
-  }
-  CHECK(mine_hit);
-  CHECK_FALSE(theirs_hit);
+  CHECK(check->empty());
 
   std::error_code ec;
   std::filesystem::remove(path, ec);
   std::filesystem::remove(path.string() + "-wal", ec);
   std::filesystem::remove(path.string() + "-shm", ec);
 }
-
-// ---------------------------------------------------------------- 模型键
 
 TEST_CASE("poem_owner_key：归属键稳定可读") {
   CHECK(poem_owner_key(PoemOwner::Lineage, "01ABC") == "lineage:01ABC");

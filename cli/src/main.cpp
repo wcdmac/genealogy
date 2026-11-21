@@ -468,7 +468,9 @@ int cmd_person_tree(const std::vector<std::string>& args,
         std::cout << "\n";
         for (const auto& c : node.children) print(c, level + 1, budget);
       };
-  std::size_t budget = 200;
+  // 第五轮 低-3：预算给 201——恰好 200 节点时剩 1 不误报，
+  // 真有第 201 个节点被跳过时 budget 才归 0。
+  std::size_t budget = 201;
   print(*tree, 0, &budget);
   if (budget == 0) std::cout << "…（只显示前 200 个节点）\n";
   std::cout << "后代树: " << nodes << " 节点 / " << depth_seen << " 层，耗时 "
@@ -1007,19 +1009,21 @@ int run(std::vector<std::string> raw_args) {
 
   const std::string command = unmatched[0];
   const std::vector<std::string> rest(unmatched.begin() + 1, unmatched.end());
-  // bench 无子命令（其余命令组才是 add/list/… 结构）：必须先于
-  // 「缺子命令」检查分派，否则裸 `genea bench` 被拒（第三轮新-C12）
-  if (command == "bench") {
-    return genea_cli::cmd_bench(rest, db_path, format);
-  }
-  if (rest.empty()) {
+  if (rest.empty() && command != "bench") {
     std::cerr << "用法错误: " << command << " 缺少子命令\n";
     return 2;
   }
-  const std::string sub = rest[0];
-  const std::vector<std::string> args(rest.begin() + 1, rest.end());
+  const std::string sub = rest.empty() ? std::string{} : rest[0];
+  const std::vector<std::string> args(
+      rest.empty() ? rest.end() : rest.begin() + 1, rest.end());
 
   try {
+    // bench 无子命令（其余命令组才是 add/list/… 结构），但必须放在 try 内：
+    // 否则 cxxopts/filesystem/thread 异常无人捕获，传播出 main 触发 terminate
+    // （第五轮 高-2；同时保住第三轮新-C12「裸 genea bench 不被拒」）
+    if (command == "bench") {
+      return genea_cli::cmd_bench(rest, db_path, format);
+    }
     if (command == "db" && sub == "init") return cmd_db_init(db_path, format);
     if (command == "db" && sub == "seed") {
       return genea_cli::cmd_db_seed(args, db_path, format);

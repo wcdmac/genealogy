@@ -33,8 +33,11 @@ std::optional<std::string> to_opt(const std::string& s) {
 }
 
 int parse_int_or(const std::string& s, int fallback) {
+  // 第五轮 低-3：stoi 部分匹配（"12abc"→12）会把脏输入静默存库
   try {
-    return std::stoi(s);
+    std::size_t used = 0;
+    const int v = std::stoi(s, &used);
+    return used == s.size() ? v : fallback;
   } catch (const std::exception&) {
     return fallback;
   }

@@ -7649,7 +7649,7 @@ inline constexpr DayGanzhi kDayGanzhi[] = {
 };
 inline constexpr int kDayGanzhiCount = 3024;
 
-// datong 段（1368-1582 大统历朔闰史实，ytliu0/ChineseCalendar GPL-3.0）：
+// 大统历段（1368-1582 朔闰史实，固化于 fixtures/ming_datong_facts.json）：
 // 正月初一的儒略历标签（儒略历史实口径）与结构字段。
 struct DatongYear {
   int year;          // 农历年号（= 正月初一所在儒略历年）

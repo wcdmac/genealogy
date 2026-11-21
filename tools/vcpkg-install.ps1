@@ -1,4 +1,4 @@
-# 在本机装 vcpkg 依赖（Drogon 等）。
+# 在本机装 vcpkg 依赖（单机三目标 core/cli/gui：nlohmann-json/cxxopts/catch2/glfw3）。
 #
 # 为什么需要这个脚本而不是直接 `vcpkg install`：
 #   本机有三条硬约束（均为 2026-10-14 实测）：
@@ -18,7 +18,7 @@
 #    MSYS2 那个，必须整个换掉 PATH。）
 #
 # 用法：
-#   powershell -ExecutionPolicy Bypass -File tools\vcpkg-install.ps1 drogon:x64-windows
+#   powershell -ExecutionPolicy Bypass -File tools\vcpkg-install.ps1 glfw3:x64-windows
 #   powershell -ExecutionPolicy Bypass -File tools\vcpkg-install.ps1          # 按 manifest 装
 
 param(
@@ -75,5 +75,12 @@ $env:VCPKG_CONCURRENCY = '1'
 Write-Host "MSVC : $VCTOOLS"
 Write-Host "SDK  : $WINDDK\$SDKVER"
 
-& D:\vcpkg\vcpkg.exe install @Packages --overlay-triplets=D:\cd\tree\genealogy\tools\vcpkg-triplets --overlay-ports=D:\cd\tree\genealogy\tools\vcpkg-ports
+# 第五轮 中-4：去掉已删除的 vcpkg-ports（trantor 专用）幽灵路径；
+# 根目录与 triplet 由环境变量/脚本位置推导，消除开发机硬编码。
+$VcpkgRoot = if ($env:VCPKG_ROOT) { $env:VCPKG_ROOT } else { 'D:/vcpkg' }
+$VcpkgExe = Join-Path $VcpkgRoot 'vcpkg.exe'
+$OverlayTriplets = Join-Path $PSScriptRoot 'vcpkg-triplets'
+if (-not (Test-Path $VcpkgExe)) { throw "找不到 vcpkg.exe: $VcpkgExe" }
+if (-not (Test-Path $OverlayTriplets)) { throw "找不到 overlay triplets: $OverlayTriplets" }
+& $VcpkgExe install @Packages "--overlay-triplets=$OverlayTriplets"
 exit $LASTEXITCODE

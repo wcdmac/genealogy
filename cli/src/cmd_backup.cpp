@@ -199,15 +199,23 @@ int cmd_db_backup(const std::vector<std::string>& args,
     return 1;
   }
 
+  // 第五轮 低-3：file_size 失败时返回 (uintmax_t)-1，不能当成功快照大小
+  ec.clear();
+  const auto bytes = fs::file_size(snapshot, ec);
+  if (ec) {
+    print_error(Error{ErrorCode::IoError,
+                      "快照文件大小读取失败: " + ec.message()});
+    return 1;
+  }
   if (format == "json") {
     nlohmann::json out_json{{"snapshot", snapshot.string()},
-                            {"bytes", fs::file_size(snapshot, ec)},
+                            {"bytes", bytes},
                             {"attachments", has_attachments},
                             {"status", "ok"}};
     std::cout << out_json.dump(2) << "\n";
   } else {
     std::cout << "备份完成: " << snapshot.string() << "（"
-              << human_size(fs::file_size(snapshot, ec)) << "）\n";
+              << human_size(bytes) << "）\n";
     if (has_attachments) std::cout << "附件库: " << (out / "attachments").string() << "\n";
     std::cout << "恢复: genea db restore --from " << out.string()
               << " --db <目标库>\n";

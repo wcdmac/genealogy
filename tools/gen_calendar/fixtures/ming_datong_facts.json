@@ -1,0 +1,1511 @@
+{
+ "source": "大统历朔闰史实（1368-1582，儒略历口径）；历法事实数据，依著作权法第五条第（三）项历法不受保护",
+ "calendar": "julian-dated（儒略历史实口径，正月初一=儒略历日期）",
+ "years": [
+  {
+   "year": 1368,
+   "first_day": -219849,
+   "month_count": 13,
+   "leap_after": 7,
+   "len_mask": 1749
+  },
+  {
+   "year": 1369,
+   "first_day": -219465,
+   "month_count": 12,
+   "leap_after": 0,
+   "len_mask": 1893
+  },
+  {
+   "year": 1370,
+   "first_day": -219110,
+   "month_count": 12,
+   "leap_after": 0,
+   "len_mask": 1866
+  },
+  {
+   "year": 1371,
+   "first_day": -218756,
+   "month_count": 13,
+   "leap_after": 3,
+   "len_mask": 3747
+  },
+  {
+   "year": 1372,
+   "first_day": -218372,
+   "month_count": 12,
+   "leap_after": 0,
+   "len_mask": 1701
+  },
+  {
+   "year": 1373,
+   "first_day": -218018,
+   "month_count": 13,
+   "leap_after": 11,
+   "len_mask": 5451
+  },
+  {
+   "year": 1374,
+   "first_day": -217634,
+   "month_count": 12,
+   "leap_after": 0,
+   "len_mask": 1355
+  },
+  {
+   "year": 1375,
+   "first_day": -217280,
+   "month_count": 12,
+   "leap_after": 0,
+   "len_mask": 2731
+  },
+  {
+   "year": 1376,
+   "first_day": -216925,
+   "month_count": 13,
+   "leap_after": 9,
+   "len_mask": 5466
+  },
+  {
+   "year": 1377,
+   "first_day": -216541,
+   "month_count": 12,
+   "leap_after": 0,
+   "len_mask": 1386
+  },
+  {
+   "year": 1378,
+   "first_day": -216187,
+   "month_count": 12,
+   "leap_after": 0,
+   "len_mask": 2917
+  },
+  {
+   "year": 1379,
+   "first_day": -215832,
+   "month_count": 13,
+   "leap_after": 5,
+   "len_mask": 5962
+  },
+  {
+   "year": 1380,
+   "first_day": -215448,
+   "month_count": 12,
+   "leap_after": 0,
+   "len_mask": 3402
+  },
+  {
+   "year": 1381,
+   "first_day": -215094,
+   "month_count": 12,
+   "leap_after": 0,
+   "len_mask": 2837
+  },
+  {
+   "year": 1382,
+   "first_day": -214740,
+   "month_count": 13,
+   "leap_after": 2,
+   "len_mask": 5451
+  },
+  {
+   "year": 1383,
+   "first_day": -214356,
+   "month_count": 12,
+   "leap_after": 0,
+   "len_mask": 1357
+  },
+  {
+   "year": 1384,
+   "first_day": -214002,
+   "month_count": 13,
+   "leap_after": 10,
+   "len_mask": 2733
+  },
+  {
+   "year": 1385,
+   "first_day": -213618,
+   "month_count": 12,
+   "leap_after": 0,
+   "len_mask": 2741
+  },
+  {
+   "year": 1386,
+   "first_day": -213263,
+   "month_count": 12,
+   "leap_after": 0,
+   "len_mask": 1458
+  },
+  {
+   "year": 1387,
+   "first_day": -212909,
+   "month_count": 13,
+   "leap_after": 6,
+   "len_mask": 2981
+  },
+  {
+   "year": 1388,
+   "first_day": -212525,
+   "month_count": 12,
+   "leap_after": 0,
+   "len_mask": 3749
+  },
+  {
+   "year": 1389,
+   "first_day": -212170,
+   "month_count": 12,
+   "leap_after": 0,
+   "len_mask": 3466
+  },
+  {
+   "year": 1390,
+   "first_day": -211816,
+   "month_count": 13,
+   "leap_after": 4,
+   "len_mask": 7445
+  },
+  {
+   "year": 1391,
+   "first_day": -211432,
+   "month_count": 12,
+   "leap_after": 0,
+   "len_mask": 3238
+  },
+  {
+   "year": 1392,
+   "first_day": -211078,
+   "month_count": 13,
+   "leap_after": 12,
+   "len_mask": 6486
+  },
+  {
+   "year": 1393,
+   "first_day": -210694,
+   "month_count": 12,
+   "leap_after": 0,
+   "len_mask": 1370
+  },
+  {
+   "year": 1394,
+   "first_day": -210340,
+   "month_count": 12,
+   "leap_after": 0,
+   "len_mask": 2773
+  },
+  {
+   "year": 1395,
+   "first_day": -209985,
+   "month_count": 13,
+   "leap_after": 9,
+   "len_mask": 5588
+  },
+  {
+   "year": 1396,
+   "first_day": -209601,
+   "month_count": 12,
+   "leap_after": 0,
+   "len_mask": 1748
+  },
+  {
+   "year": 1397,
+   "first_day": -209247,
+   "month_count": 12,
+   "leap_after": 0,
+   "len_mask": 3781
+  },
+  {
+   "year": 1398,
+   "first_day": -208892,
+   "month_count": 13,
+   "leap_after": 5,
+   "len_mask": 3722
+  },
+  {
+   "year": 1399,
+   "first_day": -208509,
+   "month_count": 12,
+   "leap_after": 0,
+   "len_mask": 1675
+  },
+  {
+   "year": 1400,
+   "first_day": -208155,
+   "month_count": 12,
+   "leap_after": 0,
+   "len_mask": 3367
+  },
+  {
+   "year": 1401,
+   "first_day": -207800,
+   "month_count": 13,
+   "leap_after": 3,
+   "len_mask": 2390
+  },
+  {
+   "year": 1402,
+   "first_day": -207417,
+   "month_count": 12,
+   "leap_after": 0,
+   "len_mask": 1371
+  },
+  {
+   "year": 1403,
+   "first_day": -207062,
+   "month_count": 13,
+   "leap_after": 11,
+   "len_mask": 2778
+  },
+  {
+   "year": 1404,
+   "first_day": -206678,
+   "month_count": 12,
+   "leap_after": 0,
+   "len_mask": 2922
+  },
+  {
+   "year": 1405,
+   "first_day": -206323,
+   "month_count": 12,
+   "leap_after": 0,
+   "len_mask": 1876
+  },
+  {
+   "year": 1406,
+   "first_day": -205969,
+   "month_count": 13,
+   "leap_after": 7,
+   "len_mask": 5957
+  },
+  {
+   "year": 1407,
+   "first_day": -205585,
+   "month_count": 12,
+   "leap_after": 0,
+   "len_mask": 2885
+  },
+  {
+   "year": 1408,
+   "first_day": -205231,
+   "month_count": 12,
+   "leap_after": 0,
+   "len_mask": 2699
+  },
+  {
+   "year": 1409,
+   "first_day": -204877,
+   "month_count": 13,
+   "leap_after": 4,
+   "len_mask": 5419
+  },
+  {
+   "year": 1410,
+   "first_day": -204493,
+   "month_count": 12,
+   "leap_after": 0,
+   "len_mask": 1197
+  },
+  {
+   "year": 1411,
+   "first_day": -204139,
+   "month_count": 13,
+   "leap_after": 12,
+   "len_mask": 2413
+  },
+  {
+   "year": 1412,
+   "first_day": -203755,
+   "month_count": 12,
+   "leap_after": 0,
+   "len_mask": 1461
+  },
+  {
+   "year": 1413,
+   "first_day": -203400,
+   "month_count": 12,
+   "leap_after": 0,
+   "len_mask": 2986
+  },
+  {
+   "year": 1414,
+   "first_day": -203045,
+   "month_count": 13,
+   "leap_after": 9,
+   "len_mask": 7076
+  },
+  {
+   "year": 1415,
+   "first_day": -202661,
+   "month_count": 12,
+   "leap_after": 0,
+   "len_mask": 3490
+  },
+  {
+   "year": 1416,
+   "first_day": -202307,
+   "month_count": 12,
+   "leap_after": 0,
+   "len_mask": 3397
+  },
+  {
+   "year": 1417,
+   "first_day": -201953,
+   "month_count": 13,
+   "leap_after": 5,
+   "len_mask": 6805
+  },
+  {
+   "year": 1418,
+   "first_day": -201569,
+   "month_count": 12,
+   "leap_after": 0,
+   "len_mask": 2709
+  },
+  {
+   "year": 1419,
+   "first_day": -201215,
+   "month_count": 12,
+   "leap_after": 0,
+   "len_mask": 1197
+  },
+  {
+   "year": 1420,
+   "first_day": -200861,
+   "month_count": 13,
+   "leap_after": 1,
+   "len_mask": 2733
+  },
+  {
+   "year": 1421,
+   "first_day": -200477,
+   "month_count": 12,
+   "leap_after": 0,
+   "len_mask": 1749
+  },
+  {
+   "year": 1422,
+   "first_day": -200122,
+   "month_count": 13,
+   "leap_after": 12,
+   "len_mask": 3498
+  },
+  {
+   "year": 1423,
+   "first_day": -199738,
+   "month_count": 12,
+   "leap_after": 0,
+   "len_mask": 3794
+  },
+  {
+   "year": 1424,
+   "first_day": -199383,
+   "month_count": 12,
+   "leap_after": 0,
+   "len_mask": 3746
+  },
+  {
+   "year": 1425,
+   "first_day": -199029,
+   "month_count": 13,
+   "leap_after": 7,
+   "len_mask": 7498
+  },
+  {
+   "year": 1426,
+   "first_day": -198645,
+   "month_count": 12,
+   "leap_after": 0,
+   "len_mask": 3402
+  },
+  {
+   "year": 1427,
+   "first_day": -198291,
+   "month_count": 12,
+   "leap_after": 0,
+   "len_mask": 2710
+  },
+  {
+   "year": 1428,
+   "first_day": -197937,
+   "month_count": 13,
+   "leap_after": 4,
+   "len_mask": 5430
+  },
+  {
+   "year": 1429,
+   "first_day": -197553,
+   "month_count": 12,
+   "leap_after": 0,
+   "len_mask": 1370
+  },
+  {
+   "year": 1430,
+   "first_day": -197199,
+   "month_count": 13,
+   "leap_after": 12,
+   "len_mask": 2773
+  },
+  {
+   "year": 1431,
+   "first_day": -196815,
+   "month_count": 12,
+   "leap_after": 0,
+   "len_mask": 1893
+  },
+  {
+   "year": 1432,
+   "first_day": -196460,
+   "month_count": 12,
+   "leap_after": 0,
+   "len_mask": 1874
+  },
+  {
+   "year": 1433,
+   "first_day": -196106,
+   "month_count": 13,
+   "leap_after": 8,
+   "len_mask": 3749
+  },
+  {
+   "year": 1434,
+   "first_day": -195722,
+   "month_count": 12,
+   "leap_after": 0,
+   "len_mask": 1701
+  },
+  {
+   "year": 1435,
+   "first_day": -195368,
+   "month_count": 12,
+   "leap_after": 0,
+   "len_mask": 1355
+  },
+  {
+   "year": 1436,
+   "first_day": -195014,
+   "month_count": 13,
+   "leap_after": 6,
+   "len_mask": 2711
+  },
+  {
+   "year": 1437,
+   "first_day": -194630,
+   "month_count": 12,
+   "leap_after": 0,
+   "len_mask": 2731
+  },
+  {
+   "year": 1438,
+   "first_day": -194275,
+   "month_count": 12,
+   "leap_after": 0,
+   "len_mask": 1386
+  },
+  {
+   "year": 1439,
+   "first_day": -193921,
+   "month_count": 13,
+   "leap_after": 2,
+   "len_mask": 2901
+  },
+  {
+   "year": 1440,
+   "first_day": -193537,
+   "month_count": 12,
+   "leap_after": 0,
+   "len_mask": 2985
+  },
+  {
+   "year": 1441,
+   "first_day": -193182,
+   "month_count": 13,
+   "leap_after": 11,
+   "len_mask": 5970
+  },
+  {
+   "year": 1442,
+   "first_day": -192798,
+   "month_count": 12,
+   "leap_after": 0,
+   "len_mask": 3474
+  },
+  {
+   "year": 1443,
+   "first_day": -192444,
+   "month_count": 12,
+   "leap_after": 0,
+   "len_mask": 2853
+  },
+  {
+   "year": 1444,
+   "first_day": -192090,
+   "month_count": 13,
+   "leap_after": 7,
+   "len_mask": 5707
+  },
+  {
+   "year": 1445,
+   "first_day": -191706,
+   "month_count": 12,
+   "leap_after": 0,
+   "len_mask": 1357
+  },
+  {
+   "year": 1446,
+   "first_day": -191352,
+   "month_count": 12,
+   "leap_after": 0,
+   "len_mask": 2733
+  },
+  {
+   "year": 1447,
+   "first_day": -190997,
+   "month_count": 13,
+   "leap_after": 4,
+   "len_mask": 5482
+  },
+  {
+   "year": 1448,
+   "first_day": -190613,
+   "month_count": 12,
+   "leap_after": 0,
+   "len_mask": 1460
+  },
+  {
+   "year": 1449,
+   "first_day": -190259,
+   "month_count": 12,
+   "leap_after": 0,
+   "len_mask": 3497
+  },
+  {
+   "year": 1450,
+   "first_day": -189904,
+   "month_count": 13,
+   "leap_after": 1,
+   "len_mask": 7506
+  },
+  {
+   "year": 1451,
+   "first_day": -189520,
+   "month_count": 12,
+   "leap_after": 0,
+   "len_mask": 3474
+  },
+  {
+   "year": 1452,
+   "first_day": -189166,
+   "month_count": 13,
+   "leap_after": 9,
+   "len_mask": 7461
+  },
+  {
+   "year": 1453,
+   "first_day": -188782,
+   "month_count": 12,
+   "leap_after": 0,
+   "len_mask": 3366
+  },
+  {
+   "year": 1454,
+   "first_day": -188428,
+   "month_count": 12,
+   "leap_after": 0,
+   "len_mask": 2390
+  },
+  {
+   "year": 1455,
+   "first_day": -188074,
+   "month_count": 13,
+   "leap_after": 6,
+   "len_mask": 2741
+  },
+  {
+   "year": 1456,
+   "first_day": -187690,
+   "month_count": 12,
+   "leap_after": 0,
+   "len_mask": 2774
+  },
+  {
+   "year": 1457,
+   "first_day": -187335,
+   "month_count": 12,
+   "leap_after": 0,
+   "len_mask": 1748
+  },
+  {
+   "year": 1458,
+   "first_day": -186981,
+   "month_count": 13,
+   "leap_after": 2,
+   "len_mask": 3753
+  },
+  {
+   "year": 1459,
+   "first_day": -186597,
+   "month_count": 12,
+   "leap_after": 0,
+   "len_mask": 3785
+  },
+  {
+   "year": 1460,
+   "first_day": -186242,
+   "month_count": 13,
+   "leap_after": 11,
+   "len_mask": 3730
+  },
+  {
+   "year": 1461,
+   "first_day": -185859,
+   "month_count": 12,
+   "leap_after": 0,
+   "len_mask": 1683
+  },
+  {
+   "year": 1462,
+   "first_day": -185505,
+   "month_count": 12,
+   "leap_after": 0,
+   "len_mask": 3367
+  },
+  {
+   "year": 1463,
+   "first_day": -185150,
+   "month_count": 13,
+   "leap_after": 7,
+   "len_mask": 2390
+  },
+  {
+   "year": 1464,
+   "first_day": -184767,
+   "month_count": 12,
+   "leap_after": 0,
+   "len_mask": 1371
+  },
+  {
+   "year": 1465,
+   "first_day": -184412,
+   "month_count": 12,
+   "leap_after": 0,
+   "len_mask": 2906
+  },
+  {
+   "year": 1466,
+   "first_day": -184057,
+   "month_count": 13,
+   "leap_after": 3,
+   "len_mask": 5844
+  },
+  {
+   "year": 1467,
+   "first_day": -183673,
+   "month_count": 12,
+   "leap_after": 0,
+   "len_mask": 1892
+  },
+  {
+   "year": 1468,
+   "first_day": -183319,
+   "month_count": 12,
+   "leap_after": 0,
+   "len_mask": 1865
+  },
+  {
+   "year": 1469,
+   "first_day": -182965,
+   "month_count": 13,
+   "leap_after": 2,
+   "len_mask": 5779
+  },
+  {
+   "year": 1470,
+   "first_day": -182581,
+   "month_count": 12,
+   "leap_after": 0,
+   "len_mask": 2707
+  },
+  {
+   "year": 1471,
+   "first_day": -182227,
+   "month_count": 13,
+   "leap_after": 9,
+   "len_mask": 5419
+  },
+  {
+   "year": 1472,
+   "first_day": -181843,
+   "month_count": 12,
+   "leap_after": 0,
+   "len_mask": 1325
+  },
+  {
+   "year": 1473,
+   "first_day": -181489,
+   "month_count": 12,
+   "leap_after": 0,
+   "len_mask": 2413
+  },
+  {
+   "year": 1474,
+   "first_day": -181134,
+   "month_count": 13,
+   "leap_after": 6,
+   "len_mask": 2922
+  },
+  {
+   "year": 1475,
+   "first_day": -180750,
+   "month_count": 12,
+   "leap_after": 0,
+   "len_mask": 3498
+  },
+  {
+   "year": 1476,
+   "first_day": -180395,
+   "month_count": 12,
+   "leap_after": 0,
+   "len_mask": 2980
+  },
+  {
+   "year": 1477,
+   "first_day": -180041,
+   "month_count": 13,
+   "leap_after": 2,
+   "len_mask": 6985
+  },
+  {
+   "year": 1478,
+   "first_day": -179657,
+   "month_count": 12,
+   "leap_after": 0,
+   "len_mask": 3401
+  },
+  {
+   "year": 1479,
+   "first_day": -179303,
+   "month_count": 13,
+   "leap_after": 10,
+   "len_mask": 6805
+  },
+  {
+   "year": 1480,
+   "first_day": -178919,
+   "month_count": 12,
+   "leap_after": 0,
+   "len_mask": 2710
+  },
+  {
+   "year": 1481,
+   "first_day": -178565,
+   "month_count": 12,
+   "leap_after": 0,
+   "len_mask": 1326
+  },
+  {
+   "year": 1482,
+   "first_day": -178211,
+   "month_count": 13,
+   "leap_after": 8,
+   "len_mask": 2733
+  },
+  {
+   "year": 1483,
+   "first_day": -177827,
+   "month_count": 12,
+   "leap_after": 0,
+   "len_mask": 1749
+  },
+  {
+   "year": 1484,
+   "first_day": -177472,
+   "month_count": 12,
+   "leap_after": 0,
+   "len_mask": 3530
+  },
+  {
+   "year": 1485,
+   "first_day": -177117,
+   "month_count": 13,
+   "leap_after": 4,
+   "len_mask": 7588
+  },
+  {
+   "year": 1486,
+   "first_day": -176733,
+   "month_count": 12,
+   "leap_after": 0,
+   "len_mask": 3748
+  },
+  {
+   "year": 1487,
+   "first_day": -176379,
+   "month_count": 12,
+   "leap_after": 0,
+   "len_mask": 3402
+  },
+  {
+   "year": 1488,
+   "first_day": -176025,
+   "month_count": 13,
+   "leap_after": 1,
+   "len_mask": 6805
+  },
+  {
+   "year": 1489,
+   "first_day": -175641,
+   "month_count": 12,
+   "leap_after": 0,
+   "len_mask": 2710
+  },
+  {
+   "year": 1490,
+   "first_day": -175287,
+   "month_count": 13,
+   "leap_after": 9,
+   "len_mask": 5462
+  },
+  {
+   "year": 1491,
+   "first_day": -174903,
+   "month_count": 12,
+   "leap_after": 0,
+   "len_mask": 1370
+  },
+  {
+   "year": 1492,
+   "first_day": -174549,
+   "month_count": 12,
+   "leap_after": 0,
+   "len_mask": 2773
+  },
+  {
+   "year": 1493,
+   "first_day": -174194,
+   "month_count": 13,
+   "leap_after": 5,
+   "len_mask": 5842
+  },
+  {
+   "year": 1494,
+   "first_day": -173810,
+   "month_count": 12,
+   "leap_after": 0,
+   "len_mask": 1874
+  },
+  {
+   "year": 1495,
+   "first_day": -173456,
+   "month_count": 12,
+   "leap_after": 0,
+   "len_mask": 3781
+  },
+  {
+   "year": 1496,
+   "first_day": -173101,
+   "month_count": 13,
+   "leap_after": 3,
+   "len_mask": 3658
+  },
+  {
+   "year": 1497,
+   "first_day": -172718,
+   "month_count": 12,
+   "leap_after": 0,
+   "len_mask": 1355
+  },
+  {
+   "year": 1498,
+   "first_day": -172364,
+   "month_count": 13,
+   "leap_after": 11,
+   "len_mask": 2715
+  },
+  {
+   "year": 1499,
+   "first_day": -171980,
+   "month_count": 12,
+   "leap_after": 0,
+   "len_mask": 2733
+  },
+  {
+   "year": 1500,
+   "first_day": -171625,
+   "month_count": 12,
+   "leap_after": 0,
+   "len_mask": 1386
+  },
+  {
+   "year": 1501,
+   "first_day": -171271,
+   "month_count": 13,
+   "leap_after": 7,
+   "len_mask": 2921
+  },
+  {
+   "year": 1502,
+   "first_day": -170887,
+   "month_count": 12,
+   "leap_after": 0,
+   "len_mask": 2985
+  },
+  {
+   "year": 1503,
+   "first_day": -170532,
+   "month_count": 12,
+   "leap_after": 0,
+   "len_mask": 1874
+  },
+  {
+   "year": 1504,
+   "first_day": -170178,
+   "month_count": 13,
+   "leap_after": 4,
+   "len_mask": 6949
+  },
+  {
+   "year": 1505,
+   "first_day": -169794,
+   "month_count": 12,
+   "leap_after": 0,
+   "len_mask": 2853
+  },
+  {
+   "year": 1506,
+   "first_day": -169440,
+   "month_count": 12,
+   "leap_after": 0,
+   "len_mask": 2635
+  },
+  {
+   "year": 1507,
+   "first_day": -169086,
+   "month_count": 13,
+   "leap_after": 1,
+   "len_mask": 2731
+  },
+  {
+   "year": 1508,
+   "first_day": -168702,
+   "month_count": 12,
+   "leap_after": 0,
+   "len_mask": 2733
+  },
+  {
+   "year": 1509,
+   "first_day": -168347,
+   "month_count": 13,
+   "leap_after": 9,
+   "len_mask": 5482
+  },
+  {
+   "year": 1510,
+   "first_day": -167963,
+   "month_count": 12,
+   "leap_after": 0,
+   "len_mask": 1460
+  },
+  {
+   "year": 1511,
+   "first_day": -167609,
+   "month_count": 12,
+   "leap_after": 0,
+   "len_mask": 3497
+  },
+  {
+   "year": 1512,
+   "first_day": -167254,
+   "month_count": 13,
+   "leap_after": 5,
+   "len_mask": 7570
+  },
+  {
+   "year": 1513,
+   "first_day": -166870,
+   "month_count": 12,
+   "leap_after": 0,
+   "len_mask": 3730
+  },
+  {
+   "year": 1514,
+   "first_day": -166516,
+   "month_count": 12,
+   "leap_after": 0,
+   "len_mask": 3365
+  },
+  {
+   "year": 1515,
+   "first_day": -166162,
+   "month_count": 13,
+   "leap_after": 4,
+   "len_mask": 6733
+  },
+  {
+   "year": 1516,
+   "first_day": -165778,
+   "month_count": 12,
+   "leap_after": 0,
+   "len_mask": 2390
+  },
+  {
+   "year": 1517,
+   "first_day": -165424,
+   "month_count": 13,
+   "leap_after": 12,
+   "len_mask": 2741
+  },
+  {
+   "year": 1518,
+   "first_day": -165040,
+   "month_count": 12,
+   "leap_after": 0,
+   "len_mask": 2778
+  },
+  {
+   "year": 1519,
+   "first_day": -164685,
+   "month_count": 12,
+   "leap_after": 0,
+   "len_mask": 1748
+  },
+  {
+   "year": 1520,
+   "first_day": -164331,
+   "month_count": 13,
+   "leap_after": 8,
+   "len_mask": 3753
+  },
+  {
+   "year": 1521,
+   "first_day": -163947,
+   "month_count": 12,
+   "leap_after": 0,
+   "len_mask": 3913
+  },
+  {
+   "year": 1522,
+   "first_day": -163592,
+   "month_count": 12,
+   "leap_after": 0,
+   "len_mask": 3730
+  },
+  {
+   "year": 1523,
+   "first_day": -163238,
+   "month_count": 13,
+   "leap_after": 4,
+   "len_mask": 3366
+  },
+  {
+   "year": 1524,
+   "first_day": -162855,
+   "month_count": 12,
+   "leap_after": 0,
+   "len_mask": 1323
+  },
+  {
+   "year": 1525,
+   "first_day": -162501,
+   "month_count": 13,
+   "leap_after": 12,
+   "len_mask": 2647
+  },
+  {
+   "year": 1526,
+   "first_day": -162117,
+   "month_count": 12,
+   "leap_after": 0,
+   "len_mask": 2411
+  },
+  {
+   "year": 1527,
+   "first_day": -161762,
+   "month_count": 12,
+   "leap_after": 0,
+   "len_mask": 2922
+  },
+  {
+   "year": 1528,
+   "first_day": -161407,
+   "month_count": 13,
+   "leap_after": 10,
+   "len_mask": 5844
+  },
+  {
+   "year": 1529,
+   "first_day": -161023,
+   "month_count": 12,
+   "leap_after": 0,
+   "len_mask": 1892
+  },
+  {
+   "year": 1530,
+   "first_day": -160669,
+   "month_count": 12,
+   "leap_after": 0,
+   "len_mask": 1865
+  },
+  {
+   "year": 1531,
+   "first_day": -160315,
+   "month_count": 13,
+   "leap_after": 6,
+   "len_mask": 5779
+  },
+  {
+   "year": 1532,
+   "first_day": -159931,
+   "month_count": 12,
+   "leap_after": 0,
+   "len_mask": 2707
+  },
+  {
+   "year": 1533,
+   "first_day": -159577,
+   "month_count": 12,
+   "leap_after": 0,
+   "len_mask": 1323
+  },
+  {
+   "year": 1534,
+   "first_day": -159223,
+   "month_count": 13,
+   "leap_after": 2,
+   "len_mask": 2651
+  },
+  {
+   "year": 1535,
+   "first_day": -158839,
+   "month_count": 12,
+   "leap_after": 0,
+   "len_mask": 2477
+  },
+  {
+   "year": 1536,
+   "first_day": -158484,
+   "month_count": 13,
+   "leap_after": 12,
+   "len_mask": 2922
+  },
+  {
+   "year": 1537,
+   "first_day": -158100,
+   "month_count": 12,
+   "leap_after": 0,
+   "len_mask": 3498
+  },
+  {
+   "year": 1538,
+   "first_day": -157745,
+   "month_count": 12,
+   "leap_after": 0,
+   "len_mask": 2980
+  },
+  {
+   "year": 1539,
+   "first_day": -157391,
+   "month_count": 13,
+   "leap_after": 7,
+   "len_mask": 6985
+  },
+  {
+   "year": 1540,
+   "first_day": -157007,
+   "month_count": 12,
+   "leap_after": 0,
+   "len_mask": 3401
+  },
+  {
+   "year": 1541,
+   "first_day": -156653,
+   "month_count": 12,
+   "leap_after": 0,
+   "len_mask": 2709
+  },
+  {
+   "year": 1542,
+   "first_day": -156299,
+   "month_count": 13,
+   "leap_after": 5,
+   "len_mask": 5421
+  },
+  {
+   "year": 1543,
+   "first_day": -155915,
+   "month_count": 12,
+   "leap_after": 0,
+   "len_mask": 1334
+  },
+  {
+   "year": 1544,
+   "first_day": -155561,
+   "month_count": 12,
+   "leap_after": 0,
+   "len_mask": 2741
+  },
+  {
+   "year": 1545,
+   "first_day": -155206,
+   "month_count": 13,
+   "leap_after": 1,
+   "len_mask": 3498
+  },
+  {
+   "year": 1546,
+   "first_day": -154822,
+   "month_count": 12,
+   "leap_after": 0,
+   "len_mask": 3538
+  },
+  {
+   "year": 1547,
+   "first_day": -154467,
+   "month_count": 13,
+   "leap_after": 9,
+   "len_mask": 7588
+  },
+  {
+   "year": 1548,
+   "first_day": -154083,
+   "month_count": 12,
+   "leap_after": 0,
+   "len_mask": 3748
+  },
+  {
+   "year": 1549,
+   "first_day": -153729,
+   "month_count": 12,
+   "leap_after": 0,
+   "len_mask": 3402
+  },
+  {
+   "year": 1550,
+   "first_day": -153375,
+   "month_count": 13,
+   "leap_after": 6,
+   "len_mask": 2709
+  },
+  {
+   "year": 1551,
+   "first_day": -152992,
+   "month_count": 12,
+   "leap_after": 0,
+   "len_mask": 2711
+  },
+  {
+   "year": 1552,
+   "first_day": -152637,
+   "month_count": 12,
+   "leap_after": 0,
+   "len_mask": 1366
+  },
+  {
+   "year": 1553,
+   "first_day": -152283,
+   "month_count": 13,
+   "leap_after": 3,
+   "len_mask": 2741
+  },
+  {
+   "year": 1554,
+   "first_day": -151899,
+   "month_count": 12,
+   "leap_after": 0,
+   "len_mask": 2773
+  },
+  {
+   "year": 1555,
+   "first_day": -151544,
+   "month_count": 13,
+   "leap_after": 11,
+   "len_mask": 5842
+  },
+  {
+   "year": 1556,
+   "first_day": -151160,
+   "month_count": 12,
+   "leap_after": 0,
+   "len_mask": 1874
+  },
+  {
+   "year": 1557,
+   "first_day": -150806,
+   "month_count": 12,
+   "leap_after": 0,
+   "len_mask": 3749
+  },
+  {
+   "year": 1558,
+   "first_day": -150451,
+   "month_count": 13,
+   "leap_after": 7,
+   "len_mask": 5706
+  },
+  {
+   "year": 1559,
+   "first_day": -150068,
+   "month_count": 12,
+   "leap_after": 0,
+   "len_mask": 1611
+  },
+  {
+   "year": 1560,
+   "first_day": -149714,
+   "month_count": 12,
+   "leap_after": 0,
+   "len_mask": 2715
+  },
+  {
+   "year": 1561,
+   "first_day": -149359,
+   "month_count": 13,
+   "leap_after": 5,
+   "len_mask": 5466
+  },
+  {
+   "year": 1562,
+   "first_day": -148975,
+   "month_count": 12,
+   "leap_after": 0,
+   "len_mask": 1386
+  },
+  {
+   "year": 1563,
+   "first_day": -148621,
+   "month_count": 12,
+   "leap_after": 0,
+   "len_mask": 2921
+  },
+  {
+   "year": 1564,
+   "first_day": -148266,
+   "month_count": 13,
+   "leap_after": 2,
+   "len_mask": 5970
+  },
+  {
+   "year": 1565,
+   "first_day": -147882,
+   "month_count": 12,
+   "leap_after": 0,
+   "len_mask": 1874
+  },
+  {
+   "year": 1566,
+   "first_day": -147528,
+   "month_count": 13,
+   "leap_after": 10,
+   "len_mask": 6949
+  },
+  {
+   "year": 1567,
+   "first_day": -147144,
+   "month_count": 12,
+   "leap_after": 0,
+   "len_mask": 2853
+  },
+  {
+   "year": 1568,
+   "first_day": -146790,
+   "month_count": 12,
+   "leap_after": 0,
+   "len_mask": 2635
+  },
+  {
+   "year": 1569,
+   "first_day": -146436,
+   "month_count": 13,
+   "leap_after": 6,
+   "len_mask": 4779
+  },
+  {
+   "year": 1570,
+   "first_day": -146052,
+   "month_count": 12,
+   "leap_after": 0,
+   "len_mask": 2733
+  },
+  {
+   "year": 1571,
+   "first_day": -145697,
+   "month_count": 12,
+   "leap_after": 0,
+   "len_mask": 1452
+  },
+  {
+   "year": 1572,
+   "first_day": -145343,
+   "month_count": 13,
+   "leap_after": 2,
+   "len_mask": 2985
+  },
+  {
+   "year": 1573,
+   "first_day": -144959,
+   "month_count": 12,
+   "leap_after": 0,
+   "len_mask": 3497
+  },
+  {
+   "year": 1574,
+   "first_day": -144604,
+   "month_count": 13,
+   "leap_after": 12,
+   "len_mask": 7570
+  },
+  {
+   "year": 1575,
+   "first_day": -144220,
+   "month_count": 12,
+   "leap_after": 0,
+   "len_mask": 3730
+  },
+  {
+   "year": 1576,
+   "first_day": -143866,
+   "month_count": 12,
+   "leap_after": 0,
+   "len_mask": 3365
+  },
+  {
+   "year": 1577,
+   "first_day": -143512,
+   "month_count": 13,
+   "leap_after": 8,
+   "len_mask": 6733
+  },
+  {
+   "year": 1578,
+   "first_day": -143128,
+   "month_count": 12,
+   "leap_after": 0,
+   "len_mask": 2646
+  },
+  {
+   "year": 1579,
+   "first_day": -142774,
+   "month_count": 12,
+   "leap_after": 0,
+   "len_mask": 694
+  },
+  {
+   "year": 1580,
+   "first_day": -142420,
+   "month_count": 13,
+   "leap_after": 4,
+   "len_mask": 5557
+  },
+  {
+   "year": 1581,
+   "first_day": -142035,
+   "month_count": 12,
+   "leap_after": 0,
+   "len_mask": 1748
+  },
+  {
+   "year": 1582,
+   "first_day": -141681,
+   "month_count": 12,
+   "leap_after": 0,
+   "len_mask": 3785
+  }
+ ]
+}

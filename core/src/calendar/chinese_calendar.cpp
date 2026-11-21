@@ -178,21 +178,36 @@ bool supports(int gregorian_year) noexcept {
 
 // ---------------------------------------------------------------- 互转
 
-Result<ChineseDate> to_chinese(const GregorianDate& date) {
-  // 严格校验民用日期（2026-11 静态审查 M2）：算术归一化语义不该泄漏
-  // 为公开 API——{2000,2,30} 会被静默算成 3 月 1 日
-  if (date.month < 1 || date.month > 12 || date.day < 1) {
-    return Error{ErrorCode::InvalidArgument,
-                 "月日超出民用历范围: " + std::to_string(date.year) + "-" +
-                     std::to_string(date.month) + "-" +
-                     std::to_string(date.day)};
-  }
+// 民用日期合法性（第五轮 高-3）：供 to_chinese/day_ganzhi/solar_term_on 共用。
+// 算术归一化语义不该泄漏为公开 API——{2000,2,30}、{1500,20,1} 都不能
+// 悄悄进 dayno_of_civil：后者按 kDim[month-1] 取值，month>12 会越界读。
+bool valid_civil_date(const GregorianDate& date) noexcept {
+  if (date.month < 1 || date.month > 12 || date.day < 1) return false;
   static constexpr int kDim[] = {31, 28, 31, 30, 31, 30, 31, 31, 30, 31, 30, 31};
   const bool leap = before_reform(date.year, date.month, date.day)
                         ? julian_leap(date.year)
                         : (date.year % 4 == 0 && date.year % 100 != 0) ||
                               date.year % 400 == 0;
   const int dim = kDim[date.month - 1] + (date.month == 2 && leap ? 1 : 0);
+  if (date.day > dim) return false;
+  return !in_reform_gap(date.year, date.month, date.day);
+}
+
+Result<ChineseDate> to_chinese(const GregorianDate& date) {
+  // 严格校验民用日期（M2 + 第五轮 高-3）：三段错误分别给出可操作提示
+  if (date.month < 1 || date.month > 12 || date.day < 1) {
+    return Error{ErrorCode::InvalidArgument,
+                 "月日超出民用历范围: " + std::to_string(date.year) + "-" +
+                     std::to_string(date.month) + "-" +
+                     std::to_string(date.day)};
+  }
+  static constexpr int kDimDetail[] = {31, 28, 31, 30, 31, 30, 31, 31, 30, 31, 30, 31};
+  const bool leapDetail = before_reform(date.year, date.month, date.day)
+                              ? julian_leap(date.year)
+                              : (date.year % 4 == 0 && date.year % 100 != 0) ||
+                                    date.year % 400 == 0;
+  const int dim = kDimDetail[date.month - 1] +
+                  (date.month == 2 && leapDetail ? 1 : 0);
   if (date.day > dim) {
     return Error{ErrorCode::InvalidArgument,
                  "该月只有 " + std::to_string(dim) + " 天: " +
@@ -310,6 +325,9 @@ std::string month_ganzhi(int lunar_year, int month) {
 }
 
 std::string day_ganzhi(const GregorianDate& date) {
+  // 第五轮 高-3：公开 API 必须自己校验，否则 {1500,20,1} 会让
+  // days_from_julian 越界读 kDim[12..]。非法日期返回空串（该 API 无 Result 形态）。
+  if (!valid_civil_date(date)) return {};
   // 儒略日 JDN = 日序号 + 2440588；日干支 = (JDN + 49) mod 60
   // 输入按儒略历史实口径解读（改革前儒略历、后格里历）
   const int z = dayno_of_civil(date.year, date.month, date.day);
@@ -346,6 +364,8 @@ Result<SolarTermMoment> solar_term(int year, int index) {
 }
 
 std::optional<int> solar_term_on(const GregorianDate& date) {
+  // 第五轮 高-3：同上，非法民用日期直接 nullopt，杜绝越界读
+  if (!valid_civil_date(date)) return std::nullopt;
   const int z = dayno_of_civil(date.year, date.month, date.day);
   // 本年与上年都查一遍：年初的节气可能归属上一年份的节气表
   for (int y = date.year - 1; y <= date.year; ++y) {

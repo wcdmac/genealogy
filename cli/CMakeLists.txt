@@ -1,4 +1,4 @@
-# genea 命令行（db / person / lineage / branch / place / union / event / date / io）
+# genea 命令行（db / person / book / branch / place / union / event / migration / poem / date / io / source / citation / document / bench）
 
 add_executable(genea
   src/main.cpp

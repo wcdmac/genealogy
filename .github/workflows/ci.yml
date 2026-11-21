@@ -136,6 +136,18 @@ jobs:
           ctest --test-dir build --build-config Release --output-on-failure 2>&1 | tee test.log \
             && echo test >> "$GITHUB_WORKSPACE/_ok.txt"
 
+      # 第五轮 高-4：CLI 端到端断言（GEDCOM 往返、规则命中、备份拒绝覆盖、
+      # 世系环鲁棒性等 77 项）此前只在本地跑，CI 从未执行。此处接入，
+      # 用 matrix.genea_bin 传各平台产物路径（run_e2e.sh 已转 LF 且支持
+      # GENEA_BIN 覆盖，Windows/Linux/macOS 通吃）。
+      - name: CLI 端到端（77 项断言）
+        shell: bash
+        run: |
+          set -o pipefail
+          PY="$(command -v python3 || command -v python)"
+          GENEA_BIN="${{ matrix.genea_bin }}" bash tools/testdata/run_e2e.sh 2>&1 | tee e2e.log \
+            && echo e2e >> "$GITHUB_WORKSPACE/_ok.txt"
+
       # M6-1：三平台打包。CPack 内置生成器（ZIP/DRAGNDROP/TGZ），
       # 不引外部打包工具；产物上传供试装试跑。
       - name: 打包（CPack）
@@ -228,7 +240,7 @@ jobs:
           # 被成功步骤的 configure/build/test/cpack 注解挤掉的原因）。
           # 每步成功后写 _ok.txt 标记，这里跳过仍标记着的。
           emitted=0
-          for pair in "configure.log Configure" "build.log Build" "test.log Test" "cpack.log 打包" "license.log 许可证" "drill.log 演练"; do
+          for pair in "configure.log Configure" "build.log Build" "test.log Test" "e2e.log CLI端到端" "cpack.log 打包" "license.log 许可证" "drill.log 演练"; do
             set -- $pair
             LOG=$1; LABEL=$2
             NAME=${LOG%.log}

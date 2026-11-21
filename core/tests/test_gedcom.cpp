@@ -724,6 +724,7 @@ TEST_CASE("GEDCOM 往返：导出再导入，信息不丢") {
 
   Place pl;
   pl.id = "P1";
+  pl.name = "中湘";  // 裁剪恢复：缺地名会让 PLAC 导出与回导全断
   places.push_back(pl);
 
   Person father;
@@ -933,13 +934,6 @@ TEST_CASE("GEDCOM 导出：部分导出的损失台账") {
   CHECK(event_loss == 0);
   // 台账不许空：至少 3 条 Warning
   CHECK(losses.size() >= 3);
-}
-
-  const auto doc = parse_gedcom(kSample);
-  REQUIRE(doc.has_value());
-  const auto r = import_gedcom(*doc, ImportOptions{"陈", true});
-  REQUIRE(!r.has_value());
-  CHECK(r.error().code() == ErrorCode::InvalidArgument);
 }
 
 TEST_CASE("GEDCOM 映射：世系环拒绝并点名，不报误导性的「父亲不存在」") {

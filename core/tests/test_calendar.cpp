@@ -5,7 +5,8 @@
 //     + 3024 条节气时刻 + 3024 条纪日干支抽样，全部由 PDF 逐页解析而来
 //     （见 tools/gen_calendar 与 calendar_fixtures.hpp）。
 //     1900-2025 的每一天（46021 天）都过一遍农历月/日，不只是月初一。
-//   · ytliu0/ChineseCalendar（GPL-3.0）的大统历朔闰史实：1368-1582 全部
+//   · 大统历朔闰史实（历法事实数据，固化于
+//     tools/gen_calendar/fixtures/ming_datong_facts.json）：1368-1582 全部
 //     215 个农历年的正月初一（儒略历标签）与月长/闰月结构，逐月逐日
 //     往返断言（M9.2 儒略历史实口径）。
 // 数据表覆盖 1368-3000 共 1633 个农历年。
@@ -383,7 +384,7 @@ TEST_CASE("历法：冬至落在农历十一月（GB/T 33661-2017 置闰基础�
 }
 
 TEST_CASE("历法：明代大统历段 1368-1582 全量往返（儒略历史实口径）") {
-  // 夹具来自 ytliu0/ChineseCalendar（大统历朔闰 + 明实录订正），215 年全量：
+  // 夹具为固化的大统历朔闰事实数据（215 年全量）：
   // 每年正月初一的儒略历标签逐条对上；每月逐日双向往返；
   // 月长逐月对上 len_mask；闰月编码与月数一致。
   REQUIRE(fixtures::kDatongYearCount == 215);
@@ -454,7 +455,7 @@ TEST_CASE("历法：儒略历史实口径的锚点与边界") {
   REQUIRE(c->year == 1368);
   REQUIRE(c->month == 1);
   REQUIRE(c->day == 4);
-  // 洪武元年闰七月存在（ytliu0 结构）
+  // 洪武元年闰七月存在（大统历史实结构）
   REQUIRE(to_gregorian(ChineseDate{1368, -7, 1}).has_value());
 
   // 万历十年（1582）改革期：

@@ -57,6 +57,10 @@ int cmd_source(const std::vector<std::string>& args,
       ("limit", "每页条数", cxxopts::value<int>()->default_value("50"))
       ("help", "显示用法");
   const auto r = parse_args(opts, rest);
+  if (r.count("help") > 0) {
+    std::cout << opts.help() << "\n";
+    return 0;
+  }
 
   auto db = open_db(db_path);
   if (!db) {
@@ -198,6 +202,10 @@ int cmd_citation(const std::vector<std::string>& args,
        cxxopts::value<bool>()->default_value("false")->implicit_value("true"))
       ("help", "显示用法");
   const auto r = parse_args(opts, rest);
+  if (r.count("help") > 0) {
+    std::cout << opts.help() << "\n";
+    return 0;
+  }
 
   auto db = open_db(db_path);
   if (!db) {
@@ -327,6 +335,10 @@ int cmd_citation(const std::vector<std::string>& args,
          cxxopts::value<bool>()->default_value("false")->implicit_value("true"))
         ("help", "显示用法");
     const auto mr = parse_args(mo, rest);
+    if (mr.count("help") > 0) {
+      std::cout << mo.help() << "\n";
+      return 0;
+    }
 
     auto mdb = open_db(db_path);
     if (!mdb) {

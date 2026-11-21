@@ -13,6 +13,7 @@
 
 #include <GLFW/glfw3.h>
 
+#include <cmath>
 #include <cstdio>
 #include <cstdlib>
 #include <string>
@@ -33,8 +34,10 @@ Args parse_args(int argc, char** argv) {
                       double lo, double hi) -> double {
     char* end = nullptr;
     const double v = std::strtod(text.c_str(), &end);
-    if (text.empty() || end == text.c_str() || *end != '\0' || v < lo ||
-        v > hi) {
+    // 第五轮 中-2：NaN 的比较恒 false 会绕过范围校验，随后
+    // static_cast<int>(NaN) 是 UB（x86 常得 INT_MIN，窗口起不来）。
+    if (text.empty() || end == text.c_str() || *end != '\0' ||
+        !std::isfinite(v) || v < lo || v > hi) {
       std::fprintf(stderr, "%s 应为 %.0f..%.0f 的数字，得到: %s\n", flag, lo,
                    hi, text.c_str());
       std::exit(2);

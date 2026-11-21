@@ -161,7 +161,10 @@ Result<ProvenanceMigrationReport> migrate_note_provenance(
         CitationFilter cf;
         cf.subject_type = CitationSubjectType::Person;
         cf.subject_id = person.id;
-        cf.source_id = source_id;
+        // 第五轮 中-1：dry_run 且来源未登记时 source_id 是空串——若绑定进
+        // 等值条件则永不命中，去重失真（预演虚报"待迁"）。空串时不设该
+        // 过滤项（nullopt = 不过滤），按 subject+locator 正确去重。
+        if (!source_id.empty()) cf.source_id = source_id;
         cf.limit = 1000;
         auto existing = citations.list_citations(cf);
         if (!existing) return existing.error();

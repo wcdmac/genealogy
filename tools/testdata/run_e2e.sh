@@ -8,7 +8,8 @@ set -u -o pipefail
 cd "$(dirname "$0")/../.."
 
 PY="$(command -v python3 || command -v python)"
-GENE="./build/bin/genea.exe"
+# 可移植：CI 通过 GENEA_BIN 传入各平台产物路径；本机默认 Windows .exe
+GENE="${GENEA_BIN:-./build/bin/genea.exe}"
 OUT=".data/testdata"
 PASS=0; FAIL=0
 

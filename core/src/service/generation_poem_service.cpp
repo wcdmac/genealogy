@@ -58,7 +58,9 @@ Result<std::vector<GenerationPoemEntry>> GenerationPoemService::set_poem(
     if (b) {
       Book updated = *b;
       updated.generation_poem = text;
-      if (auto r = books_.update(*b); !r) return r.error();
+      // 第五轮测试恢复暴露：原实现误传 *b（未修改的旧对象），
+      // 谱面原文 generation_poem 从未真正回写。
+      if (auto r = books_.update(updated); !r) return r.error();
     }
   }
   return entries;

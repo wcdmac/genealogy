@@ -62,7 +62,7 @@ function julianFromDays(z) {
   }
   return [yy, mo, jdoy];
 }
-const datongPath = path.join(__dirname, 'out', 'datong_years.json');
+const datongPath = path.join(__dirname, 'fixtures', 'ming_datong_facts.json');
 const datongYears = fs.existsSync(datongPath)
   ? JSON.parse(fs.readFileSync(datongPath, 'utf8')).years : [];
 const datongRows = datongYears.map((y) => {
@@ -168,7 +168,7 @@ for (const [iso, gz] of gzRows) {
 w('};');
 w(`inline constexpr int kDayGanzhiCount = ${gzRows.length};`);
 w('');
-w('// datong 段（1368-1582 大统历朔闰史实，ytliu0/ChineseCalendar GPL-3.0）：');
+w('// 大统历段（1368-1582 朔闰史实，固化于 fixtures/ming_datong_facts.json）：');
 w('// 正月初一的儒略历标签（儒略历史实口径）与结构字段。');
 w('struct DatongYear {');
 w('  int year;          // 农历年号（= 正月初一所在儒略历年）');

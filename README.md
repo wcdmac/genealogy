@@ -52,7 +52,7 @@ Dear ImGui + GLFW（**严禁 Qt**）+ CLI 三端共用同一领域核心；**无
 | 基准 | 中国科学院紫金山天文台《1900-2025年日历》PDF（380 页），逐日对照表 + 页脚节气表 |
 | 核验 | 逐日 46021 天 **0 处不符**；节气 3024 条时刻一致（官方取分、四舍五入导致的 47 条 1 分钟差已按官方值覆盖） |
 | 口径 | 月首取定朔（北京时间）；十一月含冬至、无中气之月置闰（GB/T 33661-2017） |
-| 覆盖 | **1368-3000**。1368-1582 为大统历朔闰史实段（ytliu0/ChineseCalendar 提取，含明实录订正），日期按**儒略历史实口径**读写（1582-10-15 格里历改革前民用日期即儒略历，与老谱一致；1582-10-05~14 改革缺口报非法日期）；1583-3000 为现代天文推算段。1368 年以前不提供，越界显式报错。节气数据自 1583 年起 |
+| 覆盖 | **1368-3000**。1368-1582 为大统历朔闰史实段（固化历法事实数据，含明实录订正），日期按**儒略历史实口径**读写（1582-10-15 格里历改革前民用日期即儒略历，与老谱一致；1582-10-05~14 改革缺口报非法日期）；1583-3000 为现代天文推算段。1368 年以前不提供，越界显式报错。节气数据自 1583 年起 |
 | 旁证 | 闰月占比 36.9%（理论 36.8%）；1583-3000 逐年自洽（正月初一落在 1/21–2/21、节气严格递增、冬至必在十一月）；1368-1582 逐月逐日往返 + 明实录三锚点（卷29「乙亥即位」= 儒略 1368-01-23 = 正月初四、卷143「闰二月乙巳」= 儒略 1382-04-09 = 闰二月廿五） |
 | 年号 | cn-era（MIT，朝代编号取自 CBDB）+ opencc 繁转简；按《中国历史纪年表》口径订正：宣统止于 1911、民国纪年止于 1949；明清民国元年均有独立锚点回归 |
 
@@ -167,13 +167,13 @@ cmake -S . -B build -DBUILD_GUI=ON ...
 ```bash
 ./build/bin/genea db init --db family.db
 
-# 宗族 / 支派 / 地点
-./build/bin/genea lineage add --db family.db --name "中湘陈氏六修族谱" \
+# 谱元数据（单谱单库：db init 已建 book 行）/ 支派 / 地点
+./build/bin/genea book update --db family.db --name "中湘陈氏六修族谱" \
   --surname 陈 --commandery 颍川 --hall 德星堂
-./build/bin/genea branch add --db family.db --lineage 01J... --name 东八房 --gen-char 明
+./build/bin/genea branch add --db family.db --name 东八房 --gen-char 明
 ./build/bin/genea place add --db family.db --name 中湘 --type county --modern "湖南省湘潭县"
 
-# 人物（--lineage 缺省落入占位宗族）
+# 人物
 ./build/bin/genea person add --db family.db \
   --family-name 陈 --given-name 文远 --gender male \
   --birth "同治三年四月初四"          # 老谱原文照录，calendar=lunar
@@ -203,11 +203,11 @@ cmake -S . -B build -DBUILD_GUI=ON ...
 ./build/bin/genea date era 天顺元年              # 重名年号报冲突并列出候选：元天顺=1328 明天顺=1457
 
 # GEDCOM 导入导出与校验（走数据库，与 API 同一条用例层路径）
-./build/bin/genea lineage add --db family.db --name 中湘陈氏 --surname 陈   # 先有宗族
-./build/bin/genea io import gedcom 族谱.ged --db family.db --lineage 01J... [--surname 陈]
+genea book update --db family.db --name 中湘陈氏 --surname 陈   # 单谱单库：设置谱元数据
+./build/bin/genea io import gedcom 族谱.ged --db family.db [--surname 陈]
 # 导入完成: 人物 5 · 结合 2 · 事件 6 · 地点 1
 # 映射损失: 1 条（warning 0 条，info 1 条）
-#   [I] @S1@ SOUR — 证据引用未建模（M1 无 Source/Citation），出处链已丢失
+#   SOUR 已映射为 source/citation；0 条 SOUR 记录，往返零损失
 ./build/bin/genea io validate --db family.db
 # 规则集 genealogy-validation v1（16 条规则全跑；R15 已移除留缺口）
 # 合计: error 0 · warning 1 · info 2
@@ -238,8 +238,8 @@ cmake -S . -B build -DBUILD_GUI=ON ...
 ./build/bin/genea migration list --db family.db --subject 01J...
 
 # 字辈（M4）
-./build/bin/genea poem set --db family.db --lineage 01J... --text "德茂光先祖，文章振万邦"
-./build/bin/genea poem check --db family.db --lineage 01J...   # 辈字/世代一致性，退出码 1 = 有不一致
+./build/bin/genea poem set --db family.db --text "德茂光先祖，文章振万邦"
+./build/bin/genea poem check --db family.db   # 辈字/世代一致性，退出码 1 = 有不一致
 # 派语不从一世起用时必须传 --start N（N=派语首句对应的世代）——真实谱
 # 常见「某世起才有派语」，缺省 start=1 会把整支误报成冲突（试修实证）。
 # 支派各有派语时用 --branch <支派ID> 按支校验。
@@ -250,7 +250,7 @@ cmake -S . -B build -DBUILD_GUI=ON ...
 python3 tools/drill_backup_restore.py                        # 完整演练（灌库→备份→删库→恢复→核对）
 
 # 桌面 GUI（M3）
-tools\build-gui-msvc.bat                        # 构建 core+server+gui 全家
+tools\build-gui-msvc.bat                        # 构建 core+cli+gui（单机三目标）
 ./build/bin/genealogy-gui --db family.db        # 带库启动
 ./build/bin/genealogy-gui --headless-check      # CI/SSH 自检：0=有显示 2=无显示
 # 面板：人物卡 / 世系表 / 检索 / 关系 / 世系树 / 校验（菜单「面板」开关）。
@@ -304,4 +304,7 @@ tools\build-gui-msvc.bat                        # 构建 core+server+gui 全家
 
 `tools/gen_calendar/` 用到三个 Node 包（lunar-javascript / cn-era / opencc-js，均 MIT 或
 MIT+Apache-2.0），但**只用于离线生成 C++ 静态表**：不进 `vcpkg.json`、不参与编译链接、
-不随二进制分发。详见 `shared/licenses/allowlist.txt` 的登记说明。
+不随二进制分发。1368-1582 大统历段是固化的历法事实数据（各月初一落在哪一天，
+依《著作权法》第五条第（三）项历法不受著作权保护；见
+`tools/gen_calendar/fixtures/ming_datong_facts.json`），不含任何上游代码或表达。
+详见 `shared/licenses/allowlist.txt` 的登记说明。

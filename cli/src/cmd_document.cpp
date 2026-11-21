@@ -49,6 +49,10 @@ int cmd_document(const std::vector<std::string>& args,
       ("limit", "每页条数", cxxopts::value<int>()->default_value("50"))
       ("help", "显示用法");
   const auto r = parse_args(opts, rest);
+  if (r.count("help") > 0) {
+    std::cout << opts.help() << "\n";
+    return 0;
+  }
 
   auto db = open_db(db_path);
   if (!db) {

@@ -96,10 +96,12 @@ TEST_CASE("GEDCOM 集成：文件 → 库 → 文件 → 库 闭环，回流零�
   // 落库顺序：地点 → 人物（父母先于子女）→ 结合 → 事件。
   // 地点必须最先：person/union/event 都有 place_id 外键。
   for (const auto& pl : first->places) {
+    auto made = places.create_place(pl);
     REQUIRE(made.has_value());
   }
   // 依赖排序：父母先于子女（GEDCOM 里子记录可以排在父记录前）
   for (const auto& p : io::order_by_dependency(first->persons)) {
+    auto made = persons.create_person(p);
     if (!made.has_value()) {
       INFO("建档 " << p.family_name << p.given_name
                    << " 失败: " << made.error().to_string());
@@ -107,9 +109,11 @@ TEST_CASE("GEDCOM 集成：文件 → 库 → 文件 → 库 闭环，回流零�
     REQUIRE(made.has_value());
   }
   for (const auto& u : first->unions) {
+    auto made = unions.create_union(u);
     REQUIRE(made.has_value());
   }
   for (const auto& e : first->events) {
+    auto made = events.create_event(e);
     REQUIRE(made.has_value());
   }
   REQUIRE(first->persons.size() == 3);
@@ -121,8 +125,8 @@ TEST_CASE("GEDCOM 集成：文件 → 库 → 文件 → 库 闭环，回流零�
   auto listed = persons.list_persons(pf);
   REQUIRE(listed.has_value());
   std::vector<Person> rows;
-  for (auto& p : *listed) {
-  }
+  rows.reserve(listed->size());
+  for (auto& p : *listed) rows.push_back(std::move(p));
   REQUIRE(rows.size() == 3);
 
   UnionFilter uf;
@@ -154,7 +158,6 @@ TEST_CASE("GEDCOM 集成：文件 → 库 → 文件 → 库 闭环，回流零�
   DbGuard guard2{temp_db_path()};
   auto db2 = Database::open(guard2.p.string());
   REQUIRE(db2.has_value());
-  REQUIRE(made2.has_value());
 
   auto doc2 = io::parse_gedcom(text);
   REQUIRE(doc2.has_value());

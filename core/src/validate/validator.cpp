@@ -151,7 +151,16 @@ void check_birth_after_death(const RuleDef& r, const PersonGraph& g,
     const auto b = year_of(&p->birth_date);
     const auto d = year_of(&*p->death_date);
     if (!b || !d) continue;
-    if (*b > *d) add(out, r, "person", id);
+    if (*b > *d) { add(out, r, "person", id); continue; }
+    // 第五轮 低-2：同一年内出生晚于卒（如 1900-12 生 / 1900-06 卒）
+    // 仅比年份会漏报。两者均为 Day 精度时用 ISO 串直接比较（yyyy-mm-dd
+    // 字典序即时间序）；精度不足仍按年口径，避免误报。
+    if (*b == *d && p->birth_date.precision == DatePrecision::Day &&
+        p->death_date->precision == DatePrecision::Day) {
+      const auto bs = p->birth_date.sort_key();
+      const auto ds = p->death_date->sort_key();
+      if (bs && ds && *bs > *ds) add(out, r, "person", id);
+    }
   }
 }
 

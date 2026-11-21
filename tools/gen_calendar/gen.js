@@ -12,11 +12,12 @@
  *           · 节气时刻到「秒」一致（官方按四舍五入取分）
  *
  * ── 交付区间为什么是 1368-3000 ──────────────────────────────────────────
- * 1368-1582（明代，儒略历史实口径）：大统历朔闰，取自 ytliu0/ChineseCalendar
- * （GPL-3.0，大统历定朔推步 + 明实录历书扫描件订正，由 extract_datong.js
- * 提取为 out/datong_years.json）。该段日期按儒略历口径读写（洪武元年正月
- * 初一 = 儒略 1368-01-20），月长/闰月为史实而非天文推算。节气无大统历
- * 数据，仍自 1583 年起提供（见 TERM_MIN）。
+ * 1368-1582（明代，儒略历史实口径）：大统历朔闰史实，固化于
+ * fixtures/ming_datong_facts.json（各月初一的客观历法事实——某年正月
+ * 初一落在哪一天，属历法事实，依《著作权法》第五条第（三）项不受
+ * 著作权保护；本仓库只保留事实数值，不含任何上游代码或表达）。
+ * 该段日期按儒略历口径读写（洪武元年正月初一 = 儒略 1368-01-20），
+ * 月长/闰月为史实而非天文推算。节气无大统历数据，仍自 1583 年起提供。
  * 1583-3000：lunar-javascript（MIT）现代天文推算。扫描 1-3000 全部农历年
  * 做结构体检，lunar-javascript 异常年份共 11 个且全部 ≤1582：
  *   · 1582  格里历改革删去 10 天（10-05~10-14 不存在），第 9 月算出 39 天
@@ -186,10 +187,11 @@ function main() {
     throw new Error(`存在 ${faults.length} 个结构异常农历年，拒绝生成`);
   }
 
-  // ---- 3.5) datong 段（1368-1582 大统历史实）合并 ----
-  const datongPath = path.join(__dirname, 'out', 'datong_years.json');
+  // ---- 3.5) 大统历段（1368-1582 儒略历史实）合并 ----
+  // 数据来源：fixtures/ming_datong_facts.json 固化的历法事实数值。
+  const datongPath = path.join(__dirname, 'fixtures', 'ming_datong_facts.json');
   if (!fs.existsSync(datongPath)) {
-    throw new Error('缺少 out/datong_years.json：先运行 node extract_datong.js');
+    throw new Error('缺少 fixtures/ming_datong_facts.json（大统历事实数据表）');
   }
   const datong = JSON.parse(fs.readFileSync(datongPath, 'utf8'));
   const datongYears = datong.years.map(y => ({
@@ -208,16 +210,16 @@ function main() {
       throw new Error(`datong ${y.gregorianYear}: 月数=${y.monthCount}`);
     }
   }
-  // 衔接自证：datong 末年（1582）正月朔 + 农历年长 = 扫描段首年（1583）正月朔。
-  // 两段数据源不同（ytliu0 vs lunar-javascript），能对上即边界无冲突。
+  // 衔接自证：大统历末年（1582）正月朔 + 农历年长 = 扫描段首年（1583）正月朔。
+  // 两段来源不同（历史事实表 vs lunar-javascript 推算），能对上即边界无冲突。
   const popcount = (v) => { let n = 0; while (v) { v &= v - 1; n++; } return n; };
   const datongLast = datongYears[datongYears.length - 1];
   const scanFirst = years[0];
   const seam = datongLast.firstDay + 29 * datongLast.monthCount +
                popcount(datongLast.lenMask);
   if (seam !== scanFirst.firstDay) {
-    throw new Error(`datong→lunar-javascript 衔接断裂: 1582 段末推 ${seam}，` +
-      `1583 扫描 ${scanFirst.firstDay}（两数据源在 1583 正月朔上冲突）`);
+    throw new Error(`大统历段→天文推算段衔接断裂: 1582 段末推 ${seam}，` +
+      `1583 扫描 ${scanFirst.firstDay}（两段在 1583 正月朔上冲突）`);
   }
   console.log('datong 段合并:', datongYears.length, '年（' +
     datongYears[0].gregorianYear + '-' + datongLast.gregorianYear + '），' +
@@ -400,7 +402,7 @@ function main() {
       caveats: [
         '1900-2025 经紫金山天文台官方表逐日核验（46021/46021 一致）',
         '1645 年（清《时宪书》）以前中国官方历法用平气平朔，1583-1644（万历-崇祯，仍行大统历）的现代天文推算与实历可能有 1 日级差异',
-        '1368-1582 为大统历朔闰史实段（儒略历口径，ytliu0/ChineseCalendar 提取）；1368 年以前不提供',
+        '1368-1582 为大统历朔闰史实段（儒略历口径，固化历法事实数据）；1368 年以前不提供',
         '节气数据自 1583 年起提供（大统历段无节气数据）',
       ],
     },

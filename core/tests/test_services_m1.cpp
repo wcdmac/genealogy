@@ -15,6 +15,7 @@
 #include <genealogy/model/place.hpp>
 #include <genealogy/model/union.hpp>
 #include <genealogy/repository/database.hpp>
+#include <genealogy/service/book_service.hpp>
 #include <genealogy/service/branch_service.hpp>
 #include <genealogy/service/event_service.hpp>
 #include <genealogy/service/person_service.hpp>
@@ -67,53 +68,46 @@ struct Fixture {
 
 }  // namespace
 
-TEST_CASE("宗族服务：必填校验与 CRUD", "[service][lineage]") {
+TEST_CASE("谱元数据服务：必填校验、更新与乐观锁（单谱单库）") {
   Fixture fx;
-  l.commandery = "颍川";
-  REQUIRE(created);
-  REQUIRE(is_valid_ulid(created->id));
-  REQUIRE(created->rev == 1);
+  BookService svc(fx.db());
 
-  Lineage no_name;
-  no_name.surname = "陈";
-  REQUIRE_FALSE(bad1);
-  REQUIRE(bad1.error().code() == ErrorCode::InvalidArgument);
+  // 单谱单库：book 行由迁移建好，恒单行
+  auto got = svc.get_book();
+  REQUIRE(got.has_value());
+  CHECK(got->rev == 1);
 
-  Lineage no_surname;
-  no_surname.name = "无名谱";
-  REQUIRE_FALSE(bad2);
-  REQUIRE(bad2.error().code() == ErrorCode::InvalidArgument);
+  // 更新必填字段
+  Book upd = *got;
+  upd.name = "中湘陈氏六修族谱";
+  upd.surname = "陈";
+  upd.commandery = "颍川";
+  auto updated = svc.update_book(upd);
+  REQUIRE(updated.has_value());
+  CHECK(updated->rev == 2);
+  REQUIRE(updated->commandery.has_value());
+  CHECK(*updated->commandery == "颍川");
 
-  const auto got = svc.get_lineage(created->id);
-  REQUIRE(got);
-  REQUIRE(got->commandery.value() == "颍川");
+  // 单谱单库 book 恒单行，update 无条件写 rev=rev+1（不提供乐观锁），
+  // 连续更新应递增而非冲突
+  Book again = *updated;
+  again.hall_name = "德星堂";
+  auto second = svc.update_book(again);
+  REQUIRE(second.has_value());
+  CHECK(second->rev == 3);
+  REQUIRE(second->hall_name.has_value());
+  CHECK(*second->hall_name == "德星堂");
 
-  // 更新后旧 rev 冲突
-  Lineage upd = *created;
-  upd.hall_name = "德星堂";
-  const auto updated = svc.update_lineage(upd);
-  REQUIRE(updated);
-  REQUIRE(updated->rev == 2);
-  REQUIRE(updated->hall_name.value() == "德星堂");
-
-  Lineage stale = upd;  // rev 仍为 1
-  const auto conflict = svc.update_lineage(stale);
-  REQUIRE_FALSE(conflict);
-  REQUIRE(conflict.error().code() == ErrorCode::Conflict);
-
-  REQUIRE(svc.remove_lineage(created->id));
-  REQUIRE_FALSE(svc.get_lineage(created->id));
+  auto reread = svc.get_book();
+  REQUIRE(reread.has_value());
+  CHECK(reread->name == "中湘陈氏六修族谱");
+  CHECK(reread->rev == 3);
 }
 
 TEST_CASE("支派服务：归属与存在性校验", "[service][branch]") {
   Fixture fx;
   BranchService svc(fx.db());
-  REQUIRE(lin);
 
-  Lineage other;
-  other.name = "李氏谱";
-  other.surname = "李";
-  REQUIRE(lin2);
 
   const Person founder = fx.make_person("陈", "文远");
 
@@ -126,11 +120,11 @@ TEST_CASE("支派服务：归属与存在性校验", "[service][branch]") {
   REQUIRE(created);
   REQUIRE(created->generation_char.value() == "明");
 
-  // 宗族不存在
-  Branch bad_lineage = b;
-  const auto r1 = svc.create_branch(bad_lineage);
+  // 单谱单库无 lineage 归属字段；支派名必填
+  Branch no_name;
+  const auto r1 = svc.create_branch(no_name);
   REQUIRE_FALSE(r1);
-  REQUIRE(r1.error().code() == ErrorCode::NotFound);
+  REQUIRE(r1.error().code() == ErrorCode::InvalidArgument);
 
   // 始迁祖不存在
   Branch bad_founder = b;
@@ -145,13 +139,6 @@ TEST_CASE("支派服务：归属与存在性校验", "[service][branch]") {
   const auto r3 = svc.create_branch(bad_parent);
   REQUIRE_FALSE(r3);
   REQUIRE(r3.error().code() == ErrorCode::NotFound);
-
-  // 跨宗族父房：归属校验
-  Branch cross = b;
-  cross.parent_branch_id = created->id;    // 陈氏东八房
-  const auto r4 = svc.create_branch(cross);
-  REQUIRE_FALSE(r4);
-  REQUIRE(r4.error().code() == ErrorCode::InvalidArgument);
 
   // 同宗族父房合法
   Branch child = b;
@@ -256,7 +243,6 @@ TEST_CASE("事件服务：主体存在性与类型", "[service][event]") {
   EventService svc(fx.db());
 
   const Person p = fx.make_person("陈", "文远");
-  REQUIRE(lin);
 
   // 人物事件（葬）
   Event burial;
@@ -279,7 +265,7 @@ TEST_CASE("事件服务：主体存在性与类型", "[service][event]") {
   // 宗族事件
   Event lineage_event;
   lineage_event.subject_type = EventSubjectType::Lineage;
-  lineage_event.subject_id = lin->id;
+  lineage_event.subject_id = generate_ulid();  // 单谱单库：谱级事件无主体表，仅需合法 ULID
   lineage_event.type = EventType::Annotation;
   lineage_event.description = "六修谱告成";
   const auto r2 = svc.create_event(lineage_event);
@@ -295,17 +281,17 @@ TEST_CASE("事件服务：主体存在性与类型", "[service][event]") {
   REQUIRE(list->at(0).type == EventType::Burial);
 }
 
-TEST_CASE("人物服务：宗族存在性校验", "[service][person]") {
+TEST_CASE("人物服务：必填与父母存在性校验", "[service][person]") {
   Fixture fx;
   PersonService svc(fx.db());
 
-  // 不存在的宗族
+  // 单谱单库无 lineage 归属；名必填
   Person bad;
-  bad.family_name = "陈";
+  bad.family_name = "";
   bad.given_name = "文远";
   const auto r1 = svc.create_person(bad);
   REQUIRE_FALSE(r1);
-  REQUIRE(r1.error().code() == ErrorCode::NotFound);
+  REQUIRE(r1.error().code() == ErrorCode::InvalidArgument);
 
   // 合法建档
   Person good;

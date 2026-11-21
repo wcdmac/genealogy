@@ -141,7 +141,7 @@ int cmd_import_gedcom(const std::vector<std::string>& args,
   opts.parse_positional({"file"});
   const auto r = parse_args(opts, args);
   if (!r.count("file")) {
-    std::cerr << "用法错误: genea io import gedcom <file.ged> --lineage <宗族ID>"
+    std::cerr << "用法错误: genea io import gedcom <file.ged>"
                  " [--surname 陈] [--no-places]\n";
     return 2;
   }
@@ -149,7 +149,7 @@ int cmd_import_gedcom(const std::vector<std::string>& args,
   bool ok = false;
   const std::string bytes = read_file(r["file"].as<std::string>(), &ok);
   if (!ok) {
-    std::cerr << "错误[6001]: 读不到文件 " << r["file"].as<std::string>() << "\n";
+    print_error(Error{ErrorCode::IoError, "读不到文件 " + r["file"].as<std::string>()});
     return 1;
   }
   auto doc = io::parse_gedcom(bytes);
@@ -350,9 +350,11 @@ int cmd_export_gedcom(const std::vector<std::string>& args,
   const std::string text = io::export_gedcom(eo);
   if (text.empty() && eo.gedcom_version != "5.5.1" &&
       eo.gedcom_version != "7.0") {
-    std::cerr << "错误[6001]: 不支持的 GEDCOM 版本 " << eo.gedcom_version
-              << "（支持 5.5.1 / 7.0）\n";
-    return 1;
+    const Error err{ErrorCode::InvalidArgument,
+                    "不支持的 GEDCOM 版本 " + eo.gedcom_version +
+                        "（支持 5.5.1 / 7.0）"};
+    print_error(err);
+    return exit_code_for(err);
   }
 
   if (r.count("out")) {
@@ -363,7 +365,7 @@ int cmd_export_gedcom(const std::vector<std::string>& args,
     bool ok = false;
     write_file(r["out"].as<std::string>(), text, &ok);
     if (!ok) {
-      std::cerr << "错误[6001]: 写不出文件 " << r["out"].as<std::string>() << "\n";
+      print_error(Error{ErrorCode::IoError, "写不出文件 " + r["out"].as<std::string>()});
       return 1;
     }
     if (format == "json") {
@@ -557,7 +559,7 @@ int cmd_export_tree(const std::vector<std::string>& args,
     bool ok = false;
     write_file(r["out"].as<std::string>(), *text, &ok);
     if (!ok) {
-      std::cerr << "错误[6001]: 写不出文件 " << r["out"].as<std::string>() << "\n";
+      print_error(Error{ErrorCode::IoError, "写不出文件 " + r["out"].as<std::string>()});
       return 1;
     }
     if (format == "json") {

@@ -2,16 +2,20 @@
 
 #include <genealogy/util/time.hpp>
 
+#include "sqlite_util.hpp"
+
 #include <sqlite3.h>
 
 namespace genealogy {
 
 namespace {
 
+using repo_internal::col_text;
+
 Book row_to_book(sqlite3_stmt* st) {
   Book b;
-  b.name = reinterpret_cast<const char*>(sqlite3_column_text(st, 0));
-  b.surname = reinterpret_cast<const char*>(sqlite3_column_text(st, 1));
+  b.name = col_text(st, 0);
+  b.surname = col_text(st, 1);
   if (sqlite3_column_type(st, 2) != SQLITE_NULL) {
     b.surname_origin = reinterpret_cast<const char*>(sqlite3_column_text(st, 2));
   }
@@ -27,8 +31,8 @@ Book row_to_book(sqlite3_stmt* st) {
   if (sqlite3_column_type(st, 6) != SQLITE_NULL) {
     b.note = reinterpret_cast<const char*>(sqlite3_column_text(st, 6));
   }
-  b.created_at = reinterpret_cast<const char*>(sqlite3_column_text(st, 7));
-  b.updated_at = reinterpret_cast<const char*>(sqlite3_column_text(st, 8));
+  b.created_at = col_text(st, 7);
+  b.updated_at = col_text(st, 8);
   b.rev = sqlite3_column_int(st, 9);
   return b;
 }
