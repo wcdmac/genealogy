@@ -2777,6 +2777,11 @@ export interface operations {
                  *     带 kind 判别字段，人物在前）。未知 scope 返回 400。
                  */
                 scope?: "person" | "document" | "all";
+                /**
+                 * @description 限定单谱（多谱同库检索谱内化）：提供时只命中该宗族的
+                 *     人物/文档；省略则跨全部宗族。
+                 */
+                lineage_id?: string;
                 limit?: components["parameters"]["Limit"];
                 cursor?: components["parameters"]["Cursor"];
             };
