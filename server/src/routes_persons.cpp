@@ -249,9 +249,12 @@ void persons_create(const drogon::HttpRequestPtr& req, Callback&& cb) {
   audit_write(*db, req, "person", made->id, "insert", to_json(*made));
   {
     nlohmann::json j = to_json(*made);
+    // 先脱敏再入库（第三轮新-5）：此前缓存写的是脱敏前的完整 JSON，
+    // 同一 Idempotency-Key 重放会绕过脱敏拿到原始体。缓存键已含身份，
+    // 各 viewer 各自缓存自己该看到的形态，重放与首次响应完全一致。
+    sanitize_person(j, identity_of(req).raw_privacy);
     const std::string jbody = j.dump();
     idempotency_store(*db, req, idem_key, 201, jbody);
-    sanitize_person(j, identity_of(req).raw_privacy);
     cb(json_created(std::move(j), made->rev));
   }
   GENEALOGY_PUBLISH_CHANGE("person.created", "person", made->id, made->rev);
@@ -368,6 +371,10 @@ void person_get(const drogon::HttpRequestPtr& req, Callback&& cb) {
     for (const auto& n : *ns) arr.push_back(to_json(n));
     body["names"] = arr;
   }
+  // 子资源脱敏（第三轮新-2）：与主对象同一口径——viewer 不能从
+  // events/migrations/unions/names 读回刚被 sanitize_person 抹掉的
+  // 精确生卒、地点与描述。raw_privacy 令牌持有者不受影响。
+  sanitize_expanded_resources(body, identity_of(req).raw_privacy);
   cb(json_ok(std::move(body), got->rev));
 }
 
@@ -406,7 +413,13 @@ void person_patch(const drogon::HttpRequestPtr& req, Callback&& cb) {
 
   // If-Match 缺失时不允许盲写：并发编辑下会把别人的改动覆盖掉。
   // 规范 5.2.1 要求写操作带 If-Match，这里按缺失即 409 处理。
-  const auto want = parse_if_match(req);
+  auto want = parse_if_match(req);
+  if (!want && if_match_is_wildcard(req)) {
+    // If-Match: *（RFC 9110）：资源存在即放行——存在性已由上面的读取
+    // 确认，取当前 rev 继续乐观锁写。此前通配被当缺失返回 428
+    // （第三轮新-9）。
+    want = current->rev;
+  }
   if (!want) {
     cb(problem_response(428, 2009, "需要 If-Match",
                         "更新必须带 If-Match（当前 rev=" +

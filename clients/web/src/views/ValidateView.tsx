@@ -1,7 +1,7 @@
 // 校验视图：跑一致性规则，看数据质量问题清单。
 // 「无证据事实数」等核心质量指标随 M5 证据链落地后在此展示。
 
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 
 import { useClient } from "../context";
 import { ErrorBar } from "../components/Modal";
@@ -22,17 +22,27 @@ export function ValidateView() {
   const [error, setError] = useState<unknown>(null);
   const [running, setRunning] = useState(false);
 
+  // 在途请求取消（第三轮新-W3）：连点「重新校验」时旧响应不再覆盖
+  const runAbortRef = useRef<AbortController | null>(null);
   const run = useCallback(async () => {
+    runAbortRef.current?.abort();
+    const controller = new AbortController();
+    runAbortRef.current = controller;
     setRunning(true);
     try {
       setError(null);
-      const result = await client.runValidation();
+      const result = await client.runValidation(undefined, {
+        signal: controller.signal,
+      });
+      if (controller.signal.aborted) return;
       setIssues(result.issues ?? []);
       setSummary(result.summary ?? {});
     } catch (caught) {
+      if (controller.signal.aborted) return;
       setError(caught);
     } finally {
-      setRunning(false);
+      // 只由当前这轮收 running 标志——被新一轮 abort 时不越权清标志
+      if (runAbortRef.current === controller) setRunning(false);
     }
   }, [client]);
 

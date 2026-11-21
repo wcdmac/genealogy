@@ -11,6 +11,9 @@ namespace genealogy {
 enum class ErrorCode : int {
   Ok = 0,
   InvalidArgument = 1001,
+  // 非 JSON/非 multipart 媒体类型（body_guard 415；第三轮新-8 补登记，
+  // 此前实现用了裸码但 ErrorCode 层缺枚举）
+  UnsupportedMediaType = 1002,
   NotFound = 2001,
   Conflict = 2009,
   Unauthorized = 3001,
@@ -18,12 +21,17 @@ enum class ErrorCode : int {
   CalendarOutOfRange = 5001,
   IoError = 6001,
   Internal = 9001,
+  // 限流（429 + Retry-After）
+  TooManyRequests = 42901,
+  // SSE 订阅数达上限（503）
+  ServiceUnavailable = 9002,
 };
 
 inline const char* error_code_name(ErrorCode code) noexcept {
   switch (code) {
     case ErrorCode::Ok: return "ok";
     case ErrorCode::InvalidArgument: return "invalid_argument";
+    case ErrorCode::UnsupportedMediaType: return "unsupported_media_type";
     case ErrorCode::NotFound: return "not_found";
     case ErrorCode::Conflict: return "conflict";
     case ErrorCode::Unauthorized: return "unauthorized";
@@ -31,6 +39,8 @@ inline const char* error_code_name(ErrorCode code) noexcept {
     case ErrorCode::CalendarOutOfRange: return "calendar_out_of_range";
     case ErrorCode::IoError: return "io_error";
     case ErrorCode::Internal: return "internal";
+    case ErrorCode::TooManyRequests: return "too_many_requests";
+    case ErrorCode::ServiceUnavailable: return "service_unavailable";
   }
   return "unknown";
 }

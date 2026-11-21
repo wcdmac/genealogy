@@ -92,7 +92,7 @@ void sources_list(const drogon::HttpRequestPtr& req, Callback&& cb) {
   if (const auto q = req->getParameter("q"); !q.empty()) {
     f.title_contains = q;
   }
-  f.limit = page.limit;
+  f.limit = page.limit + 1;  // 多取一条判 has_more（第三轮新-4，此前恒 false）
   if (!page.cursor.empty()) f.cursor = page.cursor;
   auto rows = svc.list_sources(f);
   if (!rows) {
@@ -296,7 +296,7 @@ void citations_list(const drogon::HttpRequestPtr& req, Callback&& cb) {
   if (const auto s = req->getParameter("source_id"); !s.empty()) {
     f.source_id = s;
   }
-  f.limit = page.limit;
+  f.limit = page.limit + 1;  // 多取一条判 has_more（第三轮新-4，此前恒 false）
   if (!page.cursor.empty()) f.cursor = page.cursor;
   auto rows = svc.list_citations(f);
   if (!rows) {

@@ -64,7 +64,8 @@ async function main() {
     return 2;
   }
 
-  const dbPath = join(mkdtempSync(join(tmpdir(), "genealogy-ui-")), "smoke.db");
+  const tmpRoot = mkdtempSync(join(tmpdir(), "genealogy-ui-"));
+  const dbPath = join(tmpRoot, "smoke.db");
 
   const server = spawn(serverBin, ["--port", String(API_PORT), "--db", dbPath, "--threads", "2"], {
     stdio: ["ignore", "pipe", "pipe"],
@@ -306,9 +307,11 @@ async function main() {
     server.kill();
     preview.kill();
     try {
-      rmSync(dbPath, { force: true });
+      // 整个临时目录递归清（第三轮新-W6）：此前只删 smoke.db，
+      // mkdtemp 建的 genealogy-ui-* 目录每次运行都留在 tmpdir
+      rmSync(tmpRoot, { recursive: true, force: true });
     } catch {
-      // 临时库清理失败不致命
+      // 临时目录清理失败不致命
     }
   }
 }

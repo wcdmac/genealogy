@@ -1008,6 +1008,11 @@ int run(std::vector<std::string> raw_args) {
 
   const std::string command = unmatched[0];
   const std::vector<std::string> rest(unmatched.begin() + 1, unmatched.end());
+  // bench 无子命令（其余命令组才是 add/list/… 结构）：必须先于
+  // 「缺子命令」检查分派，否则裸 `genea bench` 被拒（第三轮新-C12）
+  if (command == "bench") {
+    return genea_cli::cmd_bench(rest, db_path, format);
+  }
   if (rest.empty()) {
     std::cerr << "用法错误: " << command << " 缺少子命令\n";
     return 2;
@@ -1050,8 +1055,7 @@ int run(std::vector<std::string> raw_args) {
       return cmd_date(rest, format);   // 历法引擎，不需要数据库
     if (command == "io")
       return genea_cli::cmd_io(rest, db_path, format);
-    if (command == "bench")
-      return genea_cli::cmd_bench(rest, db_path, format);
+    // bench 已在子命令检查之前分派（无子命令结构，第三轮新-C12）
     if (command == "poem")
       return genea_cli::cmd_poem(rest, db_path, format);
     if (command == "migration")

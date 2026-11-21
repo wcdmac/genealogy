@@ -419,6 +419,14 @@ nlohmann::json page_envelope(std::vector<nlohmann::json> items,
 
 // ---------------------------------------------------------------- ETag
 
+bool if_match_is_wildcard(const drogon::HttpRequestPtr& req) {
+  const std::string v = req->getHeader("if-match");
+  if (v.size() >= 2 && v.front() == '"' && v.back() == '"') {
+    return v.size() == 3 && v[1] == '*';
+  }
+  return v == "*";
+}
+
 std::optional<std::int64_t> parse_if_match(const drogon::HttpRequestPtr& req) {
   // Drogon 把头名规范化成小写
   const std::string v = req->getHeader("if-match");
@@ -512,6 +520,69 @@ void sanitize_person(nlohmann::json& person, bool viewer_raw) {
       *it = date_to_year(*it);
     } else {
       person.erase(k);  // private：生卒全脱
+    }
+  }
+}
+
+
+// expand 子资源脱敏（第三轮新-2）：viewer（非 raw_privacy）对在世非公开
+// 人物的子资源套用与 sanitize_person 相同的字段口径——精确日期 kin 降
+// 年份、private 全脱；地点/描述/理由/备注一律抹掉。union 保留成员与
+// 类型（关系存在性已可见于人物卡），只抹日期/地点/备注。
+void sanitize_expanded_resources(nlohmann::json& body, bool viewer_raw) {
+  if (viewer_raw || !body.is_object()) return;
+  const bool living = body.contains("is_living") &&
+                      body["is_living"].get<bool>();
+  if (!living) return;  // 历史人物不脱敏
+  const std::string privacy =
+      body.value("privacy_level", std::string("kin"));
+  if (privacy == "public") return;
+  const bool keep_year_only = privacy == "kin";
+
+  // 日期字段：kin 降年份、private 抹掉（date_to_year 与 sanitize_person
+  // 同一个实现，见上方）
+  auto date_field = [&](nlohmann::json& obj, const char* key) {
+    auto it = obj.find(key);
+    if (it == obj.end()) return;
+    if (keep_year_only) {
+      *it = date_to_year(*it);
+    } else {
+      obj.erase(key);
+    }
+  };
+
+  if (body.contains("events")) {
+    for (auto& e : body["events"]) {
+      if (!e.is_object()) continue;
+      date_field(e, "date");
+      e.erase("place_id");
+      e.erase("description");
+    }
+  }
+  if (body.contains("migrations")) {
+    for (auto& m : body["migrations"]) {
+      if (!m.is_object()) continue;
+      date_field(m, "date");
+      m.erase("from_place_id");
+      m.erase("to_place_id");
+      m.erase("reason");
+      m.erase("route");
+      m.erase("note");
+    }
+  }
+  if (body.contains("unions")) {
+    for (auto& u : body["unions"]) {
+      if (!u.is_object()) continue;
+      date_field(u, "start_date");
+      date_field(u, "end_date");
+      u.erase("place_id");
+      u.erase("note");
+    }
+  }
+  if (body.contains("names")) {
+    for (auto& n : body["names"]) {
+      if (!n.is_object()) continue;
+      n.erase("note");
     }
   }
 }

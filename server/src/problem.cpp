@@ -15,12 +15,15 @@ const char* kProblemTypePrefix = "https://genealogy.local/problems/";
 int status_for_code(int code) {
   switch (code) {
     case 1001: return 400;  // 参数校验失败
+    case 1002: return 415;  // 不支持的媒体类型（第三轮新-8 补映射）
     case 2001: return 404;  // 资源不存在
     case 2009: return 409;  // 版本冲突
     case 3001: return 401;  // 未认证
     case 4001: return 403;  // 无权限
     case 5001: return 422;  // 历法超出支持范围
     case 6001: return 422;  // 内容无法处理（GEDCOM 解析失败等）
+    case 42901: return 429;  // 限流
+    case 9002: return 503;  // SSE 订阅数达上限
     default:   return 500;  // 9001 内部错误及未知码
   }
 }
@@ -28,12 +31,15 @@ int status_for_code(int code) {
 const char* title_for_code(int code) {
   switch (code) {
     case 1001: return "参数校验失败";
+    case 1002: return "不支持的媒体类型";
     case 2001: return "资源不存在";
     case 2009: return "版本冲突";
     case 3001: return "未认证";
     case 4001: return "无权限";
     case 5001: return "日期超出支持范围";
     case 6001: return "内容无法处理";
+    case 42901: return "请求过于频繁";
+    case 9002: return "订阅数已达上限";
     default:   return "内部错误";
   }
 }
@@ -42,6 +48,7 @@ const char* title_for_code(int code) {
 const char* slug_for_code(int code) {
   switch (static_cast<ErrorCode>(code)) {
     case ErrorCode::InvalidArgument: return "invalid-argument";
+    case ErrorCode::UnsupportedMediaType: return "unsupported-media-type";
     case ErrorCode::NotFound: return "not-found";
     case ErrorCode::Conflict: return "conflict";
     case ErrorCode::Unauthorized: return "unauthorized";
@@ -49,6 +56,8 @@ const char* slug_for_code(int code) {
     case ErrorCode::CalendarOutOfRange: return "calendar-out-of-range";
     case ErrorCode::IoError: return "unprocessable";
     case ErrorCode::Internal: return "internal";
+    case ErrorCode::TooManyRequests: return "too-many-requests";
+    case ErrorCode::ServiceUnavailable: return "service-unavailable";
     case ErrorCode::Ok: break;
   }
   return "internal";

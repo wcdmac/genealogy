@@ -8,6 +8,7 @@
 #include <genealogy/server/auth.hpp>
 #include <genealogy/server/routes_auth.hpp>
 #include <genealogy/util/time.hpp>
+#include <nlohmann/json.hpp>
 
 namespace {
 // 复合缓存键：身份 + 端点 + 客户端 key。换行符做分隔（key 本身可能含
@@ -74,6 +75,22 @@ std::optional<IdempotentReplay> idempotency_replay(
     resp->setBody(body_text ? body_text : "");
     resp->setContentTypeString("application/json; charset=utf-8");
     resp->addHeader("Idempotency-Replayed", "true");
+    // ETag 回放（第三轮新-10）：201 响应带 ETag（rev 乐观锁锚点），
+    // 重放曾把它丢掉，客户端拿不到 If-Match 基准。有 rev 的实体在缓存
+    // 体里都有 rev 字段，从这里恢复；event/place 等无 rev 实体本就不
+    // 设 ETag，保持一致。
+    try {
+      const auto body_json = nlohmann::json::parse(body_text ? body_text : "");
+      if (body_json.is_object() && body_json.contains("rev") &&
+          body_json["rev"].is_number()) {
+        resp->addHeader(
+            "ETag",
+            std::string("\"") +
+                std::to_string(body_json["rev"].get<std::int64_t>()) + "\"");
+      }
+    } catch (const std::exception&) {
+      // 非 JSON 缓存体（理论不会出现）：不设 ETag
+    }
     return IdempotentReplay{resp};
   }
   return std::nullopt;

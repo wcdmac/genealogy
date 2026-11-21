@@ -5,7 +5,7 @@
 // 引一整个地图库（及其离线瓦片问题）不划算。
 // 无坐标的地点进「待补坐标」清单——地图只是辅助，记录才是事实。
 
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 
 import { useClient } from "../context";
 import { ErrorBar, Modal } from "../components/Modal";
@@ -21,20 +21,30 @@ export function MigrationView() {
   const [showCreate, setShowCreate] = useState(false);
   const [showPlaceCreate, setShowPlaceCreate] = useState(false);
 
+  // 在途请求取消（第三轮新-W3）：筛选词快速变化时旧响应不再覆盖
+  const reloadAbortRef = useRef<AbortController | null>(null);
   const reload = useCallback(async () => {
+    reloadAbortRef.current?.abort();
+    const controller = new AbortController();
+    reloadAbortRef.current = controller;
     try {
       setError(null);
       const [migrationPage, placePage] = await Promise.all([
-        client.listMigrations({
-          branch_id: branchId.trim() || undefined,
-          subject_id: subjectId.trim() || undefined,
-          limit: 100,
-        }),
-        client.listPlaces({ limit: 200 }),
+        client.listMigrations(
+          {
+            branch_id: branchId.trim() || undefined,
+            subject_id: subjectId.trim() || undefined,
+            limit: 100,
+          },
+          { signal: controller.signal },
+        ),
+        client.listPlaces({ limit: 200 }, { signal: controller.signal }),
       ]);
+      if (controller.signal.aborted) return;
       setMigrations((migrationPage.data ?? []) as unknown as Migration[]);
       setPlaces((placePage.data ?? []) as unknown as Place[]);
     } catch (caught) {
+      if (controller.signal.aborted) return;
       setError(caught);
     }
   }, [client, branchId, subjectId]);

@@ -80,6 +80,10 @@ void GenealogyApp::draw_menu_bar() {
     if (ImGui::MenuItem("关闭数据库")) {
       session_.close();
       state_.selected_person_id.clear();
+      // 关系端点一并清（第三轮新-C5）：换库后拿旧库 id 建图，关系
+      // 面板算出的是旧库数据
+      state_.relation_ego.clear();
+      state_.relation_alter.clear();
       for (auto& p : panels_) p->on_database_closed();
       state_.set_status("数据库已关闭");
     }
@@ -193,7 +197,9 @@ bool GenealogyApp::run(std::string* err) {
 
   // 中文字体（失败不致命：回退默认字体 + 状态栏提示）
   std::string font_err;
-  if (!load_chinese_font(io, options_.font_size, &font_err)) {
+  const bool font_failed =
+      !load_chinese_font(io, options_.font_size, &font_err);
+  if (font_failed) {
     state_.set_status(font_err, false);
   }
 
@@ -202,13 +208,19 @@ bool GenealogyApp::run(std::string* err) {
 
   build_panels();
 
-  // 启动时带 --db 就直接开（桌面双击 / 命令行两种入口同一条路径）
+  // 启动时带 --db 就直接开（桌面双击 / 命令行两种入口同一条路径）。
+  // 字体提示并入开库状态，不互相覆盖（第三轮新-C13：字体失败提示
+  // 曾被随后的「已打开 …」直接冲掉，方框字症状查不到原因）
   if (!options_.db_path.empty()) {
     std::string why;
     if (!session_.open(options_.db_path, &why)) {
       state_.set_status("打开数据库失败: " + why, true);
     } else {
       state_.set_status("已打开 " + options_.db_path);
+    }
+    if (font_failed) {
+      state_.set_status(state_.status_message + "（另: " + font_err + "）",
+                        state_.status_is_error);
     }
   }
 
@@ -249,9 +261,11 @@ bool GenealogyApp::run(std::string* err) {
         // open() 会先 close() 旧库（新库打开失败旧库也已不在）：
         // 换库前后各面板缓存一律清掉，检索/关系/校验面板不得展示
         // 旧库的命中、路径与校验结论（复核 2.13，与「关闭数据库」
-        // 菜单项同口径）。
+        // 菜单项同口径）；关系端点同样清（第三轮新-C5）。
         for (auto& p : panels_) p->on_database_closed();
         state_.selected_person_id.clear();
+        state_.relation_ego.clear();
+        state_.relation_alter.clear();
         if (session_.open(path_buf_, &why)) {
           state_.db_path = path_buf_;
           state_.set_status(std::string("已打开 ") + path_buf_);

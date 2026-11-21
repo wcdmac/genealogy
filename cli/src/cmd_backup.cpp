@@ -49,7 +49,15 @@ std::string timestamp_now() {
 #endif
   char buffer[32];
   std::strftime(buffer, sizeof(buffer), "%Y%m%dT%H%M%S", &tm);
-  return buffer;
+  // 追加毫秒（第三轮新-C6）：同秒两次 backup 会命中同一路径，第二次
+  // VACUUM INTO 直接失败；restore 的 .bak 戳同理。
+  const auto ms = std::chrono::duration_cast<std::chrono::milliseconds>(
+                      now.time_since_epoch()) %
+                  1000;
+  char ms_buf[8];
+  std::snprintf(ms_buf, sizeof(ms_buf), "-%03lld",
+                static_cast<long long>(ms.count()));
+  return std::string(buffer) + ms_buf;
 }
 
 // SQL 字符串字面量转义：单引号翻倍。路径来自命令行，不转义会把
@@ -87,6 +95,52 @@ bool copy_tree_if_exists(const fs::path& from, const fs::path& to,
   fs::copy(from, to, fs::copy_options::recursive | fs::copy_options::overwrite_existing, ec);
   if (ec) {
     *why = ec.message();
+    return false;
+  }
+  return true;
+}
+
+// 快照完整性预检（第三轮新-C1）：H2 只验「目录里有 .db」，损坏/截断
+// 的快照会被原样拷成新库并打印「恢复完成」。动活库之前先只读打开
+// 快照跑 PRAGMA quick_check——损坏就地拒绝，不进恢复流程。
+bool snapshot_readable(const fs::path& snapshot, std::string* why) {
+  sqlite3* raw = nullptr;
+  if (sqlite3_open_v2(snapshot.string().c_str(), &raw,
+                      SQLITE_OPEN_READONLY | SQLITE_OPEN_FULLMUTEX,
+                      nullptr) != SQLITE_OK) {
+    if (why != nullptr) {
+      *why = raw != nullptr ? sqlite3_errmsg(raw) : "无法打开快照";
+    }
+    if (raw != nullptr) sqlite3_close_v2(raw);
+    return false;
+  }
+  struct Ctx {
+    std::string first;
+    bool has_row = false;
+  } ctx;
+  const auto callback = [](void* p, int cols, char** vals, char** /*names*/) {
+    auto* c = static_cast<Ctx*>(p);
+    if (cols > 0 && vals != nullptr && vals[0] != nullptr) {
+      c->first = vals[0];
+      c->has_row = true;
+    }
+    return 0;
+  };
+  char* errmsg = nullptr;
+  const int rc = sqlite3_exec(raw, "PRAGMA quick_check", callback, &ctx,
+                              &errmsg);
+  const std::string detail = errmsg != nullptr ? errmsg : "";
+  sqlite3_free(errmsg);
+  sqlite3_close_v2(raw);
+  if (rc != SQLITE_OK) {
+    if (why != nullptr) *why = detail.empty() ? "quick_check 执行失败" : detail;
+    return false;
+  }
+  // quick_check 无问题时返回一行 "ok"；有问题时逐条列出
+  if (!ctx.has_row || ctx.first != "ok") {
+    if (why != nullptr) {
+      *why = ctx.has_row ? ctx.first : "quick_check 无结果";
+    }
     return false;
   }
   return true;
@@ -214,6 +268,15 @@ int cmd_db_restore(const std::vector<std::string>& args,
     return 2;
   }
 
+  // 快照完整性预检（第三轮新-C1）：损坏快照就地拒绝
+  std::string snap_why;
+  if (!snapshot_readable(snapshot, &snap_why)) {
+    print_error(Error{ErrorCode::IoError,
+                      "快照损坏，拒绝恢复: " + snapshot.string() + " — " +
+                          snap_why});
+    return 1;
+  }
+
   // 目标已存在且未 force：拒绝。拿备份盖活库 = 用昨天盖今天，
   // 这种事故必须让人显式确认。
   if (fs::exists(db_path, ec) && !force) {
@@ -221,6 +284,31 @@ int cmd_db_restore(const std::vector<std::string>& args,
                       "目标库已存在: " + db_path +
                           "（确认要覆盖请加 --force，旧库会移开为 .bak）"});
     return 4;
+  }
+
+  // 附件库寄存（第三轮新-C11）：先拷进同盘暂存目录，拷贝失败在动
+  // 活库之前就地暴露——此前附件直接拷进目标目录，主库已换新、附件
+  // 半新半旧还打印失败，没有任何回滚点。
+  const fs::path attachments_from = from / "attachments";
+  const fs::path attachments_to =
+      fs::path(db_path).parent_path() / "attachments";
+  fs::path staging;
+  bool staged = false;
+  if (fs::exists(attachments_from)) {
+    staging = fs::path(attachments_to.string() + ".staging-" + timestamp_now());
+    std::error_code stage_ec;
+    fs::remove_all(staging, stage_ec);  // 同毫秒戳撞上的旧暂存（理论不会）
+    fs::copy(attachments_from, staging,
+             fs::copy_options::recursive | fs::copy_options::overwrite_existing,
+             stage_ec);
+    if (stage_ec) {
+      std::error_code clean_ec;
+      fs::remove_all(staging, clean_ec);
+      print_error(Error{ErrorCode::IoError,
+                        "附件库暂存拷贝失败（主库未动）: " + stage_ec.message()});
+      return 1;
+    }
+    staged = true;
   }
 
   // --force：旧库连同 -wal/-shm 旁车一起移开（H3——只搬主文件的话，
@@ -234,6 +322,11 @@ int cmd_db_restore(const std::vector<std::string>& args,
   auto rollback_moved = [&]() {
     if (!moved) return;
     std::error_code rec;
+    // 拷贝失败可能在目标留 0 字节/截断残留——Windows 的 rename 目标
+    // 存在即失败，不清残留则回滚必败、两头空（第三轮新-C2）。残留
+    // 只是本次恢复的残片，旧库本体在 .bak 里，清掉是安全的。
+    std::error_code rec_remove;
+    fs::remove(db_path, rec_remove);
     fs::rename(moved_main, db_path, rec);
     for (const auto& [src, dst] :
          {std::pair{moved_wal, fs::path(db_path).string() + "-wal"},
@@ -287,14 +380,35 @@ int cmd_db_restore(const std::vector<std::string>& args,
     return 1;
   }
 
-  const fs::path attachments_from = from / "attachments";
-  const fs::path attachments_to = fs::path(db_path).parent_path() / "attachments";
-  std::string copy_why;
-  const bool restored_attachments =
-      copy_tree_if_exists(attachments_from, attachments_to, &copy_why);
-  if (!copy_why.empty()) {
-    print_error(Error{ErrorCode::IoError, "附件库恢复失败: " + copy_why});
-    return 1;
+  // 附件换装（第三轮新-C11）：暂存目录改名就位；现有附件目录先改名
+  // 保留，换装失败时改回原名（主库状态与附件状态都清晰可查）。
+  bool restored_attachments = false;
+  if (staged) {
+    const fs::path old_dir =
+        fs::path(attachments_to.string() + ".old-" + timestamp_now());
+    std::error_code swap_ec;
+    const bool had_old = fs::exists(attachments_to, swap_ec);
+    if (had_old) fs::rename(attachments_to, old_dir, swap_ec);
+    if (!swap_ec) fs::rename(staging, attachments_to, swap_ec);
+    if (swap_ec) {
+      // 换装失败：旧目录改回原名，主库已恢复但附件保持原状——
+      // 不假装成功也不两头空，错误信息说清楚状态
+      std::error_code back_ec;
+      if (had_old && !fs::exists(attachments_to)) {
+        fs::rename(old_dir, attachments_to, back_ec);
+      }
+      std::error_code clean_ec;
+      fs::remove_all(staging, clean_ec);
+      print_error(Error{ErrorCode::IoError,
+                        "附件库换装失败（主库已恢复、附件保持原状）: " +
+                            swap_ec.message()});
+      return 1;
+    }
+    restored_attachments = true;
+    if (had_old) {
+      std::error_code clean_ec;
+      fs::remove_all(old_dir, clean_ec);
+    }
   }
 
   if (format == "json") {

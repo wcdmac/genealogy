@@ -7,6 +7,7 @@ import { useState } from "react";
 
 import { useClient } from "./context";
 import { EventFeed } from "./components/EventFeed";
+import { ErrorBoundary } from "./components/ErrorBoundary";
 import { PersonsView } from "./views/PersonsView";
 import { TreeView } from "./views/TreeView";
 import { ExportView } from "./views/ExportView";
@@ -36,7 +37,23 @@ const NAV: Array<{ key: ViewKey; label: string; hint: string }> = [
 // 地址，硬白名单会误伤）。三件事：scheme 只认 http/https 或同源
 // 相对路径；外域（hostname 不同）连接前显式确认；换址清旧令牌在
 // context.connect。
+//
+// 协议相对地址（//evil.com/api/v1、/\evil.com/…）按绝对地址处理
+// （第三轮新-W1）：new URL 会把它解析成外部主机——此前 startsWith("/")
+// 把它当同源相对路径，外域确认被短路，口令静默外发。
 function isConnectableAddress(target: string): boolean {
+  const parse = () =>
+    typeof window === "undefined"
+      ? null
+      : new URL(target, window.location.origin);
+  if (target.startsWith("//") || target.startsWith("/\\")) {
+    try {
+      const url = parse();
+      return url?.protocol === "http:" || url?.protocol === "https:";
+    } catch {
+      return false;
+    }
+  }
   if (target.startsWith("/")) return true;  // 同源相对路径
   try {
     const url = new URL(target);
@@ -48,16 +65,14 @@ function isConnectableAddress(target: string): boolean {
 }
 
 function isSameHost(target: string): boolean {
-  if (target.startsWith("/")) return true;
   if (typeof window === "undefined") return true;  // 非浏览器环境不拦
   try {
+    const url = new URL(target, window.location.origin);
+    // 协议相对地址在此被解析为外部主机，不再享受 startsWith("/") 豁免；
     // 按 hostname 比较（不含端口）：README 明确支持同机跨端口部署
     // （vite 代理端口 → server 端口），硬按 origin 会误伤这一场景；
     // 「外域」= hostname 不同，才需要确认。
-    return (
-      new URL(target, window.location.origin).hostname ===
-      window.location.hostname
-    );
+    return url.hostname === window.location.hostname;
   } catch {
     return false;
   }
@@ -168,12 +183,15 @@ export function App() {
             ))}
           </nav>
           <main className="content">
-            {view === "persons" && <PersonsView />}
-            {view === "tree" && <TreeView />}
-            {view === "migration" && <MigrationView />}
-            {view === "export" && <ExportView />}
-            {view === "validate" && <ValidateView />}
-            {view === "transcribe" && <TranscribeView />}
+            {/* 渲染兜底（第三轮新-W5）：单视图异常不再白屏整个应用 */}
+            <ErrorBoundary>
+              {view === "persons" && <PersonsView />}
+              {view === "tree" && <TreeView />}
+              {view === "migration" && <MigrationView />}
+              {view === "export" && <ExportView />}
+              {view === "validate" && <ValidateView />}
+              {view === "transcribe" && <TranscribeView />}
+            </ErrorBoundary>
           </main>
         </div>
       )}

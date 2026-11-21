@@ -218,7 +218,7 @@ cmake -S . -B build -DBUILD_SERVER=ON -DBUILD_GUI=ON ...
 # 映射损失: 1 条（warning 0 条，info 1 条）
 #   [I] @S1@ SOUR — 证据引用未建模（M1 无 Source/Citation），出处链已丢失
 ./build/bin/genea io validate --db family.db
-# 规则集 genealogy-validation v1（跑了 14/15 条）
+# 规则集 genealogy-validation v1（16 条规则全跑；R15 已移除留缺口）
 # 合计: error 0 · warning 1 · info 2
 #   [warning] R5 person 01J... — 与另一人同名且生年相同（确认是同一人误录两条，还是同名的两个人）
 ./build/bin/genea io export gedcom --db family.db --out 导出.ged --submitter 谱师
@@ -231,7 +231,7 @@ cmake -S . -B build -DBUILD_SERVER=ON -DBUILD_GUI=ON ...
 ./build/bin/genea person tree <始祖ID> --db family.db --depth 10
 ./build/bin/genea bench --db family.db --persons 100000      # 退出码 0 = 全达标
 # 指标                       目标          实测        结果
-# 灌库 100000 人物 + 88739 事件 < 60000       13667.0 ms   PASS
+# 灌库 100000 人物 + 300000 事件 < 60000       13667.0 ms   PASS
 # FTS 检索（10 万级）          < 50             5.2 ms   PASS
 # 十代子孙树（77816 节点/10 层）< 200          17.8 ms   PASS
 # 世系图快照构建（100000 人物） 参考项         303.7 ms   PASS

@@ -8,6 +8,7 @@
 #include <optional>
 #include <string>
 #include <unordered_map>
+#include <unordered_set>
 #include <vector>
 
 #include <algorithm>
@@ -197,7 +198,12 @@ void lineage_patch(const drogon::HttpRequestPtr& req, Callback&& cb) {
     cb(error_to_response(cur.error(), instance));
     return;
   }
-  const auto want = parse_if_match(req);
+  auto want = parse_if_match(req);
+  if (!want && if_match_is_wildcard(req)) {
+    // If-Match: *（RFC 9110）：资源存在即放行，取当前 rev 继续乐观锁
+    // 写。此前通配被当缺失返回 428（第三轮新-9）。
+    want = cur->rev;
+  }
   if (!want) {
     cb(problem_response(428, 2009, "需要 If-Match",
                         "更新必须带 If-Match（当前 rev=" +
@@ -359,7 +365,12 @@ void branch_patch(const drogon::HttpRequestPtr& req, Callback&& cb) {
     cb(error_to_response(cur.error(), instance));
     return;
   }
-  const auto want = parse_if_match(req);
+  auto want = parse_if_match(req);
+  if (!want && if_match_is_wildcard(req)) {
+    // If-Match: *（RFC 9110）：资源存在即放行，取当前 rev 继续乐观锁
+    // 写。此前通配被当缺失返回 428（第三轮新-9）。
+    want = cur->rev;
+  }
   if (!want) {
     cb(problem_response(428, 2009, "需要 If-Match",
                         "更新必须带 If-Match（当前 rev=" +
@@ -460,10 +471,18 @@ void branch_tree(const drogon::HttpRequestPtr& req, Callback&& cb) {
     if (b.parent_branch_id) kids_of[*b.parent_branch_id].push_back(&b);
   }
 
-  std::function<nlohmann::json(const std::string&)> emit =
-      [&](const std::string& bid) -> nlohmann::json {
+  // 环防护（第三轮新-1）：历史库里的父子环（A→B、B→A 是修复前的
+  // validate 挡不住的）会让无 visited 的递归栈溢出。visited 让每个
+  // 节点只展开一次（与 lineage 树的 H7 同口径）；深度上限 64 按递归
+  // 路径计（兄弟节点共享同一深度，不是全局计数），兜底异常深链（H6
+  // 同款数值）。
+  std::unordered_set<std::string> visited;
+  std::function<nlohmann::json(const std::string&, int)> emit =
+      [&](const std::string& bid, int depth) -> nlohmann::json {
         const auto self = by_id.find(bid);
         if (self == by_id.end()) return nullptr;
+        if (!visited.insert(bid).second) return nullptr;  // 环上重复节点
+        if (depth > 64) return nullptr;                   // 深度上限兜底
         const Branch* b = self->second;
         nlohmann::json node;
         node["id"] = b->id;
@@ -474,12 +493,12 @@ void branch_tree(const drogon::HttpRequestPtr& req, Callback&& cb) {
         nlohmann::json kids = nlohmann::json::array();
         const auto it = kids_of.find(bid);
         if (it != kids_of.end()) {
-          for (const auto* c : it->second) kids.push_back(emit(c->id));
+          for (const auto* c : it->second) kids.push_back(emit(c->id, depth + 1));
         }
         node["children"] = std::move(kids);
         return node;
       };
-  cb(json_ok(emit(id), std::nullopt));
+  cb(json_ok(emit(id, 1), std::nullopt));
 }
 
 // ================================================================ 婚姻结合
@@ -589,7 +608,12 @@ void union_patch(const drogon::HttpRequestPtr& req, Callback&& cb) {
     cb(error_to_response(cur.error(), instance));
     return;
   }
-  const auto want = parse_if_match(req);
+  auto want = parse_if_match(req);
+  if (!want && if_match_is_wildcard(req)) {
+    // If-Match: *（RFC 9110）：资源存在即放行，取当前 rev 继续乐观锁
+    // 写。此前通配被当缺失返回 428（第三轮新-9）。
+    want = cur->rev;
+  }
   if (!want) {
     cb(problem_response(428, 2009, "需要 If-Match",
                         "更新必须带 If-Match（当前 rev=" +

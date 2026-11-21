@@ -786,6 +786,21 @@ void print_rows(const std::vector<BenchRow>& rows, const std::string& format) {
   }
 }
 
+// 基准临时库作用域守卫（第三轮新-C9）：cmd_bench 有 20+ 处提前
+// return（灌库失败/导入失败/查询失败），函数末尾的清理块全被跳过，
+// 系统临时目录持续堆积。析构兜底，任何出口都清。
+struct BenchTempGuard {
+  std::string path;
+  bool keep = false;
+  ~BenchTempGuard() {
+    if (keep || path.empty()) return;
+    std::error_code ec;
+    std::filesystem::remove(path, ec);
+    std::filesystem::remove(path + "-wal", ec);
+    std::filesystem::remove(path + "-shm", ec);
+  }
+};
+
 }  // namespace
 
 int cmd_bench(const std::vector<std::string>& args, const std::string& db_path,
@@ -803,7 +818,7 @@ int cmd_bench(const std::vector<std::string>& args, const std::string& db_path,
       ("persons", "灌库人物数", cxxopts::value<std::size_t>()->default_value("100000"))
       ("writers", "并发写线程数（M9.1：各持独立连接灌 5 人，验收门=0 locked）",
        cxxopts::value<int>()->default_value("1"))
-      ("events-per-person", "每人事件数（合成谱每人是 3 条）",
+      ("events-per-person", "每人事件数（0-20；3=出生/卒年/葬期，>3 补记事，0 不生成）",
        cxxopts::value<int>()->default_value("3"))
       ("depth", "十代树的展开层数", cxxopts::value<int>()->default_value("10"))
       ("repeat", "查询类指标重复次数取中位数", cxxopts::value<int>()->default_value("5"))
@@ -812,6 +827,7 @@ int cmd_bench(const std::vector<std::string>& args, const std::string& db_path,
       ("keep", "保留基准用的临时库（默认跑完删掉）",
        cxxopts::value<bool>()->default_value("false")->implicit_value("true"));
   const auto r = parse_args(opts, args);
+  const BenchTempGuard bench_guard{bench_db, r["keep"].as<bool>()};
   std::cout << "基准库: " << bench_db
             << "（临时文件，不触碰 --db 指定的业务库）\n";
 
@@ -841,6 +857,9 @@ int cmd_bench(const std::vector<std::string>& args, const std::string& db_path,
   so.surname = "陈";
   so.persons = persons;
   so.generations = depth + 4;
+  // 第三轮新-C8：--events-per-person 此前注册了却从未读取，合成器
+  // 固定每人 3 条——接线进合成器，参数真正生效
+  so.events_per_person = std::clamp(r["events-per-person"].as<int>(), 0, 20);
   auto synth = io::generate_synthetic(so);
   if (!synth) {
     print_error(synth.error());
@@ -1081,12 +1100,7 @@ int cmd_bench(const std::vector<std::string>& args, const std::string& db_path,
   for (const auto& row : rows) {
     if (!row.pass) all_pass = false;
   }
-  if (!r["keep"].as<bool>()) {
-    std::error_code ec;
-    std::filesystem::remove(bench_db, ec);
-    std::filesystem::remove(bench_db + "-wal", ec);
-    std::filesystem::remove(bench_db + "-shm", ec);
-  }
+  // 临时库清理交由 BenchTempGuard 析构（第三轮新-C9）
   return all_pass ? 0 : 1;
 }
 

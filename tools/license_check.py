@@ -3,7 +3,10 @@
 
 规则：
 1. vcpkg.json 的全部依赖（含 features）必须在 shared/licenses/allowlist.txt；
-2. 全仓文本文件不得出现 Qt 引用（Qt 的 CMake 包查询、Qt5/Qt6 命名空间目标、
+2. 前端/工具的 npm 依赖（clients/web 与 tools/gen_calendar 的
+   package.json，dependencies + devDependencies）同样必须登记（第三轮
+   新-W2：pdfjs-dist 等 npm 依赖此前从未过卡点）；
+3. 全仓文本文件不得出现 Qt 引用（Qt 的 CMake 包查询、Qt5/Qt6 命名空间目标、
    Qt 头文件包含）。匹配模式定义见本文件 QT_PATTERN。
 
 退出码：0 通过；1 存在违规。
@@ -59,6 +62,24 @@ def manifest_deps() -> set[str]:
     return deps
 
 
+def npm_deps() -> set[str]:
+    """package.json 的 dependencies + devDependencies（第三轮新-W2）。
+
+    扫描对象：clients/web（运行时 React 前端）与 tools/gen_calendar
+    （离线生成工具）。node_modules 不看——白名单针对「声明了什么」，
+    传递依赖的许可审查在锁文件升级时人工做（vcpkg 同口径）。
+    """
+    deps: set[str] = set()
+    for pkg in (ROOT / "clients" / "web" / "package.json",
+                ROOT / "tools" / "gen_calendar" / "package.json"):
+        if not pkg.is_file():
+            continue
+        manifest = json.loads(pkg.read_text(encoding="utf-8"))
+        for section in ("dependencies", "devDependencies"):
+            deps.update(manifest.get(section, {}).keys())
+    return deps
+
+
 def main() -> int:
     violations: list[str] = []
 
@@ -66,6 +87,9 @@ def main() -> int:
     for dep in sorted(manifest_deps()):
         if dep not in allowed:
             violations.append(f"依赖不在白名单: {dep}")
+    for dep in sorted(npm_deps()):
+        if dep not in allowed:
+            violations.append(f"npm 依赖不在白名单: {dep}")
 
     scan_counts: dict[str, int] = {}
     for path in sorted(ROOT.rglob("*")):

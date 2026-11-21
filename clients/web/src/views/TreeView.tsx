@@ -7,7 +7,7 @@
 // 节点标识一律用人物 ID（server 的 DOT/Mermaid 导出同理）：
 // 同姓 + 派语字决定了重名率，用姓名当 key 会把两个人并成一个点。
 
-import { useCallback, useMemo, useState } from "react";
+import { useCallback, useMemo, useRef, useState } from "react";
 
 import { useClient } from "../context";
 import { ErrorBar } from "../components/Modal";
@@ -37,17 +37,26 @@ export function TreeView() {
   const [graph, setGraph] = useState<GraphData | null>(null);
   const [error, setError] = useState<unknown>(null);
 
+  // 在途请求取消（第三轮新-W3）：快速换中心人物/模式时旧响应不再
+  // 覆盖新结果——每次 load 先 abort 上一轮，aborted 守卫丢弃迟到响应
+  const loadAbortRef = useRef<AbortController | null>(null);
   const load = useCallback(
     async (id: string) => {
       if (!id.trim()) return;
+      loadAbortRef.current?.abort();
+      const controller = new AbortController();
+      loadAbortRef.current = controller;
       try {
         setError(null);
-        const data = (await client.getPersonTree(id.trim(), {
-          mode,
-          depth,
-        })) as GraphData;
+        const data = (await client.getPersonTree(
+          id.trim(),
+          { mode, depth },
+          { signal: controller.signal },
+        )) as GraphData;
+        if (controller.signal.aborted) return;
         setGraph(data);
       } catch (caught) {
+        if (controller.signal.aborted) return;
         setError(caught);
         setGraph(null);
       }

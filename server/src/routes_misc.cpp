@@ -103,9 +103,42 @@ void search(const drogon::HttpRequestPtr& req, Callback&& cb) {
   std::string next;
   bool more = false;
 
-  if (want_person) {
+  // 游标协议（第三轮新-3）：/search 的 cursor 带作用域前缀——
+  //   空         = 第一页
+  //   p:<人物id>  = 从该人物命中之后继续（scope=person / scope=all 的人物段）
+  //   d:<文档id>  = 从该文档命中之后继续（scope=document / scope=all 的文档段）
+  // 此前 cursor 被解析却从不传给查询，返回的 next_cursor 让客户端永远
+  // 重取第一页。解析失败显式 400，不静默回第一页。
+  std::string person_after;
+  std::string doc_after;
+  std::string cursor_scope;  // 空 / "p" / "d"
+  if (!page.cursor.empty()) {
+    if (page.cursor.rfind("p:", 0) == 0 && page.cursor.size() > 2) {
+      cursor_scope = "p";
+      person_after = page.cursor.substr(2);
+    } else if (page.cursor.rfind("d:", 0) == 0 && page.cursor.size() > 2) {
+      cursor_scope = "d";
+      doc_after = page.cursor.substr(2);
+    } else {
+      cb(validation_problem(instance, {}, "cursor 应为 p:<人物id> 或 d:<文档id>"));
+      return;
+    }
+  }
+  if (cursor_scope == "p" && !want_person) {
+    cb(validation_problem(instance, {},
+                          "cursor 作用域与 scope 不匹配（p: 需 scope=person/all）"));
+    return;
+  }
+  if (cursor_scope == "d" && !want_document) {
+    cb(validation_problem(instance, {},
+                          "cursor 作用域与 scope 不匹配（d: 需 scope=document/all）"));
+    return;
+  }
+  const bool viewer_raw = identity_of(req).raw_privacy;
+
+  if (want_person && cursor_scope != "d") {
     PersonService svc(*db);
-    auto got = svc.search_persons(q, page.limit + 1);
+    auto got = svc.search_persons(q, page.limit + 1, person_after);
     if (!got) {
       cb(error_to_response(got.error(), instance));
       return;
@@ -114,57 +147,38 @@ void search(const drogon::HttpRequestPtr& req, Callback&& cb) {
       more = true;
       got->pop_back();
     }
-    const bool viewer_raw = identity_of(req).raw_privacy;
     for (auto& p : *got) {
       nlohmann::json j = to_json(p);
       sanitize_person(j, viewer_raw);
       if (scope == "all") j["kind"] = "person";
       items.push_back(std::move(j));
-      next = p.id;  // 游标口径：最后一个命中 id（scope=all 仅人物参与翻页）
     }
-    if (scope == "person") {
-      cb(json_ok(page_envelope(std::move(items), more ? next : "", more),
-                 std::nullopt));
-      return;
-    }
-    // scope=all：人物已占满一页时不再查文档
-    if (!more) {
-      DocumentRepository docs(*db);
-      auto doc_hits = docs.search(q, page.limit + 1);
-      if (!doc_hits) {
-        cb(error_to_response(doc_hits.error(), instance));
-        return;
-      }
-      if (doc_hits->size() > static_cast<std::size_t>(page.limit)) {
-        more = true;
-        doc_hits->pop_back();
-      }
-      for (auto& d : *doc_hits) {
-        nlohmann::json j = to_json(d);
-        j["kind"] = "document";
-        items.push_back(std::move(j));
-        next = d.id;
-      }
-    }
-    cb(json_ok(page_envelope(std::move(items), more ? next : "", more),
-               std::nullopt));
-    return;
+    if (more && !got->empty()) next = "p:" + got->back().id;
   }
 
-  // scope=document
-  DocumentRepository docs(*db);
-  auto doc_hits = docs.search(q, page.limit + 1);
-  if (!doc_hits) {
-    cb(error_to_response(doc_hits.error(), instance));
-    return;
-  }
-  if (doc_hits->size() > static_cast<std::size_t>(page.limit)) {
-    more = true;
-    doc_hits->pop_back();
-  }
-  for (auto& d : *doc_hits) {
-    items.push_back(to_json(d));
-    next = d.id;
+  // 文档段：scope=document 独立翻页；scope=all 只补人物没占满的空位
+  //（人物占满一页时不查文档，与既有行为一致）
+  if (want_document && !more && cursor_scope != "p") {
+    DocumentRepository docs(*db);
+    const int doc_want =
+        scope == "document"
+            ? page.limit + 1
+            : static_cast<int>(page.limit) - static_cast<int>(items.size()) + 1;
+    auto doc_hits = docs.search(q, doc_want, doc_after);
+    if (!doc_hits) {
+      cb(error_to_response(doc_hits.error(), instance));
+      return;
+    }
+    if (doc_hits->size() > static_cast<std::size_t>(doc_want - 1)) {
+      more = true;
+      doc_hits->pop_back();
+    }
+    for (auto& d : *doc_hits) {
+      nlohmann::json j = to_json(d);
+      if (scope == "all") j["kind"] = "document";
+      items.push_back(std::move(j));
+    }
+    if (more && !doc_hits->empty()) next = "d:" + doc_hits->back().id;
   }
   cb(json_ok(page_envelope(std::move(items), more ? next : "", more),
              std::nullopt));
@@ -212,10 +226,21 @@ void stats(const drogon::HttpRequestPtr& req, Callback&& cb) {
 
   // 无证据事实（M7.3）：主体级口径——person/event 各查 citation 0 条
   // 的行数（与 R16 同一判定，但这里是 SQL 直查，不走全量装载）。
+  // Result 化后向上传播错误（第三轮新-7）：DB 错误报 500 而非静默报 0。
   CitationRepository citations(*db);
-  const long uncited =
-      citations.count_subjects_without_citation(CitationSubjectType::Person) +
+  const auto uncited_p =
+      citations.count_subjects_without_citation(CitationSubjectType::Person);
+  if (!uncited_p) {
+    cb(error_to_response(uncited_p.error(), instance));
+    return;
+  }
+  const auto uncited_e =
       citations.count_subjects_without_citation(CitationSubjectType::Event);
+  if (!uncited_e) {
+    cb(error_to_response(uncited_e.error(), instance));
+    return;
+  }
+  const long uncited = *uncited_p + *uncited_e;
 
   nlohmann::json out;
   out["person_count"] = graph.size();
@@ -513,7 +538,7 @@ void audit_query(const drogon::HttpRequestPtr& req, Callback&& cb) {
   q.entity_type = req->getParameter("entity_type");
   q.entity_id = req->getParameter("entity_id");
   q.cursor = page.cursor;
-  q.limit = page.limit;
+  q.limit = page.limit + 1;  // 多取一条判 has_more（第三轮新-4，此前恒 false）
   auto rows = audit_list(*db, q);
   if (!rows) {
     cb(error_to_response(rows.error(), instance));

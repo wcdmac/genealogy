@@ -84,7 +84,7 @@ void documents_list(const drogon::HttpRequestPtr& req, Callback&& cb) {
   } else if (!req->getParameter("type").empty()) {
     return;  // type_of 已回 400
   }
-  f.limit = page.limit;
+  f.limit = page.limit + 1;  // 多取一条判 has_more（第三轮新-4，此前恒 false）
   if (!page.cursor.empty()) f.cursor = page.cursor;
   auto rows = svc.list_documents(f);
   if (!rows) {

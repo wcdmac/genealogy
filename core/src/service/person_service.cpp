@@ -83,24 +83,32 @@ Result<void> PersonService::remove_person(const std::string& id) {
   // ROADMAP M7.2：删除被引事实时 409。人物本身被 citation 引用（字段级
   // 证据），或其即将级联删除的事件被引用——都不许删，先解除引用。
   // 引用计数需要在级联范围确定之后统计，故先取事件列表再判。
+  // 预检与下面的删除循环同口径（全量游标翻页）：此前预检只看第一页
+  // 1000 条，第 1001 条起被引用的事件会被级联删除、留下孤儿 citation
+  // （第三轮新-6）。
   EventRepository citations_scope_events(*db_);
-  EventFilter scope_ef;
-  scope_ef.subject_type = EventSubjectType::Person;
-  scope_ef.subject_id = id;
-  scope_ef.limit = 1000;
-  auto scope_events = citations_scope_events.list(scope_ef);
-  if (!scope_events) return scope_events.error();
-
   CitationRepository citations(*db_);
   auto person_cited =
       citations.count_for_subject(CitationSubjectType::Person, id);
   if (!person_cited) return person_cited.error();
   long cited = *person_cited;
-  for (const auto& e : *scope_events) {
-    auto event_cited =
-        citations.count_for_subject(CitationSubjectType::Event, e.id);
-    if (!event_cited) return event_cited.error();
-    cited += *event_cited;
+  std::optional<std::string> scope_cursor;
+  for (;;) {
+    EventFilter scope_ef;
+    scope_ef.subject_type = EventSubjectType::Person;
+    scope_ef.subject_id = id;
+    scope_ef.limit = 1000;
+    scope_ef.cursor = scope_cursor;
+    auto scope_events = citations_scope_events.list(scope_ef);
+    if (!scope_events) return scope_events.error();
+    if (scope_events->empty()) break;
+    for (const auto& e : *scope_events) {
+      auto event_cited =
+          citations.count_for_subject(CitationSubjectType::Event, e.id);
+      if (!event_cited) return event_cited.error();
+      cited += *event_cited;
+    }
+    scope_cursor = scope_events->back().id;
   }
   if (cited > 0) {
     return conflict("人物（含其事件）被 " + std::to_string(cited) +
@@ -170,8 +178,8 @@ Result<void> PersonService::remove_person(const std::string& id) {
 }
 
 Result<std::vector<Person>> PersonService::search_persons(
-    std::string_view keyword, int limit) {
-  return repo_.search(keyword, limit);
+    std::string_view keyword, int limit, const std::string& after_id) {
+  return repo_.search(keyword, limit, after_id);
 }
 
 }  // namespace genealogy

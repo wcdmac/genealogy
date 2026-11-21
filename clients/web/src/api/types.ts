@@ -1273,6 +1273,42 @@ export interface components {
                 "application/problem+json": components["schemas"]["Problem"];
             };
         };
+        /** @description 请求体媒体类型不被接受（code 1002）——API 只接受 application/json；multipart 仅 /imports/gedcom 消费（第三轮新-8 同步） */
+        UnsupportedMediaType: {
+            headers: {
+                [name: string]: unknown;
+            };
+            content: {
+                "application/problem+json": components["schemas"]["Problem"];
+            };
+        };
+        /** @description 请求过于频繁（code 42901）——按 IP 令牌桶限流，Retry-After 按回填速率动态计算 */
+        RateLimited: {
+            headers: {
+                [name: string]: unknown;
+            };
+            content: {
+                "application/problem+json": components["schemas"]["Problem"];
+            };
+        };
+        /** @description 功能明确不实现（如 /exports/tree 的 format=svg 需 graphviz，code 9001） */
+        NotImplemented: {
+            headers: {
+                [name: string]: unknown;
+            };
+            content: {
+                "application/problem+json": components["schemas"]["Problem"];
+            };
+        };
+        /** @description SSE 订阅数已达上限（code 9002，默认 64）——客户端按 retry 帧间隔退避重连 */
+        ServiceUnavailable: {
+            headers: {
+                [name: string]: unknown;
+            };
+            content: {
+                "application/problem+json": components["schemas"]["Problem"];
+            };
+        };
     };
     parameters: {
         Id: string;
@@ -2914,6 +2950,7 @@ export interface operations {
                     "text/plain": string;
                 };
             };
+            501: components["responses"]["NotImplemented"];
         };
     };
     streamEvents: {
@@ -2934,6 +2971,8 @@ export interface operations {
                     "text/event-stream": string;
                 };
             };
+            429: components["responses"]["RateLimited"];
+            503: components["responses"]["ServiceUnavailable"];
         };
     };
 }

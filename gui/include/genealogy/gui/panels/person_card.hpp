@@ -55,11 +55,11 @@ class PersonCardPanel : public Panel {
   bool buf_living_ = false;
   std::string buf_birth_order_;
   std::string buf_generation_no_;
-  // 行传/备注用专用字符缓冲：这两个字段是长文本（可达数千字），
-  // 每帧做 string→栈缓冲→string 的往返不划算，故常驻缓冲、
-  // 只在 load()/save() 时与 string 同步（见 widgets.hpp 的说明）。
-  char bio_buf_[8192] = {};
-  char note_buf_[4096] = {};
+  // 行传/备注用 std::string 缓冲：这两个字段是长文本（可达数千字），
+  // widgets.hpp 的 CallbackResize 桥接直接在 string 上编辑——不再有
+  // 固定缓冲截断（第三轮新-C14 把 8192/4096 定长数组换掉）
+  std::string bio_buf_;
+  std::string note_buf_;
 
   // 关系链展示（父母/配偶/子女，点选跳转）
   std::string father_id_;

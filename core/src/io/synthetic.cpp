@@ -58,6 +58,9 @@ Result<SyntheticData> generate_synthetic(const SyntheticOptions& opt) {
   if (opt.generations < 1 || opt.generations > 60) {
     return invalid_argument("generations 应在 1..60");
   }
+  if (opt.events_per_person < 0 || opt.events_per_person > 20) {
+    return invalid_argument("events_per_person 应在 0..20");
+  }
   SyntheticData out;
 
   Lcg rng(opt.seed);
@@ -111,7 +114,10 @@ Result<SyntheticData> generate_synthetic(const SyntheticOptions& opt) {
   };
 
   auto emit_facts = [&](const Person& p, int birth_year, int death_year) {
-    // 出生/卒年/葬期三个事件；卒年之后若干年下葬
+    // 每人事件数由 events_per_person 控制（第三轮新-C8）。基线三条 =
+    // 出生/卒年/葬期；>3 补「记事」事件；0 = 不生成。
+    const int n = opt.events_per_person;
+    if (n <= 0) return;
     Event birth;
     birth.id = generate_ulid();
     birth.subject_type = EventSubjectType::Person;
@@ -122,26 +128,41 @@ Result<SyntheticData> generate_synthetic(const SyntheticOptions& opt) {
     birth.created_at = now;
     out.events.push_back(birth);
 
-    Event death;
-    death.id = generate_ulid();
-    death.subject_type = EventSubjectType::Person;
-    death.subject_id = p.id;
-    death.type = EventType::Death;
-    death.date = GenealogyDate::from_iso(std::to_string(death_year)).value();
-    death.created_at = now;
-    out.events.push_back(death);
+    if (n >= 2) {
+      Event death;
+      death.id = generate_ulid();
+      death.subject_type = EventSubjectType::Person;
+      death.subject_id = p.id;
+      death.type = EventType::Death;
+      death.date = GenealogyDate::from_iso(std::to_string(death_year)).value();
+      death.created_at = now;
+      out.events.push_back(death);
+    }
 
-    Event burial;
-    burial.id = generate_ulid();
-    burial.subject_type = EventSubjectType::Person;
-    burial.subject_id = p.id;
-    burial.type = EventType::Burial;
-    burial.date =
-        GenealogyDate::from_iso(std::to_string(death_year + 1 + rng.below(3)))
-            .value();
-    burial.place_id = place_id(rng.below(static_cast<int>(kPlaceCount)));
-    burial.created_at = now;
-    out.events.push_back(burial);
+    if (n >= 3) {
+      Event burial;
+      burial.id = generate_ulid();
+      burial.subject_type = EventSubjectType::Person;
+      burial.subject_id = p.id;
+      burial.type = EventType::Burial;
+      burial.date =
+          GenealogyDate::from_iso(std::to_string(death_year + 1 + rng.below(3)))
+              .value();
+      burial.place_id = place_id(rng.below(static_cast<int>(kPlaceCount)));
+      burial.created_at = now;
+      out.events.push_back(burial);
+    }
+
+    for (int k = 3; k < n; ++k) {
+      Event note_ev;
+      note_ev.id = generate_ulid();
+      note_ev.subject_type = EventSubjectType::Person;
+      note_ev.subject_id = p.id;
+      note_ev.type = EventType::Annotation;
+      note_ev.description = "合成记事 " + std::to_string(k - 2);
+      note_ev.created_at = now;
+      out.events.push_back(note_ev);
+    }
   };
 
   // 始祖

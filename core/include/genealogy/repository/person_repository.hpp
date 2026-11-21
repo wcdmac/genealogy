@@ -32,7 +32,11 @@ class PersonRepository {
 
   Result<std::vector<Person>> list(const PersonFilter& filter) const;
   Result<Person> get(const std::string& id) const;
-  Result<std::vector<Person>> search(std::string_view keyword, int limit) const;
+  // after_id：keyset 游标——只返回 id 大于它的命中（/search 翻页，
+  // 第三轮新-3）。ORDER BY rank 保持每页相关性排序，分页完整性由
+  // id 集合划分保证（不重不漏）。
+  Result<std::vector<Person>> search(std::string_view keyword, int limit,
+                                     const std::string& after_id = {}) const;
 
   // 插入：分配 id / rev / created_at / updated_at（入参这些字段被忽略）。
   Result<Person> insert(Person person);

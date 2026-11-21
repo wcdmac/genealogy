@@ -164,6 +164,23 @@ req -X POST "$BASE/imports/gedcom" -H "Content-Type: multipart/form-data; bounda
 check_eq "multipart 导入 GEDCOM 200" 200 "$CODE"
 check_has "导入结果含 imported" "$(cat "$OUT/import_mp.json")" "imported"
 
+echo "== 11. search 游标翻页（第三轮新-3 验收门） =="
+# 此前 cursor 被解析却不传查询，next_cursor 让客户端永远重取第一页
+req "$BASE/search?q=%E9%99%88&limit=2&scope=person" > "$OUT/s1.json"
+check_eq "search 第一页 200" 200 "$CODE"
+check_eq "search 第一页 has_more" true "$($PY -c "import json;print(str(json.load(open('$OUT/s1.json'))['page']['has_more']).lower())")"
+CUR=$($PY -c "import json;print(json.load(open('$OUT/s1.json'))['page']['next_cursor'] or '')")
+check_ge "search 返回游标" ${#CUR} 3
+FIRST1=$($PY -c "import json;print(json.load(open('$OUT/s1.json'))['data'][0]['id'])")
+req "$BASE/search?q=%E9%99%88&limit=2&scope=person&cursor=$CUR" > "$OUT/s2.json"
+check_eq "search 第二页 200" 200 "$CODE"
+FIRST2=$($PY -c "import json;print(json.load(open('$OUT/s2.json'))['data'][0]['id'])" 2>/dev/null || echo none)
+if [ -n "$FIRST2" ] && [ "$FIRST1" != "$FIRST2" ]; then
+  ok "游标翻页前进（第二页首项不同于第一页）"
+else
+  bad "游标翻页前进（第一页[$FIRST1] 第二页[$FIRST2]）"
+fi
+
 echo
 echo "=========================================="
 echo "HTTP 端到端结果: PASS=$PASS FAIL=$FAIL"

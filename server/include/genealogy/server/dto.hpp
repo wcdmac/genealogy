@@ -131,10 +131,20 @@ nlohmann::json page_envelope(std::vector<nlohmann::json> items,
 //   public → 完整
 void sanitize_person(nlohmann::json& person, bool viewer_raw);
 
+// expand 子资源（events/unions/migrations/names）的脱敏（第三轮新-2）：
+// 主对象经 sanitize_person 抹掉的精确生卒/地点/描述，能从子资源原样
+// 读回——viewer（非 raw_privacy）看到的子资源必须套用同一口径。
+// body 为 person_get 组装完成后的响应体（含可选展开数组）。
+void sanitize_expanded_resources(nlohmann::json& body, bool viewer_raw);
+
 // ---------- ETag / If-Match ----------
 
 // 从 If-Match 头取期望版本；缺失返回 nullopt（调用方决定是否要求必填）。
 std::optional<std::int64_t> parse_if_match(const drogon::HttpRequestPtr& req);
+
+// If-Match 头是否为通配 "*"（RFC 9110：资源存在即放行，跳过 rev 比对）。
+// 第三轮新-9：此前通配被当缺失返回 428。
+bool if_match_is_wildcard(const drogon::HttpRequestPtr& req);
 
 // 响应头 ETag: "<rev>"。规范 5.2.1：ETag 带双引号。
 void set_etag(const drogon::HttpResponsePtr& resp, std::int64_t rev);

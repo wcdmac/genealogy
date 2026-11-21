@@ -6,12 +6,19 @@
 // 缩放/平移/折叠），那是 M3 后续的自绘 canvas 工作。一期先用 ImGui 的
 // 递归 TreeNode 把树摆出来——同样的数据、同样的展开算法，先让人
 // 「看得见树」，再解决「看得漂亮」。折叠/展开由 ImGui TreeNode 免费提供。
+//
+// 装载异步化（第三轮新-C10）：20 万人物装载 + 建图 + 展开是秒级操作，
+// 同步跑在 draw() 里整帧冻结。改后台线程 + 代际守卫——结果落 pending
+// 缓冲、以 running_ 翻转为发布点，UI 线程采纳；换根/换深度/换库都会
+// 递增 generation 让旧结果作废（事实上的取消）。
 
 #include <genealogy/gui/app_state.hpp>
 #include <genealogy/gui/panels.hpp>
 
+#include <atomic>
 #include <memory>
 #include <string>
+#include <thread>
 
 #include <genealogy/lineage/graph.hpp>
 #include <genealogy/lineage/tree.hpp>
@@ -21,24 +28,22 @@ namespace genealogy::gui {
 class TreePanel : public Panel {
  public:
   explicit TreePanel(AppState& state) : state_(state) {}
+  ~TreePanel() override;
 
   const char* title() const override { return "世系树"; }
   void draw(DbSession& session) override;
-  void on_database_closed() override {
-    loaded_root_.clear();
-    error_.clear();
-    has_tree_ = false;
-    graph_.reset();
-    tree_.reset();
-  }
+  void on_database_closed() override;
 
  private:
   // 递归绘制 core 的 TreeNode。root_label 为空表示是顶层根。
   void draw_node(const lineage::TreeNode& node, const std::string& root_id);
+  // 停掉在跑的后台装载线程（换库/析构前必须 join）
+  void stop_worker();
 
   AppState& state_;
   int depth_ = 10;
   std::string loaded_root_;
+  int loaded_depth_ = 0;  // 与 loaded_root_ 一起构成重建条件（第三轮新-C4）
   std::string error_;
   bool has_tree_ = false;
   // 图快照与树必须成对存活（成员持有：每帧重建太贵；选中根变了才重建）。
@@ -48,6 +53,17 @@ class TreePanel : public Panel {
   // 记录过服务端踩的同一个坑，GUI 不能原样再踩一次。
   std::unique_ptr<lineage::PersonGraph> graph_;
   std::unique_ptr<lineage::TreeNode> tree_;
+
+  // 后台装载（第三轮新-C10）
+  std::thread worker_;
+  std::atomic<bool> running_{false};
+  std::atomic<int> generation_{0};  // 请求代际：变更即作废在途结果
+  // pending 缓冲：worker 独占写，写完才翻转 running_（release）；
+  // UI 线程在 running_ == false 后读（acquire）——发布点即同步点
+  std::unique_ptr<lineage::PersonGraph> pending_graph_;
+  std::unique_ptr<lineage::TreeNode> pending_tree_;
+  std::string pending_error_;
+  int pending_generation_ = 0;
 };
 
 }  // namespace genealogy::gui

@@ -166,13 +166,16 @@ Result<Person> PersonRepository::get(const std::string& id) const {
   return not_found("人物不存在: " + id);
 }
 
-Result<std::vector<Person>> PersonRepository::search(std::string_view keyword,
-                                                     int limit) const {
+Result<std::vector<Person>> PersonRepository::search(
+    std::string_view keyword, int limit, const std::string& after_id) const {
   if (keyword.empty()) return invalid_argument("检索关键词不能为空");
-  const std::string sql = "SELECT " + qualify_cols(kSelectCols, "p") +
-                          " FROM person p JOIN person_fts"
-                          " ON person_fts.rowid = p.rowid"
-                          " WHERE person_fts MATCH ?1 ORDER BY rank LIMIT ?2";
+  // after_id 非空时加 keyset 划分（第三轮新-3）：/search 的游标翻页
+  std::string sql = "SELECT " + qualify_cols(kSelectCols, "p") +
+                    " FROM person p JOIN person_fts"
+                    " ON person_fts.rowid = p.rowid"
+                    " WHERE person_fts MATCH ?1";
+  if (!after_id.empty()) sql += " AND p.id > ?3";
+  sql += " ORDER BY rank LIMIT ?2";
   Stmt st(db_.raw(), sql.c_str());
   if (!st.ok()) {
     return Error{ErrorCode::Internal,
@@ -181,6 +184,9 @@ Result<std::vector<Person>> PersonRepository::search(std::string_view keyword,
   const std::string quoted = quote_fts(keyword);
   sqlite3_bind_text(st.get(), 1, quoted.c_str(), -1, SQLITE_TRANSIENT);
   sqlite3_bind_int(st.get(), 2, limit > 0 ? limit : 50);
+  if (!after_id.empty()) {
+    sqlite3_bind_text(st.get(), 3, after_id.c_str(), -1, SQLITE_TRANSIENT);
+  }
 
   std::vector<Person> out;
   int rc = SQLITE_OK;

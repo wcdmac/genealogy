@@ -32,6 +32,10 @@ struct SyntheticOptions {
   std::string lineage_id;         // 必填
   std::string surname = "陈";     // 主姓
   int founder_year = 1500;        // 始祖生年（合法域 40..2000，见 generate_synthetic）
+  // 每人事件数（第三轮新-C8：bench 的 --events-per-person 此前注册了
+  // 却从未接线）。基线 3 条 = 出生/卒年/葬期；>3 补「记事」事件，
+  // 0 = 不生成事件。
+  int events_per_person = 3;
 };
 
 struct SyntheticData {

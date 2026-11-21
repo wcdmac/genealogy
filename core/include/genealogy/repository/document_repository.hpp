@@ -28,8 +28,10 @@ class DocumentRepository {
   // trigram FTS 对中文子串天然友好；查询不足 3 个 unicode 字符时
   // MATCH 不命中，回退 title/content 的 LIKE 全扫（文档量级几百篇，
   // <50ms 门槛内）。命中按 FTS rank 排序。
+  // after_id：keyset 游标（第三轮新-3，语义同 PersonRepository::search）
   Result<std::vector<Document>> search(std::string_view keyword,
-                                       int limit) const;
+                                       int limit,
+                                       const std::string& after_id = {}) const;
 
   Result<Document> get(const std::string& id) const;
   Result<Document> insert(Document doc);

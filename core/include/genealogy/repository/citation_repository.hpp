@@ -38,7 +38,9 @@ class CitationRepository {
   // 无证据主体数（ROADMAP M7.3：/stats 的 uncited_facts）——该类型主体
   // 表里 citation 一条都没挂的行数。目前主体表只有 person/event 两类
   // 有独立表；union/migration/branch/lineage 走别的统计口径。
-  int count_subjects_without_citation(CitationSubjectType type) const;
+  // 失败返回 Internal 而非折叠成 0：查询错误折叠成 0 会让 /stats 的
+  // uncited_facts 静默失真（H8 同纪律，第三轮新-7 补齐最后一个站点）。
+  Result<int> count_subjects_without_citation(CitationSubjectType type) const;
 
  private:
   Database& db_;

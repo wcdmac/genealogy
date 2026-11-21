@@ -379,9 +379,11 @@ export class GenealogyClient {
     // 与 spec 的 expand 枚举一致（events/unions/migrations 已实现；
     // citations/names 属 M7，实现后再加入）。
     expand?: Array<"events" | "unions" | "migrations" | "names">,
+    options?: { signal?: AbortSignal },
   ): Promise<Person> {
     return this.request("GET", `/persons/${encodeURIComponent(id)}`, {
       query: { expand: expand?.length ? expand.join(",") : undefined },
+      signal: options?.signal,
     });
   }
 
@@ -445,9 +447,11 @@ export class GenealogyClient {
   async getPersonTree(
     id: string,
     params?: { mode?: "five_generation" | "full"; depth?: number },
+    options?: { signal?: AbortSignal },
   ): Promise<unknown> {
     return this.request("GET", `/persons/${encodeURIComponent(id)}/tree`, {
       query: { ...params },
+      signal: options?.signal,
     });
   }
 
@@ -475,12 +479,18 @@ export class GenealogyClient {
 
   // ---------------------------------------------------------------- 婚姻
 
-  async listUnions(params?: {
-    person_id?: string;
-    limit?: number;
-    cursor?: string;
-  }): Promise<PageEnvelope> {
-    return this.request("GET", "/unions", { query: { ...params } });
+  async listUnions(
+    params?: {
+      person_id?: string;
+      limit?: number;
+      cursor?: string;
+    },
+    options?: { signal?: AbortSignal },
+  ): Promise<PageEnvelope> {
+    return this.request("GET", "/unions", {
+      query: { ...params },
+      signal: options?.signal,
+    });
   }
 
   async createUnion(body: {
@@ -551,12 +561,18 @@ export class GenealogyClient {
 
   // ---------------------------------------------------------------- 地点
 
-  async listPlaces(params?: {
-    q?: string;
-    limit?: number;
-    cursor?: string;
-  }): Promise<PageEnvelope> {
-    return this.request("GET", "/places", { query: { ...params } });
+  async listPlaces(
+    params?: {
+      q?: string;
+      limit?: number;
+      cursor?: string;
+    },
+    options?: { signal?: AbortSignal },
+  ): Promise<PageEnvelope> {
+    return this.request("GET", "/places", {
+      query: { ...params },
+      signal: options?.signal,
+    });
   }
 
   async createPlace(body: {
@@ -622,7 +638,10 @@ export class GenealogyClient {
     return this.request("GET", "/stats");
   }
 
-  async runValidation(ruleIds?: string[]): Promise<{
+  async runValidation(
+    ruleIds?: string[],
+    options?: { signal?: AbortSignal },
+  ): Promise<{
     issues?: Array<{
       rule_id?: string;
       severity?: "error" | "warning" | "info";
@@ -635,6 +654,7 @@ export class GenealogyClient {
   }> {
     return this.request("POST", "/validate", {
       body: ruleIds ? { rule_ids: ruleIds } : {},
+      signal: options?.signal,
     });
   }
 
@@ -726,14 +746,20 @@ export class GenealogyClient {
 
   // ---------------------------------------------------------------- 迁徙
 
-  async listMigrations(params?: {
-    branch_id?: string;
-    subject_id?: string;
-    subject_type?: "person" | "branch";
-    limit?: number;
-    cursor?: string;
-  }): Promise<PageEnvelope> {
-    return this.request("GET", "/migrations", { query: { ...params } });
+  async listMigrations(
+    params?: {
+      branch_id?: string;
+      subject_id?: string;
+      subject_type?: "person" | "branch";
+      limit?: number;
+      cursor?: string;
+    },
+    options?: { signal?: AbortSignal },
+  ): Promise<PageEnvelope> {
+    return this.request("GET", "/migrations", {
+      query: { ...params },
+      signal: options?.signal,
+    });
   }
 
   /** 登记迁徙。date 传 GenealogyDate 对象（或省略）。 */

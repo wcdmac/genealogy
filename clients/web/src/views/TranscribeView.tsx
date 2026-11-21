@@ -268,6 +268,17 @@ export function TranscribeView() {
     };
   }, [pdfDoc, imgSrc, pageNo, zoom, rotation]);
 
+  // ---- 资源释放（第三轮新-W7）：换文件/卸载时释放旧 PDF 文档句柄与
+  // blob URL——此前换一次文件泄漏一个 blob，长会话转录几十页后内存
+  // 与句柄持续攀升
+  useEffect(() => {
+    return () => {
+      if (imgSrc) URL.revokeObjectURL(imgSrc);
+      // v6 的销毁入口在 loadingTask 上（PDFDocumentProxy 本体只有 cleanup）
+      if (pdfDoc) void pdfDoc.loadingTask.destroy().catch(() => undefined);
+    };
+  }, [pdfDoc, imgSrc]);
+
   // ---- 文件加载
   async function onFile(file: File) {
     setViewerError(null);

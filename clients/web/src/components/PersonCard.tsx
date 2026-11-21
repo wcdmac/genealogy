@@ -3,7 +3,7 @@
 // 这是闭环的枢纽：从这里进建档编辑、建婚姻、查五服称谓，
 // 也能跳到世系图视图的中心人物。
 
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 
 import { useClient } from "../context";
 import { ErrorBar, Modal } from "../components/Modal";
@@ -33,16 +33,28 @@ export function PersonCard({
   const [editing, setEditing] = useState(false);
   const [addingSpouse, setAddingSpouse] = useState(false);
 
+  // 在途请求取消（第三轮新-W3）：切换 personId 时旧详情不再覆盖
+  const reloadAbortRef = useRef<AbortController | null>(null);
   const reload = useCallback(async () => {
+    reloadAbortRef.current?.abort();
+    const controller = new AbortController();
+    reloadAbortRef.current = controller;
     try {
       setError(null);
       const [detail, unionPage] = await Promise.all([
-        client.getPerson(personId, ["events", "unions"]),
-        client.listUnions({ person_id: personId, limit: 50 }),
+        client.getPerson(personId, ["events", "unions"], {
+          signal: controller.signal,
+        }),
+        client.listUnions(
+          { person_id: personId, limit: 50 },
+          { signal: controller.signal },
+        ),
       ]);
+      if (controller.signal.aborted) return;
       setPerson(detail);
       setUnions((unionPage.data ?? []) as unknown as Union[]);
     } catch (caught) {
+      if (controller.signal.aborted) return;
       setError(caught);
     }
   }, [client, personId]);

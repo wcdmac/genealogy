@@ -57,6 +57,21 @@ Result<std::vector<Branch>> BranchService::list_branches(
 Result<Branch> BranchService::update_branch(const Branch& branch) {
   if (branch.id.empty()) return invalid_argument("id 必填");
   if (auto err = validate(branch); err) return err;
+  // 父子链环检测（第三轮新-1）：A→B、B→A 各自都能过上面的单步校验，
+  // 但 GET /branches/{id}/tree 的递归展开会栈溢出。沿父链向上走，
+  // 任何一步回到本支派即成环。
+  if (branch.parent_branch_id && !branch.parent_branch_id->empty()) {
+    std::string cursor = *branch.parent_branch_id;
+    for (int guard = 0; guard < 10000; ++guard) {
+      if (cursor == branch.id) {
+        return invalid_argument("支派父子链成环（" + branch.id + " 的祖先链回到自身）");
+      }
+      auto cur = repo_.get(cursor);
+      if (!cur) break;  // 链尾断链不在此处报错（validate 已保证存在性）
+      if (!cur->parent_branch_id || cur->parent_branch_id->empty()) break;
+      cursor = *cur->parent_branch_id;
+    }
+  }
   return repo_.update(branch);
 }
 

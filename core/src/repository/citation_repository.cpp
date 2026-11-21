@@ -209,7 +209,7 @@ Result<int> CitationRepository::count_for_source(
                   sqlite3_errmsg(db_.raw()));
 }
 
-int CitationRepository::count_subjects_without_citation(
+Result<int> CitationRepository::count_subjects_without_citation(
     CitationSubjectType type) const {
   // NOT EXISTS 走 idx_citation_subject(subject_type, subject_id)，
   // 20 万级主体全表反查无压力；返回值与 count_for_subject 同为
@@ -218,7 +218,9 @@ int CitationRepository::count_subjects_without_citation(
   switch (type) {
     case CitationSubjectType::Person: table = "person"; break;
     case CitationSubjectType::Event: table = "event"; break;
-    default: return 0;  // union/migration/branch/lineage 无独立主体表口径
+    // union/migration/branch/lineage 无独立主体表口径：0 是口径事实而
+    // 不是错误折叠，照常返回
+    default: return 0;
   }
   std::string sql = std::string("SELECT COUNT(*) FROM ") + table +
                     " WHERE NOT EXISTS (SELECT 1 FROM citation WHERE "
@@ -226,13 +228,16 @@ int CitationRepository::count_subjects_without_citation(
                     "citation.subject_id = " +
                     table + ".id)";
   Stmt st(db_.raw(), sql.c_str());
-  if (!st.ok()) return 0;
+  if (!st.ok()) {
+    return internal(std::string("无证据主体数查询失败: ") +
+                    sqlite3_errmsg(db_.raw()));
+  }
   sqlite3_bind_text(st.get(), 1, to_string(type).c_str(), -1,
                     SQLITE_TRANSIENT);
-  if (sqlite3_step(st.get()) == SQLITE_ROW) {
-    return sqlite3_column_int(st.get(), 0);
-  }
-  return 0;
+  const int rc = sqlite3_step(st.get());
+  if (rc == SQLITE_ROW) return sqlite3_column_int(st.get(), 0);
+  return internal(std::string("无证据主体数查询失败: ") +
+                  sqlite3_errmsg(db_.raw()));
 }
 
 }  // namespace genealogy

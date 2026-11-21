@@ -69,7 +69,11 @@ Options parse_args(int argc, char** argv) {
       o.host = next("--host");
     } else if (a == "--port") {
       try {
-        o.port = static_cast<std::uint16_t>(std::stoul(next("--port")));
+        // 先进宽类型再验范围：直接 cast uint16_t 会把 99999 静默回绕成
+        // 34463——服务起在用户完全不知道的端口上（第三轮新-9）
+        const unsigned long v = std::stoul(next("--port"));
+        if (v < 1 || v > 65535) throw std::out_of_range("--port 范围");
+        o.port = static_cast<std::uint16_t>(v);
       } catch (const std::exception&) {
         std::cerr << "--port 应为 1..65535\n";
         std::exit(2);
@@ -78,9 +82,11 @@ Options parse_args(int argc, char** argv) {
       o.db_path = next("--db");
     } else if (a == "--threads") {
       try {
-        o.threads = static_cast<std::size_t>(std::stoul(next("--threads")));
+        const unsigned long v = std::stoul(next("--threads"));
+        if (v < 1 || v > 1024) throw std::out_of_range("--threads 范围");
+        o.threads = static_cast<std::size_t>(v);
       } catch (const std::exception&) {
-        std::cerr << "--threads 应为正整数\n";
+        std::cerr << "--threads 应为 1..1024\n";
         std::exit(2);
       }
     } else if (a == "--require-auth") {

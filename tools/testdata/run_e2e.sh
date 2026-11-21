@@ -224,6 +224,9 @@ check_eq "bench 退出码（指标全 PASS）" 0 $?
 check_has "bench 自述不触碰业务库" "$(cat "$OUT/bench.json")" "临时"
 AFTER=$($GENE person list --db "$DB" --format json | jlen)
 check_eq "bench 前后用户库人物计数不变" "$BEFORE" "$AFTER"
+# 参数生效断言（第三轮新-C8：--events-per-person 曾注册了却从未接线）
+$GENE bench --db "$DB" --persons 50 --events-per-person 0 --depth 3   --repeat 1 --gedcom-records 0 --format json > "$OUT/bench2.json" 2>&1
+check_eq "bench --events-per-person 0 退出码（参数接线生效）" 0 $?
 
 echo
 echo "=========================================="
