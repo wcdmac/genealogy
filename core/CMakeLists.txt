@@ -111,6 +111,7 @@ target_sources(genealogy-core
     src/service/place_service.cpp
     src/service/source_service.cpp
     src/service/citation_service.cpp
+    src/service/provenance_migration.cpp
     src/service/document_service.cpp
     src/service/person_name_service.cpp
     src/service/union_service.cpp

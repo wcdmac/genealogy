@@ -13,6 +13,7 @@
 #include <genealogy/model/source.hpp>
 #include <genealogy/service/citation_service.hpp>
 #include <genealogy/service/source_service.hpp>
+#include <genealogy/service/provenance_migration.hpp>
 
 #include "cli_util.hpp"
 
@@ -173,7 +174,7 @@ int cmd_source(const std::vector<std::string>& args,
 int cmd_citation(const std::vector<std::string>& args,
                  const std::string& db_path, const std::string& format) {
   if (args.empty()) {
-    std::cerr << "用法错误: genea citation add|list|show|remove\n";
+    std::cerr << "用法错误: genea citation add|list|show|remove|migrate-notes\n";
     return 2;
   }
   const std::string sub = args[0];
@@ -190,6 +191,11 @@ int cmd_citation(const std::vector<std::string>& args,
        cxxopts::value<std::string>()->default_value("medium"))
       ("note", "备注", cxxopts::value<std::string>())
       ("limit", "每页条数", cxxopts::value<int>()->default_value("50"))
+      // migrate-notes 专用（外层 parse 先行，选项须在此登记）
+      ("dry-run", "只扫描计数，不写库",
+       cxxopts::value<bool>()->default_value("false")->implicit_value("true"))
+      ("keep-note", "保留 note 原文（不剥离开头出处 token）",
+       cxxopts::value<bool>()->default_value("false")->implicit_value("true"))
       ("help", "显示用法");
   const auto r = parse_args(opts, rest);
 
@@ -307,7 +313,52 @@ int cmd_citation(const std::vector<std::string>& args,
     return 0;
   }
 
-  std::cerr << "用法错误: genea source add|list|show|remove / citation add|list|show|remove\n";
+  // 出处迁移（7.6 第三道验收门「证据链覆盖关键事实」执行体）：
+  // note/biography 里的 谱pNN 出处迁入 Source/Citation 域。幂等——
+  // 转录工作台仍在往 note 写新出处，本命令可对新批次反复执行。
+  // core 用例见 provenance_migration.cpp（解析/来源派生/置信映射）。
+  if (sub == "migrate-notes") {
+    cxxopts::Options mo("genea citation migrate-notes",
+                        "note/biography 页码出处 → citation 迁移");
+    mo.add_options()
+        ("dry-run", "只扫描计数，不写库",
+         cxxopts::value<bool>()->default_value("false")->implicit_value("true"))
+        ("keep-note", "保留 note 原文（不剥离开头出处 token）",
+         cxxopts::value<bool>()->default_value("false")->implicit_value("true"))
+        ("help", "显示用法");
+    const auto mr = parse_args(mo, rest);
+
+    auto mdb = open_db(db_path);
+    if (!mdb) {
+      print_error(mdb.error());
+      return exit_code_for(mdb.error());
+    }
+    auto report = migrate_note_provenance(
+        *mdb, {}, !mr["keep-note"].as<bool>(), mr["dry-run"].as<bool>());
+    if (!report) {
+      print_error(report.error());
+      return exit_code_for(report.error());
+    }
+    const auto rep = *report;
+    if (format == "json") {
+      std::cout << to_json(rep).dump(2) << "\n";
+    } else {
+      const char* action = mr["dry-run"].as<bool>() ? "[dry-run] 将执行" : "已完成";
+      std::cout << "出处迁移" << action << "\n"
+                << "  人物扫描: " << rep.persons_scanned << "\n"
+                << "  涉及人物: " << rep.persons_cited << "\n"
+                << "  来源新建: " << rep.sources_created
+                << "（复用 " << rep.sources_reused << "）\n"
+                << "  引用新增: " << rep.citations_created
+                << "（幂等跳过 " << rep.citations_deduped << "）\n"
+                << "  note 剥离: " << rep.notes_stripped << "\n"
+                << "  低置信度: " << rep.low_confidence << "\n";
+      for (const auto& w : rep.warnings) std::cout << "  警告: " << w << "\n";
+    }
+    return 0;
+  }
+
+  std::cerr << "用法错误: genea source add|list|show|remove / citation add|list|show|remove|migrate-notes\n";
   return 2;
 }
 
