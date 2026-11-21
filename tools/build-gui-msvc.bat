@@ -1,13 +1,13 @@
 @echo off
 chcp 65001 >nul
 REM ============================================================
-REM genealogy local build helper WITH REST server AND desktop GUI
+REM genealogy local build helper WITH desktop GUI
 REM (Windows / MSVC) -- the M3 "everything" build.
 REM
 REM Same environment assembly as build-msvc.bat (see that file's
 REM header for why vcvars64.bat cannot be used here). Differences:
 REM   1. -DBUILD_SERVER=ON / -DBUILD_GUI=ON so both subdirectories run;
-REM   2. -DVCPKG_MANIFEST_FEATURES=server;gui so manifest mode pulls
+REM   2. -DVCPKG_MANIFEST_FEATURES=gui so manifest mode pulls the gui deps (imgui is vendored; glfw3).
 REM      Drogon + GLFW (the two features in vcpkg.json). Without it
 REM      the configure step installs only the default deps and
 REM      find_package(Drogon)/find_package(glfw3) fail.
@@ -18,10 +18,6 @@ REM `vcpkg install` -- see tools/vcpkg-install.ps1 (reg.exe blacklist
 REM + MSYS2 32-bit cmake + single-concurrency PDB deadlock, all
 REM worked around there).
 REM
-REM Note on the semicolon in the feature list: it MUST stay quoted
-REM ("server;gui") -- cmd splits arguments on semicolons, unquoted
-REM the second feature silently disappears and the GUI deps are
-REM never installed.
 REM
 REM Usage: run via tools\build-gui-msvc.bat
 REM ============================================================
@@ -95,17 +91,15 @@ REM 配置期自己跑一次 vcpkg install（manifest 模式），那次子调�
 REM 命令行的 --overlay-*，只能读环境变量。少了这一步，manifest 安装会按
 REM 自带 triplet 重算 ABI → 重编 drogon → /MP 死锁再现。
 set "VCPKG_OVERLAY_TRIPLETS=%SRC%\tools\vcpkg-triplets"
-set "VCPKG_OVERLAY_PORTS=%SRC%\tools\vcpkg-ports"
 
-echo [INFO] Configure (BUILD_SERVER=ON, BUILD_GUI=ON, features server;gui)...
+echo [INFO] Configure (BUILD_GUI=ON, feature gui)...
 cmake -S "%SRC%" -B "%BUILD%" -G Ninja ^
   -DCMAKE_BUILD_TYPE=Release ^
   -DCMAKE_TOOLCHAIN_FILE="%VCPKG_ROOT%\scripts\buildsystems\vcpkg.cmake" ^
   -DCMAKE_C_COMPILER=cl ^
   -DCMAKE_CXX_COMPILER=cl ^
-  -DBUILD_SERVER=ON ^
   -DBUILD_GUI=ON ^
-  "-DVCPKG_MANIFEST_FEATURES=server;gui" || exit /b 1
+  "-DVCPKG_MANIFEST_FEATURES=gui" || exit /b 1
 
 echo [INFO] Build...
 cmake --build "%BUILD%" --parallel || exit /b 1

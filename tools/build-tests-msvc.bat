@@ -4,8 +4,7 @@ REM ============================================================
 REM genealogy targeted build helper (Windows / MSVC)
 REM
 REM Same MSVC environment assembly as tools/build-msvc.bat (see the
-REM rationale there), but builds only the test suites and the CLI. Use when the server exe cannot be linked (e.g. a zombie
-REM genealogy-server.exe holds genealogy-server.exe open, LNK1104).
+REM rationale there), and builds only the test suites and the CLI.
 REM
 REM Usage: cmd /c tools\build-tests-msvc.bat [extra cmake --build args...]
 REM ============================================================
@@ -55,6 +54,6 @@ set "LIB=%VCTOOLS%\lib\x64;%SDKLIB%\ucrt\x64;%SDKLIB%\um\x64"
 set "SRC=%~dp0.."
 set "BUILD=%SRC%\build"
 
-echo [INFO] Build (core-tests, server-tests, gui-tests, CLI)...
-cmake --build "%BUILD%" --target genealogy-core-tests genealogy-server-tests genealogy-gui-tests genea --parallel %1 %2 || exit /b 1
+echo [INFO] Build (core-tests, gui-tests, CLI)...
+cmake --build "%BUILD%" --target genealogy-core-tests genealogy-gui-tests genea --parallel %1 %2 || exit /b 1
 echo [OK]

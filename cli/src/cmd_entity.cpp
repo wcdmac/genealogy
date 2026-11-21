@@ -16,6 +16,7 @@
 #include <nlohmann/json.hpp>
 
 #include <genealogy/error.hpp>
+#include <genealogy/repository/bootstrap.hpp>
 #include <genealogy/model/branch.hpp>
 #include <genealogy/model/event.hpp>
 #include <genealogy/model/lineage.hpp>
@@ -160,6 +161,26 @@ int cmd_lineage(const std::vector<std::string>& args,
     if (r.count("hall")) l.hall_name = r["hall"].as<std::string>();
     if (r.count("poem")) l.generation_poem = r["poem"].as<std::string>();
     if (r.count("note")) l.note = r["note"].as<std::string>();
+    // 单谱单库（2026-11-21 定位收口）：一个数据库文件只承载一部家谱。
+    // 库内已有家谱（默认宗族占位除外）即拒绝——不同家的谱各开各的库，
+    // 检索/校验/备份恢复才不会把两家人搅在一起。
+    {
+      LineageFilter existing_filter;
+      existing_filter.limit = 100;
+      auto existing = svc.list_lineages(existing_filter);
+      if (!existing) {
+        print_error(existing.error());
+        return exit_code_for(existing.error());
+      }
+      for (const auto& row : *existing) {
+        if (row.id == kDefaultLineageId) continue;  // 启动占位宗族不算
+        std::cerr << "单谱单库：本库已承载家谱「" << row.name << "」（"
+                  << row.id << "）。\n"
+                  << "一部家谱一个数据库文件——新建谱请换一个 --db 路径：\n"
+                  << "  genea db init --db <新库文件> && genea lineage add --db <新库文件> ...\n";
+        return exit_code_for(Error{ErrorCode::Conflict, "单谱单库限制"});
+      }
+    }
     return print_one(svc.create_lineage(l), format, print_lineage_text);
   }
 

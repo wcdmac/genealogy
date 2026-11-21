@@ -11,20 +11,11 @@ fmt
 cxxopts
 catch2
 
-# 可选组件（feature: server / gui）
-# drogon 的直接依赖之外，还有四个传递依赖（vcpkg manifest 只登记直接依赖，
-# 这里一并登记并附许可依据，便于审计追溯）：
-#   trantor   BSD-3-Clause  —— drogon 的网络库（drogon 本身为 MIT）
-#   jsoncpp   公有领域/MIT  —— Drogon 的 JSON 后端；本项目自身用 nlohmann
-#   zlib      zlib          —— Drogon 的压缩
-#   c-ares    MIT           —— Drogon 的异步 DNS
-drogon
-trantor
-jsoncpp
+# 可选组件（feature: gui）
+# 原 server 特性的 drogon 全家（drogon/trantor/jsoncpp/zlib/c-ares）随
+# 单机定位裁撤（2026-11-21）——依赖仅剩 GUI 一条链。
 zlib
-c-ares
 glfw3
-imgui
 
 # ---------------------------------------------------------------------------
 # ---------------------------------------------------------------------------

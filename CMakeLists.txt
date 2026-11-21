@@ -29,10 +29,12 @@ set(CMAKE_ARCHIVE_OUTPUT_DIRECTORY ${CMAKE_BINARY_DIR}/lib)
 set(CMAKE_LIBRARY_OUTPUT_DIRECTORY ${CMAKE_BINARY_DIR}/bin)
 
 # ---------- 构建开关 ----------
+# 定位（2026-11-21 收口）：单机桌面软件——CLI + 本地 GUI，无任何联网组件。
+# 原 REST 服务与 Web 参考客户端随「单机定位」整体裁撤（git 历史可考）；
+# 家谱按「单谱单库」运营：一个数据库文件只承载一部家谱。
 option(BUILD_CORE   "构建 libgenealogy-core 核心库" ON)
 option(BUILD_CLI    "构建 genea 命令行" ON)
 option(BUILD_TESTS  "构建单元测试（Catch2）" ON)
-option(BUILD_SERVER "构建 REST 服务（Drogon，MIT）" OFF)
 option(BUILD_GUI    "构建桌面 GUI（Dear ImGui + GLFW，MIT/zlib）" OFF)
 
 # ---------- vcpkg 工具链 ----------
@@ -58,10 +60,6 @@ if(BUILD_TESTS)
   find_package(Catch2 CONFIG REQUIRED)
 endif()
 
-if(BUILD_SERVER)
-  find_package(Drogon CONFIG REQUIRED)
-endif()
-
 enable_testing()
 
 if(BUILD_CORE)
@@ -70,10 +68,6 @@ endif()
 
 if(BUILD_CLI)
   add_subdirectory(cli)
-endif()
-
-if(BUILD_SERVER)
-  add_subdirectory(server)
 endif()
 
 if(BUILD_GUI)
@@ -109,7 +103,7 @@ else()
 endif()
 set(CPACK_PACKAGE_FILE_NAME
     "${CPACK_PACKAGE_NAME}-${PROJECT_VERSION}-${CMAKE_SYSTEM_NAME}-${CMAKE_SYSTEM_PROCESSOR}")
-set(CPACK_SOURCE_IGNORE_FILES "/\\\\.git/;/build/;/clients/web/node_modules/;/clients/web/dist/")
+set(CPACK_SOURCE_IGNORE_FILES "/\\\\.git/;/build/")
 include(CPack)
 
 # Windows 运行时 DLL 统一收进包的 bin/。server/gui 的 POST_BUILD 已把

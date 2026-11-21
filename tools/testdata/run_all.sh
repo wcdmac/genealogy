@@ -7,17 +7,13 @@
 set -e -o pipefail
 cd "$(dirname "$0")/../.."
 
-echo "########## 1/3 单元测试（core + server） ##########"
+echo "########## 1/2 单元测试（core + gui） ##########"
 ./build/bin/genealogy-core-tests.exe 2>&1 | tail -1
-./build/bin/genealogy-server-tests.exe 2>&1 | tail -1
+./build/bin/genealogy-gui-tests.exe 2>&1 | tail -1
 
 echo
-echo "########## 2/3 CLI 端到端 ##########"
+echo "########## 2/2 CLI 端到端 ##########"
 bash tools/testdata/run_e2e.sh
-
-echo
-echo "########## 3/3 HTTP 端到端 ##########"
-bash tools/testdata/http_e2e.sh
 
 echo
 echo "ALL_LAYERS_PASS"

@@ -84,8 +84,11 @@ echo "== 8. GEDCOM 导出与往返 =="
 $GENE io export gedcom --db "$DB" --lineage "$L" --out "$OUT/roundtrip.ged" --submitter 测试谱师 --format json >/dev/null 2>&1
 check_eq "export 退出码" 0 $?
 check_ge "导出文件非空" "$(wc -c < "$OUT/roundtrip.ged")" 500
-L2=$($GENE lineage add --db "$DB" --name "往返校验谱" --surname 陈 --format json | jid)
-$GENE io import gedcom "$OUT/roundtrip.ged" --db "$DB" --lineage "$L2" --format json > "$OUT/roundtrip.json" 2>&1
+# 单谱单库（2026-11-21 定位收口）：往返导入落独立库文件，不再同库开第二谱
+RTDB="$OUT/roundtrip.db"
+$GENE db init --db "$RTDB" --format json >/dev/null 2>&1
+L2=$($GENE lineage add --db "$RTDB" --name "往返校验谱" --surname 陈 --format json | jid)
+$GENE io import gedcom "$OUT/roundtrip.ged" --db "$RTDB" --lineage "$L2" --format json > "$OUT/roundtrip.json" 2>&1
 check_eq "往返导入人物数一致" 11 "$($PY -c "import json;print(json.load(open('$OUT/roundtrip.json'))['imported']['persons'])")"
 
 echo "== 9. 世系树渲染（DOT / Mermaid） =="
@@ -133,7 +136,7 @@ $GENE db seed --db "$DB" --persons 200 --format json > "$OUT/seed.json" 2>&1
 check_eq "seed 退出码" 0 $?
 SEED_P=$($PY -c "import json;print(json.load(open('$OUT/seed.json'))['persons'])")
 check_ge "seed 实际生成>=200" "$SEED_P" 200
-check_eq "灌库后总数=22+seed（11主谱+11往返+seed）" $((22+SEED_P)) "$($GENE person list --db "$DB" --limit 100000 --format json | jlen)"
+check_eq "灌库后总数=11主谱+seed（往返已落独立库，单谱单库）" $((11+SEED_P)) "$($GENE person list --db "$DB" --limit 100000 --format json | jlen)"
 
 echo "== 15. 备份与恢复 =="
 BEFORE=$($GENE person list --db "$DB" --limit 100000 --format json | jlen)

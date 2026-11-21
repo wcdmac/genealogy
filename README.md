@@ -1,7 +1,8 @@
 # genealogy（家谱管理软件）
 
-跨平台家谱管理软件。**核心 C++20**，桌面 GUI 采用 Dear ImGui + GLFW（**严禁 Qt**），
-对外 REST API（OpenAPI 3.1）+ CLI，第三方客户端可经 API 外接。
+**单机家谱管理软件**（2026-11-21 定位收口）。**核心 C++20**，桌面 GUI 采用
+Dear ImGui + GLFW（**严禁 Qt**）+ CLI 三端共用同一领域核心；**无任何联网组件**。
+家谱按「**单谱单库**」运营：一个数据库文件承载一部家谱，不同家的谱各开各的库。
 
 设计文档（调研结论 / 架构 / 模块划分 / 数据模型 / 接口规范）位于仓库外：
 `D:/cd/tree/genealogy-design/家谱管理软件-调研与架构设计.md`（v1.0，2026-10-12）。
@@ -98,26 +99,20 @@
 genealogy/
 ├── core/             # libgenealogy-core：领域核心（无 UI、无网络依赖）
 ├── cli/              # genea 命令行
-├── server/           # REST 服务（Drogon，BUILD_SERVER=ON 启用）
 ├── gui/              # 桌面 GUI（Dear ImGui + GLFW，BUILD_GUI=ON 启用）
-├── clients/web/      # Web UI 参考实现（TS + React；类型由 openapi 生成）
 ├── shared/
 │   ├── schema/       # SQLite DDL 与迁移脚本（构建时嵌入二进制）
 │   ├── rules/        # 五服/称谓/校验规则表（JSON，构建时嵌入；换规则不改代码）
-│   ├── licenses/     # 依赖许可证白名单
-│   └── openapi/      # OpenAPI 规范（客户端代码生成唯一事实源）
+│   └── licenses/     # 依赖许可证白名单
 ├── docs/             # 文档站：使用手册 + 修谱工作流
 ├── tools/
 │   ├── gen_calendar/    # 历法/年号数据表离线生成器 + 官方基准 fixtures
 │   ├── vcpkg-install.ps1    # 本机安装 vcpkg 依赖（绕 reg.exe 黑名单/MSYS2 抢编译/并发死锁）
 │   ├── build-msvc.bat        # 构建 core+cli（Windows 一条龙）
-│   ├── build-gui-msvc.bat    # 构建 core+server+gui 全家桶
-│   ├── build-server-msvc.bat # 构建 server（带 overlay 环境变量）
-│   ├── validate_openapi.py   # 规范校验（CI 卡点）
+│   ├── build-gui-msvc.bat    # 构建 core+gui 全家桶
 │   ├── drill_backup_restore.py  # 备份恢复演练（CI 卡点）
 │   ├── license_check.py      # 许可证白名单卡点（含禁 Qt）
-│   ├── vcpkg-triplets/      # overlay triplet：只编 Release
-│   └── vcpkg-ports/         # overlay 端口：trantor 去 openssl（服务不需要 TLS）
+│   └── vcpkg-triplets/      # overlay triplet：只编 Release
 └── .github/workflows/ci.yml  # 三平台 CI
 ```
 
@@ -125,7 +120,7 @@ genealogy/
 
 `docs/` 下有完整文档（Markdown，GitHub 直接渲染；`docs/index.html` 为静态入口）：
 
-- [使用手册](docs/manual/使用手册.md)：安装（三平台包 / 源码构建）、CLI、REST 服务、Web UI、桌面 GUI、字辈引擎、备份恢复
+- [使用手册](docs/manual/使用手册.md)：安装（三平台包 / 源码构建）、CLI、桌面 GUI、字辈引擎、备份恢复
 - [修谱工作流](docs/manual/修谱工作流.md)：从筹备（收谱/访谈/定派语）到成谱（校验/字辈/导出/备份）的完整步骤与常见坑
 
 ## 构建（Windows / MSVC）
