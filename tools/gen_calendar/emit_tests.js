@@ -28,7 +28,7 @@ const truth = truthFile.samples;
 const MON = ['', '正月', '二月', '三月', '四月', '五月', '六月', '七月',
   '八月', '九月', '十月', '十一月', '十二月'];
 
-// ---- datong 段（1368-1582 大统历史实）正月初一的儒略历标签 ----
+// ---- 大统历事实段（1368-1644）正月初一的民用历标签（≤1582 儒略、≥1583 格里）----
 // 与引擎 julian_from_days 同规则：锚点 = proleptic(y,1,1) + 上一年的
 // 儒略落后天数；doy 为物理日序。仅用于生成测试期望值。
 const tdiv = (a, b) => Math.trunc(a / b);
@@ -70,11 +70,17 @@ function julianFromDays(z) {
   }
   return [yy, mo, jdoy];
 }
-const datongPath = path.join(__dirname, 'fixtures', 'ming_datong_facts.json');
-const datongYears = fs.existsSync(datongPath)
-  ? JSON.parse(fs.readFileSync(datongPath, 'utf8')).years : [];
+// 大统历事实段（1368-1644）两份固化事实表
+const datongYears = ['ming_datong_facts.json', 'ming_datong_gregorian_facts.json']
+  .flatMap((f) => {
+    const fp = path.join(__dirname, 'fixtures', f);
+    return fs.existsSync(fp) ? JSON.parse(fs.readFileSync(fp, 'utf8')).years : [];
+  });
 const datongRows = datongYears.map((y) => {
-  const [jy, jm, jd] = julianFromDays(y.first_day);
+  // 与引擎 to_gregorian 一致：1582-10-15 前用儒略标签，之后用格里标签
+  const beforeReform = y.first_day < daysFromCivil(1582, 10, 15);
+  const [jy, jm, jd] = beforeReform
+    ? julianFromDays(y.first_day) : civilFromDays(y.first_day);
   const iso = `${jy}-${String(jm).padStart(2, '0')}-${String(jd).padStart(2, '0')}`;
   return { year: y.year, iso, monthCount: y.month_count,
            leapAfter: y.leap_after, lenMask: y.len_mask };
@@ -176,7 +182,7 @@ for (const [iso, gz] of gzRows) {
 w('};');
 w(`inline constexpr int kDayGanzhiCount = ${gzRows.length};`);
 w('');
-w('// 大统历段（1368-1582 朔闰史实，固化于 fixtures/ming_datong_facts.json）：');
+w('// 大统历事实段（1368-1644 朔闰史实，固化于 fixtures/ming_datong_{gregorian_}facts.json）：');
 w('// 正月初一的儒略历标签（儒略历史实口径）与结构字段。');
 w('struct DatongYear {');
 w('  int year;          // 农历年号（= 正月初一所在儒略历年）');

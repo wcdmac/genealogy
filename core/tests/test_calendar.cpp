@@ -6,8 +6,8 @@
 //     （见 tools/gen_calendar 与 calendar_fixtures.hpp）。
 //     1900-2025 的每一天（46021 天）都过一遍农历月/日，不只是月初一。
 //   · 大统历朔闰史实（历法事实数据，固化于
-//     tools/gen_calendar/fixtures/ming_datong_facts.json）：1368-1582 全部
-//     215 个农历年的正月初一（儒略历标签）与月长/闰月结构，逐月逐日
+//     fixtures/ming_datong_{gregorian_}facts.json）：1368-1644 全部
+//     277 个农历年的正月初一（≤1582 儒略标签、≥1583 格里标签）与月长/闰月结构
 //     往返断言（M9.2 儒略历史实口径）。
 // 数据表覆盖 1368-3000 共 1633 个农历年。
 
@@ -31,7 +31,8 @@ using namespace genealogy::calendar;
 namespace {
 
 constexpr int kFirst = 1368;      // 数据表下界（明洪武元年，儒略历史实段）
-constexpr int kGregFirst = 1583;  // 格里历段起点（节气数据也自此起）
+constexpr int kGregFirst = 1583;  // 格里历段起点（日期换算口径）
+constexpr int kTermFirst = 1645;  // 节气数据起点（清《时宪书》改定气定朔）
 constexpr int kLast = 3000;       // 数据表上界
 
 bool is_leap(int y) noexcept { return (y % 4 == 0 && y % 100 != 0) || y % 400 == 0; }
@@ -342,11 +343,11 @@ TEST_CASE("历法：闰月与月长的边界") {
   REQUIRE(checked_30 > 600);
 }
 
-TEST_CASE("历法：全区间逐年自洽（1583-3000）") {
+TEST_CASE("历法：全区间逐年自洽（1645-3000）") {
   // 每年：正月起点单调、24 节气时刻严格递增、冬至落在十一月
-  int prev_first = days_from_civil(kGregFirst - 1, 1, 1);
-  for (int y = kGregFirst; y <= kLast; ++y) {
-    // 24 节气齐全且严格递增（1583 年的分钟数是负的大数，初值不能取 0 或 -1）
+  int prev_first = days_from_civil(kTermFirst - 1, 1, 1);
+  for (int y = kTermFirst; y <= kLast; ++y) {
+    // 24 节气齐全且严格递增（分钟数可能是负的大数，初值不能取 0 或 -1）
     long long prev_min = std::numeric_limits<long long>::min();
     for (int i = 0; i < 24; ++i) {
       const auto st = solar_term(y, i);
@@ -383,20 +384,20 @@ TEST_CASE("历法：冬至落在农历十一月（GB/T 33661-2017 置闰基础�
   REQUIRE(checked == 126);
 }
 
-TEST_CASE("历法：明代大统历段 1368-1582 全量往返（儒略历史实口径）") {
-  // 夹具为固化的大统历朔闰事实数据（215 年全量）：
-  // 每年正月初一的儒略历标签逐条对上；每月逐日双向往返；
+TEST_CASE("历法：明代大统历段 1368-1644 全量往返（史实口径）") {
+  // 夹具为固化的大统历朔闰事实数据（277 年全量）：
+  // 每年正月初一的民用历标签（≤1582 儒略、≥1583 格里）逐条对上；每月逐日双向往返；
   // 月长逐月对上 len_mask；闰月编码与月数一致。
-  REQUIRE(fixtures::kDatongYearCount == 215);
+  REQUIRE(fixtures::kDatongYearCount == 277);
   REQUIRE(fixtures::kDatongYears[0].year == 1368);
-  REQUIRE(fixtures::kDatongYears[fixtures::kDatongYearCount - 1].year == 1582);
+  REQUIRE(fixtures::kDatongYears[fixtures::kDatongYearCount - 1].year == 1644);
 
   int prev_y = 0, prev_m = 0, prev_d = 0;
   for (int i = 0; i < fixtures::kDatongYearCount; ++i) {
     const auto& r = fixtures::kDatongYears[i];
     REQUIRE((r.leapAfter != 0) == (r.monthCount == 13));
 
-    // 正月初一：儒略历标签 → 农历 → 回标签
+    // 正月初一：民用历标签 → 农历 → 回标签
     const std::string iso = r.iso;
     const int iy = std::stoi(iso.substr(0, 4));
     const int im = std::stoi(iso.substr(5, 2));
@@ -404,7 +405,7 @@ TEST_CASE("历法：明代大统历段 1368-1582 全量往返（儒略历史实�
     const auto g = to_gregorian(ChineseDate{r.year, 1, 1});
     REQUIRE(g.has_value());
     if (g->year != iy || g->month != im || g->day != id) {
-      FAIL("农历 " << r.year << " 年正月初一应为儒略历 " << iso << "，实得 "
+      FAIL("农历 " << r.year << " 年正月初一应为民用历 " << iso << "，实得 "
                    << g->year << "-" << g->month << "-" << g->day);
     }
     const auto c = to_chinese(gd(iy, im, id));

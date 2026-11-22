@@ -1,0 +1,440 @@
+{
+ "source": "大统历朔闰史实（1583-1644，格里历口径）；历法事实数据，依著作权法第五条第（三）项历法不受保护",
+ "calendar": "gregorian-dated（格里历口径，正月初一=格里历日期；与 1368-1582 的儒略历史实口径不同）",
+ "years": [
+  {
+   "year": 1583,
+   "first_day": -141326,
+   "month_count": 13,
+   "leap_after": 2,
+   "len_mask": 7826
+  },
+  {
+   "year": 1584,
+   "first_day": -140942,
+   "month_count": 12,
+   "leap_after": 0,
+   "len_mask": 3730
+  },
+  {
+   "year": 1585,
+   "first_day": -140588,
+   "month_count": 13,
+   "leap_after": 9,
+   "len_mask": 3366
+  },
+  {
+   "year": 1586,
+   "first_day": -140205,
+   "month_count": 12,
+   "leap_after": 0,
+   "len_mask": 1323
+  },
+  {
+   "year": 1587,
+   "first_day": -139851,
+   "month_count": 12,
+   "leap_after": 0,
+   "len_mask": 2647
+  },
+  {
+   "year": 1588,
+   "first_day": -139496,
+   "month_count": 13,
+   "leap_after": 6,
+   "len_mask": 4822
+  },
+  {
+   "year": 1589,
+   "first_day": -139112,
+   "month_count": 12,
+   "leap_after": 0,
+   "len_mask": 2922
+  },
+  {
+   "year": 1590,
+   "first_day": -138757,
+   "month_count": 12,
+   "leap_after": 0,
+   "len_mask": 1748
+  },
+  {
+   "year": 1591,
+   "first_day": -138403,
+   "month_count": 13,
+   "leap_after": 3,
+   "len_mask": 3913
+  },
+  {
+   "year": 1592,
+   "first_day": -138019,
+   "month_count": 12,
+   "leap_after": 0,
+   "len_mask": 1865
+  },
+  {
+   "year": 1593,
+   "first_day": -137665,
+   "month_count": 13,
+   "leap_after": 11,
+   "len_mask": 5779
+  },
+  {
+   "year": 1594,
+   "first_day": -137281,
+   "month_count": 12,
+   "leap_after": 0,
+   "len_mask": 2709
+  },
+  {
+   "year": 1595,
+   "first_day": -136927,
+   "month_count": 12,
+   "leap_after": 0,
+   "len_mask": 1323
+  },
+  {
+   "year": 1596,
+   "first_day": -136573,
+   "month_count": 13,
+   "leap_after": 8,
+   "len_mask": 2651
+  },
+  {
+   "year": 1597,
+   "first_day": -136189,
+   "month_count": 12,
+   "leap_after": 0,
+   "len_mask": 2733
+  },
+  {
+   "year": 1598,
+   "first_day": -135834,
+   "month_count": 12,
+   "leap_after": 0,
+   "len_mask": 3434
+  },
+  {
+   "year": 1599,
+   "first_day": -135479,
+   "month_count": 13,
+   "leap_after": 4,
+   "len_mask": 7012
+  },
+  {
+   "year": 1600,
+   "first_day": -135095,
+   "month_count": 12,
+   "leap_after": 0,
+   "len_mask": 2980
+  },
+  {
+   "year": 1601,
+   "first_day": -134741,
+   "month_count": 12,
+   "leap_after": 0,
+   "len_mask": 2889
+  },
+  {
+   "year": 1602,
+   "first_day": -134387,
+   "month_count": 13,
+   "leap_after": 2,
+   "len_mask": 6803
+  },
+  {
+   "year": 1603,
+   "first_day": -134003,
+   "month_count": 12,
+   "leap_after": 0,
+   "len_mask": 2709
+  },
+  {
+   "year": 1604,
+   "first_day": -133649,
+   "month_count": 13,
+   "leap_after": 9,
+   "len_mask": 5421
+  },
+  {
+   "year": 1605,
+   "first_day": -133265,
+   "month_count": 12,
+   "leap_after": 0,
+   "len_mask": 1366
+  },
+  {
+   "year": 1606,
+   "first_day": -132911,
+   "month_count": 12,
+   "leap_after": 0,
+   "len_mask": 2741
+  },
+  {
+   "year": 1607,
+   "first_day": -132556,
+   "month_count": 13,
+   "leap_after": 6,
+   "len_mask": 5546
+  },
+  {
+   "year": 1608,
+   "first_day": -132172,
+   "month_count": 12,
+   "leap_after": 0,
+   "len_mask": 3538
+  },
+  {
+   "year": 1609,
+   "first_day": -131817,
+   "month_count": 12,
+   "leap_after": 0,
+   "len_mask": 3492
+  },
+  {
+   "year": 1610,
+   "first_day": -131463,
+   "month_count": 13,
+   "leap_after": 3,
+   "len_mask": 7498
+  },
+  {
+   "year": 1611,
+   "first_day": -131079,
+   "month_count": 12,
+   "leap_after": 0,
+   "len_mask": 3402
+  },
+  {
+   "year": 1612,
+   "first_day": -130725,
+   "month_count": 13,
+   "leap_after": 11,
+   "len_mask": 2709
+  },
+  {
+   "year": 1613,
+   "first_day": -130342,
+   "month_count": 12,
+   "leap_after": 0,
+   "len_mask": 2711
+  },
+  {
+   "year": 1614,
+   "first_day": -129987,
+   "month_count": 12,
+   "leap_after": 0,
+   "len_mask": 1366
+  },
+  {
+   "year": 1615,
+   "first_day": -129633,
+   "month_count": 13,
+   "leap_after": 8,
+   "len_mask": 2741
+  },
+  {
+   "year": 1616,
+   "first_day": -129249,
+   "month_count": 12,
+   "leap_after": 0,
+   "len_mask": 2777
+  },
+  {
+   "year": 1617,
+   "first_day": -128894,
+   "month_count": 12,
+   "leap_after": 0,
+   "len_mask": 1746
+  },
+  {
+   "year": 1618,
+   "first_day": -128540,
+   "month_count": 13,
+   "leap_after": 4,
+   "len_mask": 3749
+  },
+  {
+   "year": 1619,
+   "first_day": -128156,
+   "month_count": 12,
+   "leap_after": 0,
+   "len_mask": 3877
+  },
+  {
+   "year": 1620,
+   "first_day": -127801,
+   "month_count": 12,
+   "leap_after": 0,
+   "len_mask": 1610
+  },
+  {
+   "year": 1621,
+   "first_day": -127448,
+   "month_count": 13,
+   "leap_after": 2,
+   "len_mask": 3223
+  },
+  {
+   "year": 1622,
+   "first_day": -127064,
+   "month_count": 12,
+   "leap_after": 0,
+   "len_mask": 2731
+  },
+  {
+   "year": 1623,
+   "first_day": -126709,
+   "month_count": 13,
+   "leap_after": 10,
+   "len_mask": 5466
+  },
+  {
+   "year": 1624,
+   "first_day": -126325,
+   "month_count": 12,
+   "leap_after": 0,
+   "len_mask": 1386
+  },
+  {
+   "year": 1625,
+   "first_day": -125971,
+   "month_count": 12,
+   "leap_after": 0,
+   "len_mask": 2921
+  },
+  {
+   "year": 1626,
+   "first_day": -125616,
+   "month_count": 13,
+   "leap_after": 6,
+   "len_mask": 5970
+  },
+  {
+   "year": 1627,
+   "first_day": -125232,
+   "month_count": 12,
+   "leap_after": 0,
+   "len_mask": 1938
+  },
+  {
+   "year": 1628,
+   "first_day": -124878,
+   "month_count": 12,
+   "leap_after": 0,
+   "len_mask": 2853
+  },
+  {
+   "year": 1629,
+   "first_day": -124524,
+   "month_count": 13,
+   "leap_after": 4,
+   "len_mask": 5707
+  },
+  {
+   "year": 1630,
+   "first_day": -124140,
+   "month_count": 12,
+   "leap_after": 0,
+   "len_mask": 2635
+  },
+  {
+   "year": 1631,
+   "first_day": -123786,
+   "month_count": 13,
+   "leap_after": 11,
+   "len_mask": 5291
+  },
+  {
+   "year": 1632,
+   "first_day": -123402,
+   "month_count": 12,
+   "leap_after": 0,
+   "len_mask": 685
+  },
+  {
+   "year": 1633,
+   "first_day": -123048,
+   "month_count": 12,
+   "leap_after": 0,
+   "len_mask": 1453
+  },
+  {
+   "year": 1634,
+   "first_day": -122693,
+   "month_count": 13,
+   "leap_after": 8,
+   "len_mask": 2985
+  },
+  {
+   "year": 1635,
+   "first_day": -122309,
+   "month_count": 12,
+   "leap_after": 0,
+   "len_mask": 3497
+  },
+  {
+   "year": 1636,
+   "first_day": -121954,
+   "month_count": 12,
+   "leap_after": 0,
+   "len_mask": 3474
+  },
+  {
+   "year": 1637,
+   "first_day": -121600,
+   "month_count": 13,
+   "leap_after": 4,
+   "len_mask": 7461
+  },
+  {
+   "year": 1638,
+   "first_day": -121216,
+   "month_count": 12,
+   "leap_after": 0,
+   "len_mask": 3365
+  },
+  {
+   "year": 1639,
+   "first_day": -120862,
+   "month_count": 12,
+   "leap_after": 0,
+   "len_mask": 2645
+  },
+  {
+   "year": 1640,
+   "first_day": -120508,
+   "month_count": 13,
+   "leap_after": 1,
+   "len_mask": 5293
+  },
+  {
+   "year": 1641,
+   "first_day": -120124,
+   "month_count": 12,
+   "leap_after": 0,
+   "len_mask": 694
+  },
+  {
+   "year": 1642,
+   "first_day": -119770,
+   "month_count": 13,
+   "leap_after": 11,
+   "len_mask": 5557
+  },
+  {
+   "year": 1643,
+   "first_day": -119385,
+   "month_count": 12,
+   "leap_after": 0,
+   "len_mask": 1748
+  },
+  {
+   "year": 1644,
+   "first_day": -119031,
+   "month_count": 12,
+   "leap_after": 0,
+   "len_mask": 3785
+  }
+ ]
+}
