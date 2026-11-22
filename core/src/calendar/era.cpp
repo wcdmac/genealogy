@@ -57,9 +57,10 @@ Result<int> era_to_year(const std::string& reign, int year_in_era) {
 
 Result<int> era_to_year(const std::string& dynasty, const std::string& reign,
                         int year_in_era) {
-  if (year_in_era < 1) {
-    return Error{ErrorCode::InvalidArgument, "年号年份须 ≥ 1，给定 " +
-                                                 std::to_string(year_in_era)};
+  // 第六轮 低-2：只校验下界时 INT_MAX 会让 year_of 的加法有符号溢出（UB）
+  if (year_in_era < 1 || year_in_era > 1000) {
+    return Error{ErrorCode::InvalidArgument,
+                 "年号年份须在 1..1000，给定 " + std::to_string(year_in_era)};
   }
   auto candidates = find_era(reign);
   if (!dynasty.empty()) {

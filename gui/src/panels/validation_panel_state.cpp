@@ -143,10 +143,21 @@ void ValidationPanel::start_run(DbSession& session) {
   DbSession* s = &session;
   running_ = true;
   worker_ = std::thread([this, s] {
-    run_validation_worker(*s, &pending_, &pending_error_, &pending_warning_,
-                          &pending_info_, &pending_rules_run_,
-                          &pending_rules_total_, &pending_status_,
-                          &pending_ok_);
+    // 第六轮 高-2：异常不得逃出线程入口，否则 std::terminate
+    try {
+      run_validation_worker(*s, &pending_, &pending_error_, &pending_warning_,
+                            &pending_info_, &pending_rules_run_,
+                            &pending_rules_total_, &pending_status_,
+                            &pending_ok_);
+    } catch (const std::exception& e) {
+      pending_.clear();
+      pending_status_ = std::string("校验异常: ") + e.what();
+      pending_ok_ = false;
+    } catch (...) {
+      pending_.clear();
+      pending_status_ = "校验异常（未知）";
+      pending_ok_ = false;
+    }
     pending_ready_ = true;
     running_ = false;  // 发布点（release），UI 线程此帧起可采纳
   });

@@ -554,9 +554,10 @@ TEST_CASE("GEDCOM 映射：损失显式化，绝不静默丢弃") {
   // M7.5：SOUR 已建模（0 SOUR 记录 + INDI 1 SOUR → 出处链），不再进损失
   for (const auto& l : r->losses) {
     CHECK(l.tag != "SOUR");
+  }
+  // 第六轮 低-1：这两条断言曾错置于循环内，losses 为空时会零次执行
   CHECK(has("_UID", LossSeverity::Info));
   CHECK(has("ASSO", LossSeverity::Info));
-  }
   // 出处链：0 @S1@ SOUR 的 TITLE → 来源；INDI 1 SOUR → Person 级引用
   REQUIRE(r->sources.size() == 1);
   CHECK(r->sources[0].title == "族谱抄本");

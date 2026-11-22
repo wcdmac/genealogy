@@ -24,10 +24,14 @@ GenerationPoemService::GenerationPoemService(Database& db)
 
 Result<std::vector<GenerationPoemEntry>> GenerationPoemService::set_poem(
     PoemOwner owner, const std::string& owner_id, const std::string& text) {
-  // 归属必须存在——派语挂在幽灵宗族上，后续校验全部跑偏
+  // 归属必须存在——派语挂在幽灵主体上，后续校验全部跑偏。
+  // 第六轮 高-1：原实现丢弃 books_.get() 结果且缩进损坏，Lineage 归属
+  // 完全没有校验。单谱单库下 book 行恒在，但异常迁移/外部改库时仍应
+  // 给出明确错误，而不是把派语写到不存在的归属上。
   if (owner == PoemOwner::Lineage) {
     auto b = books_.get();
-      } else {
+    if (!b) return b.error();
+  } else {
     auto b = branches_.get(owner_id);
     if (!b) return not_found("支派不存在: " + owner_id);
   }
@@ -95,6 +99,9 @@ GenerationPoemService::check_consistency(PoemOwner owner,
   pf.limit = 200000;
   std::unordered_set<std::string> branch_members;
   if (owner == PoemOwner::Lineage) {
+    // 与 set_poem 对齐（第六轮 高-1）：谱级派语的归属也要可验证
+    auto b = books_.get();
+    if (!b) return b.error();
   } else {
     auto b = branches_.get(owner_id);
     if (!b) return not_found("支派不存在: " + owner_id);

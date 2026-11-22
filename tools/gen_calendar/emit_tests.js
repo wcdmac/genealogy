@@ -12,10 +12,18 @@ const path = require('path');
 
 const months = JSON.parse(fs.readFileSync(path.join(__dirname, 'fixtures', 'pmo_months.json'), 'utf8'));
 const terms = JSON.parse(fs.readFileSync(path.join(__dirname, 'fixtures', 'pmo_terms.json'), 'utf8'));
-const truthPath = path.join(__dirname, '..', '..', '.data', 'pmo', 'pmo_truth.jsonl');
-const truth = fs.existsSync(truthPath)
-  ? fs.readFileSync(truthPath, 'utf8').trim().split('\n').map((s) => JSON.parse(s))
-  : [];
+// 第六轮 高-3：干支夹具必须来自入库 fixture（新 clone 也有），
+// 不能依赖 gitignore 的 .data/pmo/pmo_truth.jsonl——缺失时静默降级
+// 为空数组会让 3024 条回归断言消失而测试仍绿（假绿）。
+const truthPath = path.join(__dirname, 'fixtures', 'pmo_ganzhi_samples.json');
+if (!fs.existsSync(truthPath)) {
+  throw new Error('缺少 fixtures/pmo_ganzhi_samples.json：干支校验样本未入库');
+}
+const truthFile = JSON.parse(fs.readFileSync(truthPath, 'utf8'));
+if (!truthFile.samples || truthFile.samples.length === 0) {
+  throw new Error('fixtures/pmo_ganzhi_samples.json 无样本，拒绝生成空夹具');
+}
+const truth = truthFile.samples;
 
 const MON = ['', '正月', '二月', '三月', '四月', '五月', '六月', '七月',
   '八月', '九月', '十月', '十一月', '十二月'];

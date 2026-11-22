@@ -79,6 +79,9 @@ void TreePanel::begin_load(DbSession& session, const std::string& root,
       running_ = false;  // 发布点（release），UI 线程此帧起可采纳
     };
 
+    // 第六轮 高-2：线程入口无人捕获异常，逃逸即 std::terminate（进程闪退）。
+    // 统一走 finish 发布错误并确保 running_ 复位。
+    try {
     PersonFilter pf;
     pf.limit = 200000;
     auto persons = s->persons().list_persons(pf);
@@ -103,6 +106,11 @@ void TreePanel::begin_load(DbSession& session, const std::string& root,
     }
     finish(std::move(graph),
            std::make_unique<lineage::TreeNode>(std::move(*t)), "");
+    } catch (const std::exception& e) {
+      finish(nullptr, nullptr, std::string("生成世系树异常: ") + e.what());
+    } catch (...) {
+      finish(nullptr, nullptr, "生成世系树异常（未知）");
+    }
   });
 }
 

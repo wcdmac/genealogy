@@ -223,6 +223,9 @@ bool GenealogyApp::run(std::string* err) {
     if (!session_.open(options_.db_path, &why)) {
       state_.set_status("打开数据库失败: " + why, true);
     } else {
+      // 第六轮 低-7：世系表以 state_.db_path 作缓存失效键，启动时须同步，
+      // 否则首帧判定基准是空串，与实际会话路径脱节。
+      state_.db_path = options_.db_path;
       state_.set_status("已打开 " + options_.db_path);
     }
     if (font_failed) {

@@ -11,6 +11,7 @@
 #include <iostream>
 #include <optional>
 #include <string>
+#include <sstream>
 #include <vector>
 
 #ifdef _WIN32
@@ -63,8 +64,8 @@ const char* kSubcommandsHelp =
     "  event    add|list|show|remove\n"
     "  migration add|list|show|remove\n"
     "  source   add|list|show|remove\n"
-    "  citation add|list|show|remove\n"
-    "  document add|list|show|remove\n"
+    "  citation add|list|show|remove|migrate-notes\n"
+    "  document add|list|show|search|remove\n"
     "  poem     set|show|check\n"
     "  date     convert|lunar|terms|era|info\n"
     "  io       import|export|validate\n"
@@ -390,6 +391,38 @@ int cmd_person_show(const std::vector<std::string>& args,
   return 0;
 }
 
+// person remove <id>：删除人物（第六轮 中-5：帮助承诺但分派缺失）。
+// 删除保护由服务层负责：被事件/结合/迁徙等引用时返回 Conflict(409)。
+int cmd_person_remove(const std::vector<std::string>& args,
+                      const std::string& db_path, const std::string& format) {
+  cxxopts::Options opts("genea person remove", "删除人物");
+  opts.add_options()("id", "人物 ID", cxxopts::value<std::string>());
+  opts.parse_positional({"id"});
+  const auto r = parse_args(opts, args);
+  if (!r.count("id")) {
+    std::cerr << "用法错误: genea person remove <id>\n";
+    return 2;
+  }
+  auto db = open_db(db_path);
+  if (!db) {
+    print_error(db.error());
+    return exit_code_for(db.error());
+  }
+  PersonService svc(*db);
+  const std::string id = r["id"].as<std::string>();
+  auto removed = svc.remove_person(id);
+  if (!removed) {
+    print_error(removed.error());
+    return exit_code_for(removed.error());
+  }
+  if (format == "json") {
+    std::cout << nlohmann::json{{"removed", id}, {"status", "ok"}}.dump(2) << "\n";
+  } else {
+    std::cout << "已删除人物 " << id << "\n";
+  }
+  return 0;
+}
+
 // person tree <id>：十代子孙树（M1.6 性能验收的查询入口）。
 // 图数据全量装载（M1 规模足够；万级以上的按需加载留待 M2 仓储层）。
 int cmd_person_tree(const std::vector<std::string>& args,
@@ -468,9 +501,9 @@ int cmd_person_tree(const std::vector<std::string>& args,
         std::cout << "\n";
         for (const auto& c : node.children) print(c, level + 1, budget);
       };
-  // 第五轮 低-3：预算给 201——恰好 200 节点时剩 1 不误报，
-  // 真有第 201 个节点被跳过时 budget 才归 0。
-  std::size_t budget = 201;
+  // 第六轮 低-4：print 先扣减再打印，预算 200 恰好打印 200 个节点；
+  // 第 201 个进来时 budget 已为 0 被跳过，提示与实显一致。
+  std::size_t budget = 200;
   print(*tree, 0, &budget);
   if (budget == 0) std::cout << "…（只显示前 200 个节点）\n";
   std::cout << "后代树: " << nodes << " 节点 / " << depth_seen << " 层，耗时 "
@@ -991,8 +1024,32 @@ int run(std::vector<std::string> raw_args) {
   }
 
   const auto& unmatched = g.unmatched();
+  // 第六轮 高-4：cxxopts 全局解析器在任何位置都识别 --help，并把它从
+  // unmatched 里消费掉，命令组收不到。故在这里区分：
+  //   · 裸 --help            → 全局帮助
+  //   · genea <cmd> --help   → 该命令组的用法行（子命令帮助仍走各组分支）
   if (g.count("help") > 0) {
-    std::cout << global.help() << "\n" << kSubcommandsHelp;
+    if (unmatched.empty()) {
+      std::cout << global.help() << "\n" << kSubcommandsHelp;
+      return 0;
+    }
+    const std::string& cmd = unmatched[0];
+    std::string line;
+    std::istringstream hs(kSubcommandsHelp);
+    for (std::string l; std::getline(hs, l);) {
+      const auto p = l.find_first_not_of(" ");
+      if (p != std::string::npos && l.compare(p, cmd.size(), cmd) == 0 &&
+          (p + cmd.size() == l.size() || l[p + cmd.size()] == ' ')) {
+        line = l;
+        break;
+      }
+    }
+    if (!line.empty()) {
+      std::cout << line << "\n";
+    } else {
+      std::cout << "用法: genea " << cmd << "\n";
+    }
+    std::cout << "子命令帮助: genea " << cmd << " <子命令> --help\n";
     return 0;
   }
   if (unmatched.empty()) {
@@ -1041,6 +1098,7 @@ int run(std::vector<std::string> raw_args) {
       if (sub == "show") return cmd_person_show(args, db_path, format);
       if (sub == "relation") return cmd_person_relation(args, db_path, format);
       if (sub == "tree") return cmd_person_tree(args, db_path, format);
+      if (sub == "remove") return cmd_person_remove(args, db_path, format);
     }
     // 实体命令组内部自己拆子命令（add/list/show/remove），故传 rest
     // （含子命令）；person/db 系列直接消费 options，传 args（不含子命令）。

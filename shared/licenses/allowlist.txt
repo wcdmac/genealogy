@@ -28,6 +28,10 @@ imgui
 # 离线生成工具（Node 跑一次产出 C++ 静态表，不编译/不链接/不分发）：
 #   lunar-javascript  农历数据表生成（MIT）
 lunar-javascript
+# 以下两项从 .data/era/ 本地 require，清单见
+# tools/gen_calendar/offline-deps.json（第六轮 中-7 纳入卡点）
+cn-era
+opencc-js
 
 # 说明：lunar-javascript 只用于与紫金山天文台官方数据交叉核验，
 # 最终写入的数据以官方《1900-2025年日历》为准。

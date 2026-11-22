@@ -11,7 +11,7 @@ Dear ImGui + GLFW（**严禁 Qt**）+ CLI 三端共用同一领域核心；**无
 
 - [x] monorepo 骨架 + CMake + vcpkg manifest
 - [x] core：领域模型（person/lineage/branch/place/union/event/migration）/ GenealogyDate 多历法值对象 / ULID / SQLite 仓储 + 迁移 / 用例层
-- [x] cli：`db init|seed|backup|restore` / `person add|list|show|relation|tree` / `lineage|branch|place|union|event|poem add|list|show|remove` / `date convert|lunar|terms|era|info` / `io import|export|validate` / `bench`
+- [x] cli：`db init|seed|backup|restore` / `person add|list|show|name|relation|tree|remove` / `book show|update` / `branch|place|union|event|migration|source|citation|document add|list|show|remove`（各命令组以实际帮助为准） / `poem set|show|check` / `date convert|lunar|terms|era|info` / `io import|export|validate` / `bench`
 - [x] **M1.3 世系算法引擎**：世系图快照 + BFS 关系路径 + 世代序号（自始祖起算）+ 辈分差 + 五服（明清定型版）+ 称谓；规则表数据外置（`shared/rules/*.json`，构建时嵌入）
 - [x] **M1.4 历法引擎**：公历↔农历互转（**1368-3000**，1633 个农历年；1368-1582 为大统历朔闰史实段，儒略历史实口径）/ 24 节气时刻（北京时间，到分，1583 起）/ 干支纪年纪月纪日 / 生肖 / 年号纪年（西汉建元至民国，499 条区间）
 - [x] **M1.5 GEDCOM 5.5.1 导入导出 + 一致性校验规则引擎**：三层解析（字符集/结构/映射）、
@@ -255,9 +255,8 @@ tools\build-gui-msvc.bat                        # 构建 core+cli+gui（单机�
 ./build/bin/genealogy-gui --headless-check      # CI/SSH 自检：0=有显示 2=无显示
 # 面板：人物卡 / 世系表 / 检索 / 关系 / 世系树 / 校验（菜单「面板」开关）。
 # 数据层与渲染层分层：DbSession 调用链（GUI 走 core 用例的同一入口）
-# 无 ImGui 依赖，由 genealogy-gui-tests 无头单测；面板装配函数与渲染
-# 同 TU，尚未纳入无头测试（ROADMAP 暂缓项）。渲染层要显示环境，
-# CI 只验 --headless-check。
+# 无 ImGui 依赖，由 genealogy-gui-tests 无头单测；面板状态机（*_state.cpp）
+# 也已编入该目标直接驱动。渲染层要显示环境，CI 只验 --headless-check。
 
 # 世系算法：两人关系路径 / 辈分差 / 五服 / 称谓
 ./build/bin/genea person relation --db family.db 01J... 01K...

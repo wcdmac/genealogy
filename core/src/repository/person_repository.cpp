@@ -312,12 +312,9 @@ Result<PersonRepository::RelationRefs> PersonRepository::count_relation_referenc
     *dest = sqlite3_column_int(st.get(), 0);
     return {};
   };
-  if (auto r = count_one(
-          "SELECT COUNT(*) FROM parent_child WHERE parent_id = ?1 OR child_id = ?1",
-          &out.parent_child_links);
-      !r) {
-    return r.error();
-  }
+  // 第六轮 低-3：parent_child 表全库无 INSERT（权威亲子关系在 person
+  // 的 father_id/mother_id），此查询恒 0，是给人错误安全感的死检查。
+  out.parent_child_links = 0;
   if (auto r = count_one("SELECT COUNT(*) FROM union_member WHERE person_id = ?1",
                          &out.union_memberships);
       !r) {

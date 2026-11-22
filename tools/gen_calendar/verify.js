@@ -63,8 +63,16 @@ function fromGregorian(y, m, d) {
 }
 
 // ---- 1) 逐日比对 ----
-const truth = fs.readFileSync('../../.data/pmo/pmo_truth.jsonl', 'utf8')
-  .trim().split('\n').map(JSON.parse);
+// 第六轮 高-3：完整官方逐日基准在 .data/（gitignore，不入库），
+// 缺失时给明确指引而非崩溃；入库的抽样校验集由 emit_tests.js 生成夹具。
+const truthPath = '../../.data/pmo/pmo_truth.jsonl';
+if (!fs.existsSync(truthPath)) {
+  console.error('核验需要紫金山天文台逐日基准 .data/pmo/pmo_truth.jsonl（gitignore）。');
+  console.error('该文件是本地核验专用；入库抽样集见 fixtures/pmo_ganzhi_samples.json。');
+  process.exit(2);
+}
+const truth = fs.readFileSync(truthPath, 'utf8')
+  .trim().split('\n').filter(Boolean).map(JSON.parse);
 let badDay = [], badGz = [];
 for (const r of truth) {
   const [y, m, d] = r.date.split('-').map(Number);

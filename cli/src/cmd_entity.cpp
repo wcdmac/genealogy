@@ -188,7 +188,6 @@ int cmd_branch(const std::vector<std::string>& args,
   if (sub == "add") {
     cxxopts::Options opts("genea branch add", "新增支派");
     opts.add_options()
-      ("lineage", "所属宗族 ID", cxxopts::value<std::string>())
       ("name", "支派名称", cxxopts::value<std::string>())
       ("founder", "始迁祖（人物 ID）", cxxopts::value<std::string>())
       ("parent", "父房（支派 ID）", cxxopts::value<std::string>())

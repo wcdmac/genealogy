@@ -60,7 +60,8 @@ std::string read_file(const std::string& path, bool* ok) {
   }
   std::ostringstream ss;
   ss << in.rdbuf();
-  *ok = true;
+  // 第六轮 中-4：rdbuf() 读取失败不抛异常，须查 bad()（fail/eof 属正常终止）
+  *ok = !in.bad();
   return ss.str();
 }
 
@@ -71,6 +72,13 @@ void write_file(const std::string& path, const std::string& text, bool* ok) {
     return;
   }
   out << text;
+  // 第六轮 中-4：缓冲内容在 flush/close 才真正落盘，此前判定会漏报磁盘满等错误
+  out.flush();
+  if (!out) {
+    *ok = false;
+    return;
+  }
+  out.close();
   *ok = static_cast<bool>(out);
 }
 
@@ -536,7 +544,7 @@ int cmd_export_tree(const std::vector<std::string>& args,
   }
   const std::string tree_format = r["tree-format"].as<std::string>();
   if (tree_format != "dot" && tree_format != "mermaid") {
-    std::cerr << "用法错误: --format 应为 dot 或 mermaid\n";
+    std::cerr << "用法错误: --tree-format 应为 dot 或 mermaid\n";
     return 2;
   }
 
@@ -994,6 +1002,8 @@ int cmd_bench(const std::vector<std::string>& args, const std::string& db_path,
       threads.reserve(static_cast<std::size_t>(writers));
       for (int w = 0; w < writers; ++w) {
         threads.emplace_back([&, w] {
+          // 第六轮 高-2：异常不得逃出线程入口，计入失败而非 terminate
+          try {
           // 并发写也必须落在基准库上：此前写线程仍开 --db（用户业务库），
           // 5 × writers 条"并发写测试"人物灌进真实库且不清理（复核 2.1 残余）。
           auto wdb = open_db(bench_db);
@@ -1019,6 +1029,9 @@ int cmd_bench(const std::vector<std::string>& args, const std::string& db_path,
             } else {
               ++inserted;
             }
+          }
+          } catch (...) {
+            ++failures;
           }
         });
       }

@@ -80,6 +80,19 @@ def npm_deps() -> set[str]:
     return deps
 
 
+def offline_deps() -> set[str]:
+    """第六轮 中-7：离线生成器从 .data/ 本地 require 的依赖清单。
+
+    .data/ 被 gitignore，package.json 无法声明这些包；把它们的包名与许可
+    依据固化在入库清单里，让实际使用的依赖同样过白名单卡点。
+    """
+    manifest = (ROOT / "tools" / "gen_calendar" / "offline-deps.json")
+    if not manifest.is_file():
+        return set()
+    data = json.loads(manifest.read_text(encoding="utf-8"))
+    return {d["name"] for d in data.get("deps", []) if "name" in d}
+
+
 def main() -> int:
     violations: list[str] = []
 
@@ -90,6 +103,9 @@ def main() -> int:
     for dep in sorted(npm_deps()):
         if dep not in allowed:
             violations.append(f"npm 依赖不在白名单: {dep}")
+    for dep in sorted(offline_deps()):
+        if dep not in allowed:
+            violations.append(f"离线生成依赖不在白名单: {dep}")
 
     scan_counts: dict[str, int] = {}
     for path in sorted(ROOT.rglob("*")):

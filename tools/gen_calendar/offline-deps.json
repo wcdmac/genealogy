@@ -1,0 +1,19 @@
+{
+  "note": "离线历法生成器从 .data/era/ 本地 require 的依赖（.data 被 gitignore，不入库）。清单入库让 license_check.py 能卡点校验；许可依据见各包的 meta.json，均为 MIT。",
+  "deps": [
+    {
+      "name": "cn-era",
+      "license": "MIT",
+      "source": "npm cn-era 0.4.1（本地解包于 .data/era/package）",
+      "used_by": "tools/gen_calendar/extract_era.js",
+      "purpose": "朝代编号（取自 CBDB）与年号区间抽取"
+    },
+    {
+      "name": "opencc-js",
+      "license": "Apache-2.0/MIT",
+      "source": "npm opencc-js（本地解包于 .data/era/occ）",
+      "used_by": "tools/gen_calendar/extract_era.js",
+      "purpose": "繁体年号转简体"
+    }
+  ]
+}
