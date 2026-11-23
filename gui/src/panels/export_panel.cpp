@@ -16,13 +16,8 @@ const char* kPresets[] = {"guji_classic", "plain_modern"};
 }
 
 void ExportPanel::draw(DbSession& session) {
-  if (!ImGui::Begin(title(), &open)) {
-    ImGui::End();
-    return;
-  }
   if (!session.is_open()) {
     ImGui::TextUnformatted("请先打开数据库");
-    ImGui::End();
     return;
   }
 
@@ -113,7 +108,6 @@ void ExportPanel::draw(DbSession& session) {
       ImGui::EndChild();
     }
   }
-  ImGui::End();
 }
 
 }  // namespace genealogy::gui

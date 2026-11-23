@@ -19,9 +19,9 @@ std::string lower(std::string s) {
 bool FileBrowser::cd(const std::string& dir, std::string* why) {
   std::error_code ec;
   const auto target = std::filesystem::absolute(dir, ec);
-  if (ec) { *why = "路径无效: " + ec.message(); return false; }
+  if (ec) { if (why) *why = "路径无效: " + ec.message(); return false; }
   if (!std::filesystem::is_directory(target, ec)) {
-    *why = "不是目录: " + dir;
+    if (why) *why = "不是目录: " + dir;
     return false;
   }
   current_ = target;
@@ -44,7 +44,7 @@ bool FileBrowser::refresh(std::string* why, const std::string& filter_ext) {
     fe.size = is_dir ? 0 : e.file_size(ec);
     entries_.push_back(std::move(fe));
   }
-  if (ec) { *why = "读目录失败: " + ec.message(); return false; }
+  if (ec) { if (why) *why = "读目录失败: " + ec.message(); return false; }
   std::stable_sort(entries_.begin(), entries_.end(),
                    [](const FileEntry& a, const FileEntry& b) {
                      if (a.is_dir != b.is_dir) return a.is_dir;

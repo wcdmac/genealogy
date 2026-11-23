@@ -1089,3 +1089,16 @@ TEST_CASE("文件浏览器：目录浏览与 .db 过滤") {
 
 
 
+
+
+TEST_CASE("审查修复回归：空串可选 ID 折叠后落库") {
+  TempDb db;
+  std::string why;
+  REQUIRE(db.open(&why));
+  Person p;
+  p.family_name = "审"; p.given_name = "查";
+  p.father_id = std::string("");
+  auto made = db.session.persons().create_person(p);
+  REQUIRE(made.has_value());
+  CHECK_FALSE(made->father_id.has_value());
+}

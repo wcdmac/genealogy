@@ -8,10 +8,8 @@
 namespace genealogy::gui {
 
 void BranchPanel::draw(DbSession& session) {
-  if (!ImGui::Begin(title(), &open)) { ImGui::End(); return; }
   if (!session.is_open()) {
     ImGui::TextUnformatted("请先打开数据库");
-    ImGui::End();
     return;
   }
   if (rows_.empty()) {
@@ -58,7 +56,6 @@ void BranchPanel::draw(DbSession& session) {
     if (!reload(session, &why)) state_.set_status("支派读取失败: " + why, true);
   }
   ImGui::TextDisabled("共 %zu 个支派", rows_.size());
-  ImGui::End();
 }
 
 }  // namespace genealogy::gui

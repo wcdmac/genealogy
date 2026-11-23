@@ -36,12 +36,40 @@ void encode(std::uint64_t value, int chars, char* out) {
   }
 }
 
+// 随机段需要 80 bit（16 个 Crockford 字符 × 5 bit）。单个 mt19937_64
+// 只有 64 bit，直接用会让高 16 bit 恒 0（前 3 个字符恒 '000'）。
+// 这里用两个独立样本拼成 128 bit，只取低 80 bit 填入。
+void encode80(char* out) {
+  const std::uint64_t hi = next_random();
+  const std::uint64_t lo = next_random();
+  // 取 128 bit 样本的低 80 bit，每 5 bit 一个 Crockford 字符。
+  for (int i = 0; i < 16; ++i) {
+    const int bit = i * 5;
+    // bit=0 时 hi<<64 是 UB，故只在跨 64 位边界（bit=60）时借位。
+    std::uint64_t chunk;
+    if (bit + 5 <= 64) {
+      chunk = (lo >> bit) & 0x1F;
+    } else if (bit < 64) {
+      chunk = ((lo >> bit) | (hi << (64 - bit))) & 0x1F;
+    } else {
+      chunk = (hi >> (bit - 64)) & 0x1F;
+    }
+    out[15 - i] = kCrockford[chunk];
+  }
+}
+
+// 负时间戳（系统时钟早于 1970）回绕成巨大值，clamp 到 0。
+std::uint64_t safe_now_ms() {
+  const std::int64_t ms = now_ms();
+  return ms < 0 ? 0 : static_cast<std::uint64_t>(ms);
+}
+
 }  // namespace
 
 std::string generate_ulid() {
   char buf[26];
-  encode(static_cast<std::uint64_t>(now_ms()), 10, buf);
-  encode(next_random(), 16, buf + 10);
+  encode(safe_now_ms(), 10, buf);
+  encode80(buf + 10);
   return std::string(buf, 26);
 }
 

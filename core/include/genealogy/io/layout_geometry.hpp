@@ -65,7 +65,7 @@ struct LayoutGeometry {
 // 每列可容纳的半行数（行高口径 = 正文行）
 inline int half_rows_per_column(const LayoutGeometry& g) {
   const int usable = g.frame_b - g.frame_t - g.top_pad - g.bottom_pad;
-  return (usable / g.body_step) * 2;
+  return (usable / std::max(1, g.body_step)) * 2;
 }
 
 // 每页列数（从右版框到版心左界）
@@ -73,7 +73,7 @@ inline int columns_per_page(const LayoutGeometry& g) {
   const int right = g.frame_r - 24;
   const int left_limit = g.center_x + g.center_w + 20;
   if (right <= left_limit) return 1;
-  return (right - left_limit) / g.col_gap + 1;
+  return (right - left_limit) / std::max(1, g.col_gap) + 1;
 }
 
 // 第 col 列的 x 坐标（col=0 为最右列）

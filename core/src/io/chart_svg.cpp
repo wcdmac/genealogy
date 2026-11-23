@@ -103,7 +103,14 @@ layout descendants(const lineage::PersonGraph& g, const std::string& root,
       std::vector<std::size_t> group;
       for (const Person* c : kids) {
         if (!visited.insert(c->id).second) {
-          warnings->push_back("检测到重复/成环亲子关系: " + c->id);
+          // 双亲子女（同一孩子被父母双方引用）是正常谱面；只有回指
+          // 祖先（孩子世代 <= 父辈世代）才是真环。
+          const auto parent_gen =
+              out.nodes[pi].person->generation_no.value_or(0);
+          const auto child_gen = c->generation_no.value_or(0);
+          if (child_gen != 0 && parent_gen != 0 && child_gen <= parent_gen) {
+            warnings->push_back("检测到成环亲子关系: " + c->id);
+          }
           continue;
         }
         group.push_back(add(c, gen + 1, 0));
@@ -277,7 +284,8 @@ std::string render_svg(const layout& l, const ChartOptions& opt,
     << "</style>\n"
     << "<text class='hint' x='" << kMargin << "' y='20'>"
     << esc(opt.title.empty() ? "世系图" : opt.title)
-    << " · 节点 " << l.nodes.size() << " · 第 " << page_no << "/" << page_count
+    << " · 节点 " << l.nodes.size() << " · 第 " << page_no
+    << (page_count > 0 ? "/" + std::to_string(page_count) : "")
     << " 页 · 第 " << (gen_span.first + 1) << "–" << (gen_span.second + 1) << " 世"
     << (page_no > 1 && gen_span.first == 0 ? "（苏式：与上页重叠首世）" : "")
     << " · 点击节点聚焦，输入姓名定位</text>\n";

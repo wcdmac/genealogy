@@ -62,12 +62,20 @@ jobs:
       # 含 manifest 的 builtin-baseline 时要现场 fetch，且「哪天镜像换了
       # 版本」这种变量不该出现在构建结果里。按 vcpkg.json 的
       # builtin-baseline 精确检出同一份 vcpkg，三平台同源。
-      # 改 vcpkg.json 的 builtin-baseline 时同步改这里。
+      # baseline 单一来源：从 vcpkg.json 读取，避免双写漂移。
+      - name: 读取 vcpkg baseline
+        id: vcpkg_baseline
+        shell: bash
+        run: |
+          BASELINE=$(python3 -c "import json;print(json.load(open('vcpkg.json'))['builtin-baseline'])")
+          echo "value=$BASELINE" >> "$GITHUB_OUTPUT"
+          echo "vcpkg baseline: $BASELINE"
+
       - name: 检出 vcpkg（pin 到 vcpkg.json 的 builtin-baseline）
         uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
         with:
           repository: microsoft/vcpkg
-          ref: e456309491fd875487bf02b8a0dca76c1b1b00cc
+          ref: ${{ steps.vcpkg_baseline.outputs.value }}
           path: vcpkg
 
       - name: Bootstrap vcpkg
@@ -85,7 +93,7 @@ jobs:
         uses: actions/cache@0057852bfaa89a56745cba8c7296529d2fc39830 # v4
         with:
           path: vcpkg-bincache
-          key: vcpkg-${{ matrix.os }}-${{ hashFiles('vcpkg.json', 'tools/vcpkg-ports/**', 'tools/vcpkg-triplets/**') }}
+          key: vcpkg-${{ matrix.os }}-${{ steps.vcpkg_baseline.outputs.value }}-${{ hashFiles('vcpkg.json', 'tools/vcpkg-triplets/**') }}
 
       - name: 安装 Linux 构建依赖
         if: runner.os == 'Linux'
@@ -179,8 +187,18 @@ jobs:
       - name: GUI 无头自检
         shell: bash
         run: |
-          ./build/bin/genealogy-gui --headless-check || \
-          test $? -eq 2
+          set +e
+          OUT=$(./build/bin/genealogy-gui --headless-check 2>&1)
+          RC=$?
+          set -e
+          echo "$OUT"
+          if [ $RC -eq 0 ]; then exit 0; fi
+          # 只有明确的"无法初始化 GLFW（无显示）"才是环境事实；
+          # 同样返回 2 的"未知参数"等错误必须让 CI 失败。
+          if [ $RC -eq 2 ] && echo "$OUT" | grep -q "无法初始化 GLFW"; then
+            exit 0
+          fi
+          exit $RC
 
       - name: 许可证白名单卡点（含禁 Qt 检查）
         shell: bash

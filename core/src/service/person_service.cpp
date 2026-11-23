@@ -16,32 +16,37 @@ PersonService::PersonService(Database& db)
 
 namespace {
 
+// 空串可选 ID 折叠为未设置（CLI 传 --father "" / JSON father_id:"" 等场景）。
+// 必须在落库前对副本执行——校验函数里的折叠只作用于它自己的局部副本，
+// 若不用规范化后的对象落库，空串会作为外键写入触发 FOREIGN KEY 失败。
+void normalize_ids(Person& p) {
+  if (p.father_id && p.father_id->empty()) p.father_id.reset();
+  if (p.mother_id && p.mother_id->empty()) p.mother_id.reset();
+  if (p.branch_id && p.branch_id->empty()) p.branch_id.reset();
+  if (p.portrait_attachment_id && p.portrait_attachment_id->empty())
+    p.portrait_attachment_id.reset();
+}
+
 // 建档与更新共用的领域校验。空 Error 表示通过。
 Error validate_person(const Person& draft, PersonRepository& repo) {
   if (draft.family_name.empty()) return invalid_argument("姓必填");
   if (draft.given_name.empty()) return invalid_argument("名必填");
 
-  Person p = draft;
-  // 空串 ID 视为未设置（CLI 传 --father "" 等场景），
-  // 否则会作为无效外键值写入库中触发 FOREIGN KEY 失败。
-  if (p.father_id && p.father_id->empty()) p.father_id.reset();
-  if (p.mother_id && p.mother_id->empty()) p.mother_id.reset();
-  if (p.branch_id && p.branch_id->empty()) p.branch_id.reset();
-
+  // 空串可选 ID 由 normalize_ids() 在落库前折叠；此处只校验。
   // 父母存在性（拟制关系在 M1 与 parent_child 对齐后扩展）
-  if (p.father_id && !p.father_id->empty()) {
-    if (!is_valid_ulid(*p.father_id)) {
-      return invalid_argument("father_id 不是合法 ULID: " + *p.father_id);
+  if (draft.father_id && !draft.father_id->empty()) {
+    if (!is_valid_ulid(*draft.father_id)) {
+      return invalid_argument("father_id 不是合法 ULID: " + *draft.father_id);
     }
-    auto father = repo.get(*p.father_id);
-    if (!father) return not_found("父亲不存在: " + *p.father_id);
+    auto father = repo.get(*draft.father_id);
+    if (!father) return not_found("父亲不存在: " + *draft.father_id);
   }
-  if (p.mother_id && !p.mother_id->empty()) {
-    if (!is_valid_ulid(*p.mother_id)) {
-      return invalid_argument("mother_id 不是合法 ULID: " + *p.mother_id);
+  if (draft.mother_id && !draft.mother_id->empty()) {
+    if (!is_valid_ulid(*draft.mother_id)) {
+      return invalid_argument("mother_id 不是合法 ULID: " + *draft.mother_id);
     }
-    auto mother = repo.get(*p.mother_id);
-    if (!mother) return not_found("母亲不存在: " + *p.mother_id);
+    auto mother = repo.get(*draft.mother_id);
+    if (!mother) return not_found("母亲不存在: " + *draft.mother_id);
   }
   return {};
 }
@@ -49,8 +54,10 @@ Error validate_person(const Person& draft, PersonRepository& repo) {
 }  // namespace
 
 Result<Person> PersonService::create_person(const Person& draft) {
-  if (auto err = validate_person(draft, repo_); err) return err;
-  return repo_.insert(draft);
+  Person normalized = draft;
+  normalize_ids(normalized);
+  if (auto err = validate_person(normalized, repo_); err) return err;
+  return repo_.insert(normalized);
 }
 
 Result<Person> PersonService::get_person(const std::string& id) {
@@ -62,9 +69,11 @@ Result<std::vector<Person>> PersonService::list_persons(
   return repo_.list(filter);
 }
 
-Result<Person> PersonService::update_person(const Person& p) {
-  if (auto err = validate_person(p, repo_); err) return err;
-  return repo_.update(p);
+Result<Person> PersonService::update_person(const Person& draft) {
+  Person normalized = draft;
+  normalize_ids(normalized);
+  if (auto err = validate_person(normalized, repo_); err) return err;
+  return repo_.update(normalized);
 }
 
 Result<void> PersonService::remove_person(const std::string& id) {
@@ -103,6 +112,27 @@ Result<void> PersonService::remove_person(const std::string& id) {
       cited += *event_cited;
     }
     scope_cursor = scope_events->back().id;
+  }
+  // 即将级联删除的迁徙记录也要计入证据引用——MigrationService::remove_migration
+  // 有 409 保护，这里若漏掉会删掉被 citation 引用的迁徙，留下孤儿证据（H4）。
+  MigrationRepository cited_migrations(*db_);
+  std::optional<std::string> mg_pre_cursor;
+  for (;;) {
+    MigrationFilter mf;
+    mf.subject_type = MigrationSubjectType::Person;
+    mf.subject_id = id;
+    mf.limit = 1000;
+    mf.cursor = mg_pre_cursor;
+    auto mgs = cited_migrations.list(mf);
+    if (!mgs) return mgs.error();
+    if (mgs->empty()) break;
+    for (const auto& m : *mgs) {
+      auto migration_cited =
+          citations.count_for_subject(CitationSubjectType::Migration, m.id);
+      if (!migration_cited) return migration_cited.error();
+      cited += *migration_cited;
+    }
+    mg_pre_cursor = mgs->back().id;
   }
   if (cited > 0) {
     return conflict("人物（含其事件）被 " + std::to_string(cited) +

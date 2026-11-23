@@ -122,8 +122,7 @@ install(TARGETS genealogy-gui RUNTIME DESTINATION bin)
 # vtable（引用全部虚函数），只编 state TU 会链接失败；测试运行期
 # 从不调用 draw()，不触碰 GLFW/OpenGL，无显示环境照跑。
 if(BUILD_TESTS)
-  find_package(Catch2 CONFIG REQUIRED)
-  add_executable(genealogy-gui-tests
+    add_executable(genealogy-gui-tests
     tests/test_gui.cpp
     ${PROJECT_SOURCE_DIR}/gui/src/db_session.cpp
     ${PROJECT_SOURCE_DIR}/gui/src/db_switch.cpp

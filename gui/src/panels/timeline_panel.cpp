@@ -14,10 +14,8 @@ const char* kTypeNames[] = {"全部", "出生", "卒", "葬", "婚姻", "迁徙"
 }
 
 void TimelinePanel::draw(DbSession& session) {
-  if (!ImGui::Begin(title(), &open)) { ImGui::End(); return; }
   if (!session.is_open()) {
     ImGui::TextUnformatted("请先打开数据库");
-    ImGui::End();
     return;
   }
   if (rows_.empty() && places_.empty()) {
@@ -68,7 +66,6 @@ void TimelinePanel::draw(DbSession& session) {
   }
   if (places_.empty()) ImGui::TextDisabled("（无地点数据）");
   ImGui::EndChild();
-  ImGui::End();
 }
 
 }  // namespace genealogy::gui

@@ -1,6 +1,7 @@
 #include <genealogy/service/merge_service.hpp>
 
 #include <genealogy/io/backup_service.hpp>
+#include <genealogy/repository/transaction.hpp>
 #include <genealogy/repository/person_repository.hpp>
 #include <genealogy/ulid.hpp>
 
@@ -34,6 +35,8 @@ std::optional<int> birth_year(const Person& p) {
 }  // namespace
 
 Result<std::vector<DuplicatePair>> MergeService::detect(int limit) const {
+  // 负数 limit 提升为 size_t 会变成巨大值，退化为不限量返回。
+  if (limit < 0) limit = 0;
   PersonRepository repo(*db_);
   PersonFilter f;
   f.limit = 200000;
@@ -128,24 +131,33 @@ Result<MergeResult> MergeService::merge(const std::string& winner_id,
     return Error{ErrorCode::Conflict, "存在字段冲突，请人工核对后再合并"};
   }
 
+  // 合并不不可逆：快照失败必须中止，不能"承诺有撤销点却没留"。
   if (!backup_dir.empty()) {
     fs::path dir(backup_dir);
     std::error_code ec;
     fs::create_directories(dir, ec);
-    if (!ec) {
-      const fs::path snap = dir /
-          ("genealogy-merge-" + generate_ulid() + ".db");
-      if (auto s = io::snapshot_database(*db_, snap); s)
-        result.backup_path = snap.string();
-    }
+    if (ec)
+      return Error{ErrorCode::IoError,
+                   "合并前无法创建备份目录: " + ec.message()};
+    const fs::path snap = dir /
+        ("genealogy-merge-" + generate_ulid() + ".db");
+    if (auto s = io::snapshot_database(*db_, snap); !s)
+      return Error{ErrorCode::IoError,
+                   "合并前快照失败，已中止合并: " + s.error().message()};
+    result.backup_path = snap.string();
   }
 
-  auto& tx = db_->write_mutex();
-  std::unique_lock<std::recursive_mutex> lock(tx);
+  // 全部写操作在同一事务内：任一步失败由析构回滚，不留半套合并。
+  // Transaction 内部已持 write_mutex，无需再手动 unique_lock。
+  Transaction transaction(*db_);
+  if (transaction.error()) return transaction.error().value();
   const char* sqls[] = {
       "UPDATE parent_child SET parent_id=? WHERE parent_id=?",
       "UPDATE union_member SET person_id=? WHERE person_id=?",
       "UPDATE event SET subject_id=? WHERE subject_id=?",
+      "UPDATE migration SET subject_id=? WHERE subject_type='person' AND subject_id=?",
+      "UPDATE citation SET subject_id=? WHERE subject_type='person' AND subject_id=?",
+      "UPDATE attachment SET subject_id=? WHERE subject_type='person' AND subject_id=?",
       "UPDATE person_name SET person_id=? WHERE person_id=?",
       "UPDATE person SET father_id=? WHERE father_id=?",
       "UPDATE person SET mother_id=? WHERE mother_id=?",
@@ -174,6 +186,7 @@ Result<MergeResult> MergeService::merge(const std::string& winner_id,
   }
   auto removed = repo.remove(loser_id);
   if (!removed) return removed.error();
+  if (auto c = transaction.commit(); !c) return c.error();
   return result;
 }
 

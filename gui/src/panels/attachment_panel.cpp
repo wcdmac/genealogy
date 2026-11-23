@@ -20,10 +20,8 @@ AttachmentKind kind_of(int idx) {
 }  // namespace
 
 void AttachmentPanel::draw(DbSession& session) {
-  if (!ImGui::Begin(title(), &open)) { ImGui::End(); return; }
   if (!session.is_open()) {
     ImGui::TextUnformatted("请先打开数据库");
-    ImGui::End();
     return;
   }
   if (rows_.empty()) {
@@ -86,7 +84,6 @@ void AttachmentPanel::draw(DbSession& session) {
     ImGui::PopID();
   }
   ImGui::EndChild();
-  ImGui::End();
 }
 
 }  // namespace genealogy::gui

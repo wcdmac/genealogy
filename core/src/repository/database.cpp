@@ -2,6 +2,8 @@
 
 #include <sqlite3.h>
 
+#include <algorithm>
+
 #include <cstdint>
 #include <memory>
 #include <string>
@@ -9,6 +11,7 @@
 
 #include <genealogy/repository/embedded_schema.hpp>
 #include <genealogy/util/time.hpp>
+#include <genealogy/util/sha256.hpp>
 
 #include "sqlite_util.hpp"
 
@@ -24,15 +27,27 @@ struct SqliteCloser {
 // exec 用 sqlite_util 的共享实现——本文件曾自留一份逐行相同的拷贝，
 // 两处漂移只是时间问题。
 
-bool migration_applied(sqlite3* db, const char* name) {
+// 返回 0=未应用，1=已应用（旧格式校验和，跳过比对），2=已应用且校验和匹配，
+// -1=已应用但内容校验和不匹配（同版本不同结构的库）。
+int migration_status(sqlite3* db, const char* name,
+                     std::string_view sql) {
   sqlite3_stmt* st = nullptr;
-  sqlite3_prepare_v2(db, "SELECT 1 FROM _schema_migrations WHERE name = ?1",
-                     -1, &st, nullptr);
-  if (st == nullptr) return false;
+  sqlite3_prepare_v2(db,
+      "SELECT checksum FROM _schema_migrations WHERE name = ?1",
+      -1, &st, nullptr);
+  if (st == nullptr) return 0;
   sqlite3_bind_text(st, 1, name, -1, SQLITE_TRANSIENT);
-  const bool applied = sqlite3_step(st) == SQLITE_ROW;
+  if (sqlite3_step(st) != SQLITE_ROW) { sqlite3_finalize(st); return 0; }
+  const auto* raw = sqlite3_column_text(st, 0);
+  const std::string stored = raw ? reinterpret_cast<const char*>(raw) : "";
   sqlite3_finalize(st);
-  return applied;
+  // 老库记录的是长度数字——视为历史格式，不做内容比对（避免老库升级受阻）。
+  const bool old_format = !stored.empty() &&
+      std::all_of(stored.begin(), stored.end(), [](unsigned char c) {
+        return c >= '0' && c <= '9';
+      });
+  if (old_format) return 1;
+  return stored == sha256_hex(sql) ? 2 : -1;
 }
 
 Result<void> record_migration(sqlite3* db, const char* name,
@@ -46,8 +61,9 @@ Result<void> record_migration(sqlite3* db, const char* name,
     return Error{ErrorCode::Internal, "准备迁移记录失败"};
   }
   const std::string now = utc_now_iso();
-  // M0：checksum 记长度占位，M1 换 SHA-256
-  const std::string checksum = std::to_string(sql.size());
+  // 校验和存真实 SHA-256；老库已有的纯数字长度记录由 migration_status
+  // 识别为历史格式并跳过比对，保证平滑升级。
+  const std::string checksum = sha256_hex(sql);
   sqlite3_bind_text(st, 1, name, -1, SQLITE_TRANSIENT);
   sqlite3_bind_text(st, 2, now.c_str(), -1, SQLITE_TRANSIENT);
   sqlite3_bind_text(st, 3, checksum.c_str(), -1, SQLITE_TRANSIENT);
@@ -105,18 +121,28 @@ Result<Database> Database::open(const std::filesystem::path& path) {
 
   const auto* migrations = embedded_schema::migrations();
   const auto count = embedded_schema::migration_count();
-  // 0007 用 DROP TABLE 重建 person/branch/document 以去 lineage_id。
+  // 0007 用 DROP TABLE 重建 person/branch/document 以去 lineage_id；
+  // 0008 用 DROP TABLE 重建 event/citation 以修复 lineage 孤儿主体。
   // foreign_keys=ON 时 DROP 会触发隐式 DELETE 的外键检查，非空存量库
   // 必然 FK 失败；SQLite 要求该 PRAGMA 在事务外切换，故此处按迁移
   // 粒度临时关闭，提交/回滚后立即恢复。
-  constexpr std::string_view kRebuildMigration = "0007_single_book";
+  constexpr std::string_view kRebuildMigrations[] = {
+      "0007_single_book", "0008_orphan_subjects"};
   for (std::size_t i = 0; i < count; ++i) {
     const auto& m = migrations[i];
-    if (migration_applied(raw, m.name)) {
+    const int status = migration_status(raw, m.name, m.sql);
+    if (status == -1) {
+      return Error{ErrorCode::Internal,
+                   std::string("迁移校验和不匹配（同版本不同结构）: ") +
+                       std::string(m.name)};
+    }
+    if (status != 0) {
       impl->applied = i + 1;
       continue;
     }
-    const bool rebuild = (m.name == kRebuildMigration);
+    const bool rebuild =
+        std::find(std::begin(kRebuildMigrations), std::end(kRebuildMigrations),
+                  m.name) != std::end(kRebuildMigrations);
     if (rebuild) {
       if (auto r = repo_internal::exec(raw, "PRAGMA foreign_keys=OFF;"); !r) return r.error();
     }

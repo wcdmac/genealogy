@@ -8,10 +8,8 @@
 namespace genealogy::gui {
 
 void BackupPanel::draw(DbSession& session) {
-  if (!ImGui::Begin(title(), &open)) { ImGui::End(); return; }
   if (!session.is_open()) {
     ImGui::TextUnformatted("请先打开数据库");
-    ImGui::End();
     return;
   }
 
@@ -41,7 +39,6 @@ void BackupPanel::draw(DbSession& session) {
   }
   ImGui::TextColored(ImVec4(1.0F, 0.7F, 0.3F, 1.0F),
                      "恢复会替换当前库的磁盘文件；请先关闭其他使用该库的程序。");
-  ImGui::End();
 }
 
 }  // namespace genealogy::gui

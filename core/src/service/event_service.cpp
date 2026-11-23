@@ -50,8 +50,11 @@ Error EventService::validate(const Event& e) {
 }
 
 Result<Event> EventService::create_event(const Event& draft) {
-  if (auto err = validate(draft); err) return err;
-  return repo_.insert(draft);
+  Event normalized = draft;
+  if (normalized.place_id && normalized.place_id->empty())
+    normalized.place_id.reset();
+  if (auto err = validate(normalized); err) return err;
+  return repo_.insert(normalized);
 }
 
 Result<std::vector<Event>> EventService::list_events(

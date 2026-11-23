@@ -3,6 +3,7 @@
 // 跨面板共享的应用状态。面板之间不直接互相调用，全部经这一层联动——
 // 否则六个面板互相持引用，指向关系很快成一团，且无法单测。
 
+#include <functional>
 #include <string>
 
 namespace genealogy::gui {
@@ -30,6 +31,12 @@ struct AppState {
   // 在世者详情显式开关（设计文档 6.5：API 层默认脱敏；
   // GUI 本地库允许显式展开）。仅本地形态有意义。
   bool show_living_details = false;
+
+  // 换库生命周期回调：GUI 主程序注入，供"恢复数据库"这类
+  // 面板内直接开关会话的路径使用——必须先停后台 worker 并清缓存，
+  // 否则 worker 持有的 DbSession* 会 use-after-free。
+  std::function<void()> before_db_close;
+  std::function<void(const std::string&)> after_db_open;
 
   void set_status(std::string msg, bool is_error = false) {
     status_message = std::move(msg);

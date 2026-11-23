@@ -36,8 +36,11 @@ Error UnionService::validate(const Union& u) {
 }
 
 Result<Union> UnionService::create_union(const Union& draft) {
-  if (auto err = validate(draft); err) return err;
-  return repo_.insert(draft);
+  Union normalized = draft;
+  if (normalized.place_id && normalized.place_id->empty())
+    normalized.place_id.reset();
+  if (auto err = validate(normalized); err) return err;
+  return repo_.insert(normalized);
 }
 
 Result<Union> UnionService::get_union(const std::string& id) {
@@ -49,10 +52,13 @@ Result<std::vector<Union>> UnionService::list_unions(
   return repo_.list(filter);
 }
 
-Result<Union> UnionService::update_union(const Union& u) {
-  if (u.id.empty()) return invalid_argument("id 必填");
-  if (auto err = validate(u); err) return err;
-  return repo_.update(u);
+Result<Union> UnionService::update_union(const Union& draft) {
+  Union normalized = draft;
+  if (normalized.place_id && normalized.place_id->empty())
+    normalized.place_id.reset();
+  if (normalized.id.empty()) return invalid_argument("id 必填");
+  if (auto err = validate(normalized); err) return err;
+  return repo_.update(normalized);
 }
 
 Result<void> UnionService::remove_union(const std::string& id) {

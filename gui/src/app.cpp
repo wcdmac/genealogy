@@ -70,6 +70,12 @@ void apply_theme(bool high_contrast) {
 GenealogyApp::GenealogyApp(AppOptions options)
     : options_(std::move(options)) {
   std::snprintf(path_buf_, sizeof(path_buf_), "%s", options_.db_path.c_str());
+  // 恢复数据库会在面板内直接开关会话：注入与菜单关库相同的清理序列，
+  // 确保后台 worker join 完成后才 close，避免 use-after-free。
+  state_.before_db_close = [this]() { reset_panels_for_switch(); };
+  state_.after_db_open = [this](const std::string&) {
+    // reset 已清缓存；db_path 由 restore 路径或菜单路径各自设置
+  };
 }
 
 void GenealogyApp::build_panels() {
@@ -278,7 +284,17 @@ bool GenealogyApp::run(std::string* err) {
     for (auto& p : panels_) {
       if (!p->open) continue;
       if (ImGui::Begin(p->title(), &p->open)) {
-        p->draw(session_);
+        // 顶层异常屏障：面板绘制链里的任何逃逸异常都不能穿过
+        // NewFrame/Render——那会 std::terminate 整个 GUI 进程。
+        try {
+          p->draw(session_);
+        } catch (const std::exception& e) {
+          state_.set_status(std::string("面板异常（") + p->title() +
+                            "）: " + e.what(), true);
+        } catch (...) {
+          state_.set_status(std::string("面板未知异常（") + p->title() +
+                            "）", true);
+        }
       }
       ImGui::End();
     }

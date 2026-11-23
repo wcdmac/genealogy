@@ -8,6 +8,7 @@
 #include <genealogy/io/book_html.hpp>
 #include <genealogy/model/book.hpp>
 #include <genealogy/model/person.hpp>
+#include <genealogy/ulid.hpp>
 
 #include <string>
 #include <vector>
@@ -113,4 +114,31 @@ TEST_CASE("出版 HTML：空数据不崩、HTML 转义生效") {
   REQUIRE(escaped.has_value());
   CHECK(escaped->find("<script>") == std::string::npos);
   CHECK(escaped->find("&lt;script&gt;") != std::string::npos);
+}
+
+TEST_CASE("审查修复回归：负世代不导致导出崩溃") {
+  Person p;
+  p.id = "X"; p.family_name = "负"; p.given_name = "世"; p.generation_no = -3;
+  std::vector<Person> ps{p};
+  io::BookHtmlOptions opt;
+  opt.embed_fonts = false; opt.persons = &ps;
+  auto html = io::render_book_html(opt);
+  REQUIRE(html.has_value());
+  CHECK(html->find("世代序号越界人物") != std::string::npos);
+}
+
+TEST_CASE("审查修复回归：ULID 随机段满 80 bit") {
+  std::vector<std::string> ids;
+  for (int i = 0; i < 20; ++i) ids.push_back(generate_ulid());
+  for (const auto& id : ids) {
+    REQUIRE(id.size() == 26);
+    // 随机段第 10-12 字符在旧实现中恒为 '000'
+    const bool had_leading_zero = id[10] == '0' && id[11] == '0' && id[12] == '0';
+    // 20 个样本全为 '000' 的概率极低；允许个别，但不能全部
+    (void)had_leading_zero;
+  }
+  bool any_nonzero = false;
+  for (const auto& id : ids)
+    if (id[10] != '0' || id[11] != '0' || id[12] != '0') any_nonzero = true;
+  CHECK(any_nonzero);
 }

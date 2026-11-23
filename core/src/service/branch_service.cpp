@@ -34,8 +34,13 @@ Error BranchService::validate(const Branch& b) {
 }
 
 Result<Branch> BranchService::create_branch(const Branch& draft) {
-  if (auto err = validate(draft); err) return err;
-  return repo_.insert(draft);
+  Branch normalized = draft;
+  if (normalized.founder_person_id && normalized.founder_person_id->empty())
+    normalized.founder_person_id.reset();
+  if (normalized.parent_branch_id && normalized.parent_branch_id->empty())
+    normalized.parent_branch_id.reset();
+  if (auto err = validate(normalized); err) return err;
+  return repo_.insert(normalized);
 }
 
 Result<Branch> BranchService::get_branch(const std::string& id) {
@@ -47,7 +52,13 @@ Result<std::vector<Branch>> BranchService::list_branches(
   return repo_.list(filter);
 }
 
-Result<Branch> BranchService::update_branch(const Branch& branch) {
+Result<Branch> BranchService::update_branch(const Branch& draft) {
+  Branch normalized = draft;
+  if (normalized.founder_person_id && normalized.founder_person_id->empty())
+    normalized.founder_person_id.reset();
+  if (normalized.parent_branch_id && normalized.parent_branch_id->empty())
+    normalized.parent_branch_id.reset();
+  const Branch& branch = normalized;
   if (branch.id.empty()) return invalid_argument("id 必填");
   if (auto err = validate(branch); err) return err;
   // 父子链环检测（第三轮新-1）：A→B、B→A 各自都能过上面的单步校验，

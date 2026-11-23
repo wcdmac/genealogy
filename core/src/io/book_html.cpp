@@ -20,7 +20,39 @@ std::string html_escape(const std::string& s) {
       case '<': out += "&lt;"; break;
       case '>': out += "&gt;"; break;
       case '"': out += "&quot;"; break;
+      case '\'': out += "&#39;"; break;
       default: out += c;
+    }
+  }
+  return out;
+}
+
+// CSS 单引号字符串上下文专用转义（html_escape 只处理 HTML 正文，
+// 不处理 ' 与 \，书名注入到 @page content:'...' 时需要）。
+std::string css_string_escape(const std::string& s) {
+  std::string out;
+  out.reserve(s.size() + 8);
+  for (unsigned char c : s) {
+    if (c == '\\' || c == '\'') {
+      out += '\\';
+      out += static_cast<char>(c);
+    } else if (c == '<') {
+      out += "&lt;";   // CSS 上下文里同样转义尖括号，避免与 HTML 解析器混淆
+    } else if (c == '>') {
+      out += "&gt;";
+    } else if (c == '&') {
+      out += "&amp;";
+    } else if (c == '\n' || c == '\r') {
+      out += "\\A ";  // CSS 换行转义
+    } else if (c < 0x20) {
+      // 控制字符用 CSS 十六进制转义
+      static const char hex[] = "0123456789abcdef";
+      out += "\\";
+      out += hex[(c >> 4) & 0xF];
+      out += hex[c & 0xF];
+      out += ' ';
+    } else {
+      out += static_cast<char>(c);
     }
   }
   return out;
@@ -28,7 +60,7 @@ std::string html_escape(const std::string& s) {
 
 std::string read_binary(const std::string& path) {
   std::ifstream in(path, std::ios::binary);
-  if (!in) return {};
+  if (!in.is_open()) return {};
   return std::string(std::istreambuf_iterator<char>(in),
                      std::istreambuf_iterator<char>());
 }
@@ -67,6 +99,9 @@ std::string life_span(const Person& p) {
   return s;
 }
 
+// 世代序号越界（负/超大）人物的说明，由 by_generation 填充、渲染层读取。
+std::string g_invalid_generation_note;
+
 // 按世代分组，族内按出生序/ID 稳定排序。
 std::vector<std::vector<const Person*>> by_generation(
     const std::vector<Person>& persons) {
@@ -81,10 +116,24 @@ std::vector<std::vector<const Person*>> by_generation(
     return a->id < b->id;
   });
   std::vector<std::vector<const Person*>> groups;
+  g_invalid_generation_note.clear();
   for (const Person* p : sorted) {
     const int g = generation_of(*p);
-    if (groups.size() <= static_cast<std::size_t>(g + 1)) groups.resize(g + 2);
-    groups[g + 1].push_back(p);
+    // 负世代/超大世代序号不可作为数组下标：前者转 size_t 会翻转成巨大值
+    // （实测 vector::resize 抛异常），后者 g+2 有符号溢出。越界者归入
+    // 单独的"世代异常"组，保证导出不崩且数据可见。
+    constexpr int kMaxGeneration = 10000;
+    if (g < 0 || g > kMaxGeneration) {
+      if (g_invalid_generation_note.empty())
+        g_invalid_generation_note = "世代序号越界人物: ";
+      else g_invalid_generation_note += ", ";
+      g_invalid_generation_note += p->family_name + p->given_name + "(" +
+                             std::to_string(g) + ")";
+      continue;
+    }
+    const std::size_t gi = static_cast<std::size_t>(g) + 1;
+    if (groups.size() <= gi) groups.resize(gi + 1);
+    groups[gi].push_back(p);
   }
   return groups;
 }
@@ -136,7 +185,7 @@ Result<std::string> render_book_html(const BookHtmlOptions& opt) {
     << font_face << "\n"
     << "@page{size:" << page_size << ";" << size_css
     << ";margin:18mm 16mm 18mm 22mm;"
-    << "@top-center{content:'" << html_escape(title) << "';}"
+    << "@top-center{content:'" << css_string_escape(title) << "';}"
     << "@bottom-center{content:counter(page);}}\n"
     << "body{font-family:'GeneaSerif',serif;font-size:11pt;line-height:1.75;"
     << "color:#111;counter-reset:page;}\n"
@@ -215,6 +264,10 @@ Result<std::string> render_book_html(const BookHtmlOptions& opt) {
   }
   h << "<p class='note'>本谱由 genea 生成 · 打印时请在浏览器选择「另存为 PDF」"
     << "并启用背景图形。</p>\n</body></html>\n";
+  if (!g_invalid_generation_note.empty()) {
+    h << "<div class='note'>注：" << html_escape(g_invalid_generation_note)
+      << "（未列入世系，请修正世代序号）</div>\n";
+  }
   return h.str();
 }
 

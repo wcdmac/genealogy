@@ -736,6 +736,7 @@ int cmd_date_convert(const std::vector<std::string>& args,
   std::string hhmm;
   if (term) {
     const auto st = calendar::solar_term(g.year, *term);
+    if (!st) { print_error(st.error()); return exit_code_for(st.error()); }
     char buf[8];
     std::snprintf(buf, sizeof(buf), "%02d:%02d", st->hour, st->minute);
     hhmm = buf;
@@ -761,6 +762,7 @@ int cmd_date_convert(const std::vector<std::string>& args,
                     {"zodiac", calendar::zodiac(c->year)}};
     if (term) {
       const auto st = calendar::solar_term(g.year, *term);
+      if (!st) { print_error(st.error()); return exit_code_for(st.error()); }
       out["solar_term"] = {{"index", *term},
                            {"name", st->name},
                            {"at", hhmm}};
@@ -790,6 +792,7 @@ int cmd_date_convert(const std::vector<std::string>& args,
             << calendar::day_ganzhi(g) << "\n";
   if (term) {
     const auto st = calendar::solar_term(g.year, *term);
+    if (!st) { print_error(st.error()); return exit_code_for(st.error()); }
     std::cout << "节气 " << st->name << "（" << hhmm << "）\n";
   } else {
     std::cout << "节气 （当日无节气）\n";

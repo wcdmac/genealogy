@@ -125,7 +125,8 @@ Result<std::vector<Attachment>> AttachmentService::list(
   sqlite3_bind_int(st, idx++, filter.limit);
 
   std::vector<Attachment> out;
-  while (sqlite3_step(st) == SQLITE_ROW) {
+  int step_rc = SQLITE_OK;
+  while ((step_rc = sqlite3_step(st)) == SQLITE_ROW) {
     Attachment a;
     a.id = col_text(st, 0);
     a.kind = attachment_kind_from_string(col_text(st, 1)).value_or(AttachmentKind::Other);
@@ -139,6 +140,9 @@ Result<std::vector<Attachment>> AttachmentService::list(
     out.push_back(std::move(a));
   }
   sqlite3_finalize(st);
+  if (step_rc != SQLITE_DONE)
+    return Error{ErrorCode::IoError,
+                 "附件查询失败: " + std::string(sqlite3_errstr(step_rc))};
   return out;
 }
 
@@ -150,9 +154,13 @@ Result<Attachment> AttachmentService::get(const std::string& id) const {
   if (sqlite3_prepare_v2(db_->raw(), sql, -1, &st, nullptr) != SQLITE_OK)
     return Error{ErrorCode::IoError, "附件查询准备失败"};
   sqlite3_bind_text(st, 1, id.c_str(), -1, SQLITE_TRANSIENT);
-  if (sqlite3_step(st) != SQLITE_ROW) {
+  const int step_rc = sqlite3_step(st);
+  if (step_rc != SQLITE_ROW) {
+    const std::string why = sqlite3_errmsg(db_->raw());
     sqlite3_finalize(st);
-    return Error{ErrorCode::NotFound, "附件不存在: " + id};
+    if (step_rc == SQLITE_DONE)
+      return Error{ErrorCode::NotFound, "附件不存在: " + id};
+    return Error{ErrorCode::IoError, "附件查询失败: " + why};
   }
   Attachment a;
   a.id = col_text(st, 0);

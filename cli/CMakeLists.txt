@@ -30,8 +30,7 @@ set_target_properties(genea PROPERTIES OUTPUT_NAME genea)
 # CLI 门禁：把 main.cpp 编进测试二进制，任何翻译单元的编译错误
 # （如字符串内嵌换行、未声明变量）都会让构建失败；同时覆盖命令分派。
 if(BUILD_TESTS)
-  find_package(Catch2 CONFIG REQUIRED)
-  add_executable(genealogy-cli-tests
+    add_executable(genealogy-cli-tests
     tests/test_cli.cpp
     src/main.cpp
     src/cmd_entity.cpp

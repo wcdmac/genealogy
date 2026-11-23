@@ -11,13 +11,8 @@
 namespace genealogy::gui {
 
 void NewPersonPanel::draw(DbSession& session) {
-  if (!ImGui::Begin(title(), &open)) {
-    ImGui::End();
-    return;
-  }
   if (!session.is_open()) {
     ImGui::TextUnformatted("请先打开数据库");
-    ImGui::End();
     return;
   }
 
@@ -69,7 +64,6 @@ void NewPersonPanel::draw(DbSession& session) {
   input_text_multiline("##np_note", &draft_.note, ImGui::GetTextLineHeight() * 3);
 
   if (ImGui::Button("创建人物", ImVec2(160, 0))) create(session);
-  ImGui::End();
 }
 
 }  // namespace genealogy::gui

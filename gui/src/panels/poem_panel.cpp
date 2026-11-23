@@ -8,10 +8,8 @@
 namespace genealogy::gui {
 
 void PoemPanel::draw(DbSession& session) {
-  if (!ImGui::Begin(title(), &open)) { ImGui::End(); return; }
   if (!session.is_open()) {
     ImGui::TextUnformatted("请先打开数据库");
-    ImGui::End();
     return;
   }
   bool branch = branch_scope_;
@@ -19,7 +17,12 @@ void PoemPanel::draw(DbSession& session) {
     branch = false; set_scope_branch(false, "book");
   }
   ImGui::SameLine();
-  if (ImGui::RadioButton("支派派语", branch)) branch = true;
+  if (ImGui::RadioButton("支派派语", branch)) {
+    branch = true;
+    // 同步回成员，否则下一帧被 branch_scope_ 覆回 false，
+    // reload/set/check 仍按谱级 book 执行——支派派语实际不可用。
+    set_scope_branch(true, owner_id_buf_);
+  }
   if (branch) {
     ImGui::SetNextItemWidth(220);
     input_text("支派 ID", &owner_id_buf_);
@@ -56,7 +59,6 @@ void PoemPanel::draw(DbSession& session) {
     for (const auto& c : conflicts_)
       ImGui::TextColored(ImVec4(1.0F, 0.5F, 0.3F, 1.0F), "%s", c.c_str());
   }
-  ImGui::End();
 }
 
 }  // namespace genealogy::gui

@@ -63,15 +63,36 @@ Result<void> verify_snapshot(const fs::path& path) {
     if (db) sqlite3_close(db);
     return Error{ErrorCode::IoError, why};
   }
+  // prepare 只读 schema，不读表数据——损坏的数据页不会被发现。
+  // 必须 step 一次真正读行，并执行 quick_check 覆盖全库页。
   sqlite3_stmt* stmt = nullptr;
-  const int rc = sqlite3_prepare_v2(db, "SELECT count(*) FROM person", -1,
-                                    &stmt, nullptr);
-  if (rc != SQLITE_OK) {
+  if (sqlite3_prepare_v2(db, "SELECT count(*) FROM person", -1, &stmt, nullptr)
+      != SQLITE_OK) {
     const std::string why = sqlite3_errmsg(db);
     sqlite3_close(db);
     return Error{ErrorCode::IoError, why};
   }
-  sqlite3_finalize(stmt);
+  const int step_rc = sqlite3_step(stmt);
+  const int fin_rc = sqlite3_finalize(stmt);
+  if (step_rc != SQLITE_ROW || fin_rc != SQLITE_OK) {
+    const std::string why = sqlite3_errmsg(db);
+    sqlite3_close(db);
+    return Error{ErrorCode::IoError, "快照数据损坏: " + why};
+  }
+  stmt = nullptr;
+  if (sqlite3_prepare_v2(db, "PRAGMA quick_check", -1, &stmt, nullptr) ==
+      SQLITE_OK) {
+    while (sqlite3_step(stmt) == SQLITE_ROW) {
+      const auto* text = sqlite3_column_text(stmt, 0);
+      const std::string result = text ? reinterpret_cast<const char*>(text) : "";
+      if (result != "ok") {
+        sqlite3_finalize(stmt);
+        sqlite3_close(db);
+        return Error{ErrorCode::IoError, "快照完整性检查失败: " + result};
+      }
+    }
+    sqlite3_finalize(stmt);
+  }
   sqlite3_close(db);
   return {};
 }
@@ -81,6 +102,9 @@ Result<std::string> restore_database(const fs::path& snapshot,
   std::error_code ec;
   if (!fs::exists(snapshot, ec))
     return Error{ErrorCode::NotFound, "快照不存在: " + snapshot.string()};
+  if (ec)
+    return Error{ErrorCode::IoError,
+                 "检查快照失败: " + ec.message()};
   if (auto v = verify_snapshot(snapshot); !v) return v.error();
 
   if (fs::exists(target, ec) && !force)
@@ -88,16 +112,39 @@ Result<std::string> restore_database(const fs::path& snapshot,
                  "目标库已存在: " + target.string() +
                      "（确认覆盖请显式指定 force，旧库会移开为 .bak）"};
 
+  const fs::path wal = fs::path(target.string() + "-wal");
+  const fs::path shm = fs::path(target.string() + "-shm");
+  // 主库不存在但残留 WAL/SHM 时必须拒绝或清理，否则新库打开会回放旧事务。
+  if (!fs::exists(target, ec) &&
+      (fs::exists(wal, ec) || fs::exists(shm, ec))) {
+    if (!force)
+      return Error{ErrorCode::Conflict,
+                   "目标库旁车文件残留（-wal/-shm），请确认后使用 force 清理"};
+  }
+
   fs::path moved_main, moved_wal, moved_shm;
   bool moved = false;
-  auto rollback = [&]() {
-    if (!moved) return;
-    if (fs::exists(moved_main, ec)) fs::rename(moved_main, target, ec);
-    for (const auto& pair :
-         {std::pair{moved_wal, fs::path(target.string() + "-wal")},
-          {std::pair{moved_shm, fs::path(target.string() + "-shm")}}}) {
-      if (fs::exists(pair.first, ec)) fs::rename(pair.first, pair.second, ec);
+  auto rollback = [&]() -> std::string {
+    std::string err;
+    // 先删除可能残缺的新目标，再移回旧库——rename 覆盖既有文件在
+    // 标准中无强保证，显式删除是唯一可靠的做法。
+    if (fs::exists(target, ec)) fs::remove(target, ec);
+    if (fs::exists(wal, ec)) fs::remove(wal, ec);
+    if (fs::exists(shm, ec)) fs::remove(shm, ec);
+    if (moved) {
+      if (fs::exists(moved_main, ec)) {
+        fs::rename(moved_main, target, ec);
+        if (ec) err += "旧库移回失败: " + ec.message() + "；";
+      }
+      for (const auto& pair :
+           {std::pair{moved_wal, wal}, std::pair{moved_shm, shm}}) {
+        if (fs::exists(pair.first, ec)) {
+          fs::rename(pair.first, pair.second, ec);
+          if (ec) err += "旁车移回失败: " + ec.message() + "；";
+        }
+      }
     }
+    return err;
   };
 
   if (fs::exists(target, ec)) {
@@ -109,24 +156,38 @@ Result<std::string> restore_database(const fs::path& snapshot,
     if (ec) return Error{ErrorCode::IoError, "移开旧库失败: " + ec.message()};
     moved = true;
     for (const auto& pair :
-         {std::pair{fs::path(target.string() + "-wal"), moved_wal},
-          {std::pair{fs::path(target.string() + "-shm"), moved_shm}}}) {
+         {std::pair{wal, moved_wal}, std::pair{shm, moved_shm}}) {
       if (fs::exists(pair.first, ec)) {
         fs::rename(pair.first, pair.second, ec);
         if (ec) {
-          rollback();
+          const std::string rb = rollback();
           return Error{ErrorCode::IoError,
-                       "移开旧库旁车失败: " + ec.message()};
+                       "移开旧库旁车失败: " + ec.message() +
+                           (rb.empty() ? "" : "；回滚: " + rb)};
         }
       }
+    }
+  } else if (force) {
+    // 目标不存在但旁车残留：force 时一并移走（不直接删，留回滚点）
+    const std::string stamp = ".bak-" + backup_timestamp();
+    if (fs::exists(wal, ec)) {
+      moved_wal = fs::path(wal.string() + stamp);
+      fs::rename(wal, moved_wal, ec);
+      if (ec) return Error{ErrorCode::IoError, "移开残留 WAL 失败: " + ec.message()};
+    }
+    if (fs::exists(shm, ec)) {
+      moved_shm = fs::path(shm.string() + stamp);
+      fs::rename(shm, moved_shm, ec);
+      if (ec) return Error{ErrorCode::IoError, "移开残留 SHM 失败: " + ec.message()};
     }
   }
 
   fs::copy_file(snapshot, target, fs::copy_options::overwrite_existing, ec);
   if (ec) {
-    rollback();
+    const std::string rb = rollback();
     return Error{ErrorCode::IoError,
-                 "恢复失败: " + ec.message() + "（目标: " + target.string() + "）"};
+                 "恢复失败: " + ec.message() + "（目标: " + target.string() +
+                     (rb.empty() ? "" : "；回滚: " + rb) + "）"};
   }
   return moved ? moved_main.string() : std::string{};
 }

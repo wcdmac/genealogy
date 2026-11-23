@@ -2,7 +2,7 @@
 # build_cases.sh —— 用 CLI 构建「校验规则触发集」cases.db
 # 每条规则对应一组最小数据；用 genea io validate --rule <R> 单独断言命中。
 # 用法：bash tools/testdata/build_cases.sh   （在仓库根执行）
-set -u -o pipefail
+set -e -u -o pipefail
 cd "$(dirname "$0")/../.."
 
 PY="$(command -v python3 || command -v python)"

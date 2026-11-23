@@ -8,10 +8,8 @@
 namespace genealogy::gui {
 
 void MergePanel::draw(DbSession& session) {
-  if (!ImGui::Begin(title(), &open)) { ImGui::End(); return; }
   if (!session.is_open()) {
     ImGui::TextUnformatted("请先打开数据库");
-    ImGui::End();
     return;
   }
   if (ImGui::Button("扫描重复人物")) {
@@ -68,7 +66,6 @@ void MergePanel::draw(DbSession& session) {
     }
   }
   ImGui::TextDisabled("合并会迁移父子/配偶/事件/名号引用，再删除被合并者。");
-  ImGui::End();
 }
 
 }  // namespace genealogy::gui

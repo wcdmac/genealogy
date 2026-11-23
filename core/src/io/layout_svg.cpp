@@ -40,6 +40,7 @@ std::string esc(std::string_view s) {
       case '<': out += "&lt;"; break;
       case '>': out += "&gt;"; break;
       case '"': out += "&quot;"; break;
+      case '\'': out += "&apos;"; break;
       default: out += c;
     }
   }

@@ -63,15 +63,7 @@ std::string timestamp_now() {
 
 // SQL 字符串字面量转义：单引号翻倍。路径来自命令行，不转义会把
 // 用户的引号变成 SQL 语法（也是注入面）。
-std::string sql_quote(const std::string& path) {
-  std::string out = "'";
-  for (const char c : path) {
-    if (c == '\'') out += "''";
-    else out += c;
-  }
-  out += "'";
-  return out;
-}
+
 
 std::string human_size(std::uintmax_t bytes) {
   char buffer[32];
