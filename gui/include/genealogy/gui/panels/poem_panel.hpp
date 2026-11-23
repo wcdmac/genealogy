@@ -37,12 +37,14 @@ class PoemPanel : public Panel {
   const std::string& text_buf() const { return text_buf_; }
   bool branch_scope() const { return branch_scope_; }
   const std::string& owner_id() const { return owner_id_buf_; }
+  void edit_branch_id(const std::string& v) { branch_id_buf_ = v; }
 
  private:
   AppState& state_;
   bool branch_scope_ = false;
   std::string owner_id_buf_ = "book";
   std::string text_buf_;
+  std::string branch_id_buf_;  // 支派 ID 独立保存，谱级切换不覆写
   std::vector<GenerationPoemEntry> entries_;
   std::vector<std::string> conflicts_;
 };

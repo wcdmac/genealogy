@@ -15,7 +15,13 @@ EventService::EventService(Database& db)
 
 Error EventService::validate(const Event& e) {
   if (e.subject_id.empty()) return invalid_argument("subject_id 必填");
-  if (!is_valid_ulid(e.subject_id)) {
+  // 0008 迁移产生的 book 主体 id 是字面量 "book"；历史 lineage 主体
+  // 仍沿用任意合法 ULID（既有测试与老库行为），两者分开处理。
+  const bool book_subject = (e.subject_type == EventSubjectType::Book);
+  if (book_subject) {
+    if (e.subject_id != "book")
+      return invalid_argument("谱本体事件的 subject_id 必须是 book");
+  } else if (!is_valid_ulid(e.subject_id)) {
     return invalid_argument("subject_id 不是合法 ULID: " + e.subject_id);
   }
 
@@ -36,8 +42,9 @@ Error EventService::validate(const Event& e) {
       if (!subject) return not_found("事件主体（支派）不存在: " + e.subject_id);
       break;
     }
-    case EventSubjectType::Lineage: {
-      // 单谱单库：谱本体事件无主体表可查（历史兼容保留枚举）
+    case EventSubjectType::Lineage:
+    case EventSubjectType::Book: {
+      // 单谱单库：谱本体事件无主体表可查（lineage 历史兼容 / book 即谱本体）
       break;
     }
   }

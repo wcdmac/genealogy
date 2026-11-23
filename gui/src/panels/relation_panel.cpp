@@ -122,8 +122,14 @@ void RelationPanel::compute(DbSession& session) {
       app_path_ += s;
     }
   } else {
+    // 全部清空，避免残留上一次计算的称谓与当前"无法计算"自相矛盾
     app_standard_ = "（无法计算）";
+    app_colloquial_.clear();
+    app_formal_.clear();
     app_basis_ = app.error().message();
+    app_path_.clear();
+    app_elder_ = false;
+    app_fallback_ = false;
   }
 }
 

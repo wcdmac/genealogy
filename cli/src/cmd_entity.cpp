@@ -493,7 +493,7 @@ int cmd_event(const std::vector<std::string>& args, const std::string& db_path,
   if (sub == "add") {
     cxxopts::Options opts("genea event add", "新增事件");
     opts.add_options()
-      ("subject-type", "person|union|branch|lineage",
+      ("subject-type", "person|union|branch|lineage|book",
        cxxopts::value<std::string>()->default_value("person"))
       ("subject", "主体 ID", cxxopts::value<std::string>())
       ("type", "birth|death|burial|marriage|migration|examination|"

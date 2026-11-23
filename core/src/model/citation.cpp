@@ -10,6 +10,7 @@ std::string to_string(CitationSubjectType type) {
     case CitationSubjectType::Migration: return "migration";
     case CitationSubjectType::Branch: return "branch";
     case CitationSubjectType::Lineage: return "lineage";
+    case CitationSubjectType::Book: return "book";
   }
   return "person";
 }
@@ -22,6 +23,7 @@ std::optional<CitationSubjectType> citation_subject_from_string(
   if (s == "migration") return CitationSubjectType::Migration;
   if (s == "branch") return CitationSubjectType::Branch;
   if (s == "lineage") return CitationSubjectType::Lineage;
+  if (s == "book") return CitationSubjectType::Book;
   return std::nullopt;
 }
 

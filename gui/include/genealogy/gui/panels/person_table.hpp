@@ -82,7 +82,7 @@ class PersonTablePanel : public Panel {
     loaded_ = false;
   }
   // 面板是否持有任何缓存数据（换库清理断言的观测缝）
-  bool has_cached_data() const { return loaded_ || !rows_.empty() || editing(); }
+  bool has_cached_data() const override { return loaded_ || !rows_.empty() || editing(); }
 };
 
 }  // namespace genealogy::gui

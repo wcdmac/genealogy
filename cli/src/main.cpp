@@ -824,6 +824,10 @@ int cmd_date_lunar(const std::vector<std::string>& args,
     std::cerr << "用法错误: 农历月须在 1..12（闰月用 --month 6 --leap 表示闰六月）\n";
     return 2;
   }
+  if (d < 1 || d > 30) {
+    std::cerr << "用法错误: 农历日须在 1..30\n";
+    return 2;
+  }
   calendar::ChineseDate c;
   c.year = y;
   c.month = leap ? -m : m;

@@ -67,7 +67,8 @@ jobs:
         id: vcpkg_baseline
         shell: bash
         run: |
-          BASELINE=$(python3 -c "import json;print(json.load(open('vcpkg.json'))['builtin-baseline'])")
+          # 用上一步探测出的 $PY（Windows python3 可能是 MS Store 存根）
+          BASELINE=$("$PY" -c "import json;print(json.load(open('vcpkg.json'))['builtin-baseline'])")
           echo "value=$BASELINE" >> "$GITHUB_OUTPUT"
           echo "vcpkg baseline: $BASELINE"
 
@@ -192,12 +193,9 @@ jobs:
           RC=$?
           set -e
           echo "$OUT"
-          if [ $RC -eq 0 ]; then exit 0; fi
-          # 只有明确的"无法初始化 GLFW（无显示）"才是环境事实；
-          # 同样返回 2 的"未知参数"等错误必须让 CI 失败。
-          if [ $RC -eq 2 ] && echo "$OUT" | grep -q "无法初始化 GLFW"; then
-            exit 0
-          fi
+          # 退出码 2 = 无显示环境（环境事实，非缺陷）；0 = 显示可用；
+          # 3 = 参数错误（GUI 子系统 stdout 可能丢失，故用独立码区分）。
+          if [ $RC -eq 0 ] || [ $RC -eq 2 ]; then exit 0; fi
           exit $RC
 
       - name: 许可证白名单卡点（含禁 Qt 检查）

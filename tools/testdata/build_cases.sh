@@ -5,7 +5,11 @@
 set -e -u -o pipefail
 cd "$(dirname "$0")/../.."
 
-PY="$(command -v python3 || command -v python)"
+if python3 -c "import sys" 2>/dev/null; then
+  PY=python3
+else
+  PY=python
+fi
 # 与 run_e2e.sh 一致：CI 用 GENEA_BIN 传各平台产物路径，本机默认 .exe
 GENE="${GENEA_BIN:-./build/bin/genea.exe}"
 OUT=".data/testdata"

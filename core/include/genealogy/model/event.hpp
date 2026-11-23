@@ -9,7 +9,7 @@
 
 namespace genealogy {
 
-enum class EventSubjectType { Person, Union, Branch, Lineage };
+enum class EventSubjectType { Person, Union, Branch, Lineage, Book };
 
 // 事件类型与 DDL CHECK 约束一一对应（0001_init.sql）。
 enum class EventType {

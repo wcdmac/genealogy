@@ -10,7 +10,7 @@ namespace genealogy::gui {
 
 bool BackupPanel::backup(DbSession& session, const std::string& dir,
                          std::string* out_path, std::string* why) {
-  if (!session.is_open()) { *why = "未打开数据库"; return false; }
+  if (!session.is_open()) { if (why) *why = "未打开数据库"; return false; }
   namespace fs = std::filesystem;
   fs::path out(dir);
   std::error_code ec;

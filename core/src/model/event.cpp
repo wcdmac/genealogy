@@ -13,6 +13,8 @@ NLOHMANN_JSON_SERIALIZE_ENUM(EventSubjectType, {
                                                     "branch"},
                                                    {EventSubjectType::Lineage,
                                                     "lineage"},
+                                                   {EventSubjectType::Book,
+                                                    "book"},
                                                })
 
 NLOHMANN_JSON_SERIALIZE_ENUM(EventType, {
@@ -38,6 +40,7 @@ std::string to_string(EventSubjectType type) {
     case EventSubjectType::Union: return "union";
     case EventSubjectType::Branch: return "branch";
     case EventSubjectType::Lineage: return "lineage";
+    case EventSubjectType::Book: return "book";
   }
   return "person";
 }
@@ -63,6 +66,7 @@ std::optional<EventSubjectType> event_subject_from_string(const std::string& s) 
   if (s == "union") return EventSubjectType::Union;
   if (s == "branch") return EventSubjectType::Branch;
   if (s == "lineage") return EventSubjectType::Lineage;
+  if (s == "book") return EventSubjectType::Book;
   return std::nullopt;
 }
 

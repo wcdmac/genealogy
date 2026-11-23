@@ -154,13 +154,14 @@ Result<MergeResult> MergeService::merge(const std::string& winner_id,
   const char* sqls[] = {
       "UPDATE parent_child SET parent_id=? WHERE parent_id=?",
       "UPDATE union_member SET person_id=? WHERE person_id=?",
-      "UPDATE event SET subject_id=? WHERE subject_id=?",
+      "UPDATE event SET subject_id=? WHERE subject_type='person' AND subject_id=?",
       "UPDATE migration SET subject_id=? WHERE subject_type='person' AND subject_id=?",
       "UPDATE citation SET subject_id=? WHERE subject_type='person' AND subject_id=?",
       "UPDATE attachment SET subject_id=? WHERE subject_type='person' AND subject_id=?",
       "UPDATE person_name SET person_id=? WHERE person_id=?",
       "UPDATE person SET father_id=? WHERE father_id=?",
       "UPDATE person SET mother_id=? WHERE mother_id=?",
+      "UPDATE branch SET founder_person_id=? WHERE founder_person_id=?",
   };
   for (const char* sql : sqls) {
     sqlite3_stmt* st = nullptr;
@@ -180,8 +181,11 @@ Result<MergeResult> MergeService::merge(const std::string& winner_id,
         "DELETE FROM parent_child WHERE id NOT IN "
         "(SELECT MIN(id) FROM parent_child GROUP BY child_id,parent_id,relation)";
     if (sqlite3_prepare_v2(db_->raw(), sql, -1, &st, nullptr) == SQLITE_OK) {
-      sqlite3_step(st);
+      const int rc = sqlite3_step(st);
+      const std::string err = (rc == SQLITE_DONE) ? "" : sqlite3_errmsg(db_->raw());
       sqlite3_finalize(st);
+      if (rc != SQLITE_DONE)
+        return Error{ErrorCode::IoError, "亲子关系去重失败: " + err};
     }
   }
   auto removed = repo.remove(loser_id);

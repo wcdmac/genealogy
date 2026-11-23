@@ -34,7 +34,7 @@ class SearchPanel : public Panel {
     searched_ = false;
   }
   // 面板是否持有任何缓存数据（换库清理断言的观测缝）
-  bool has_cached_data() const { return searched_ || !hits_.empty(); }
+  bool has_cached_data() const override { return searched_ || !hits_.empty(); }
 
  private:
   void run_search(DbSession& session);

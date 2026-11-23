@@ -25,6 +25,10 @@ void normalize_ids(Person& p) {
   if (p.branch_id && p.branch_id->empty()) p.branch_id.reset();
   if (p.portrait_attachment_id && p.portrait_attachment_id->empty())
     p.portrait_attachment_id.reset();
+  // 地点外键同样不接受空串（sqlite_util::bind_opt_text 会绑定 ''）
+  if (p.birth_place_id && p.birth_place_id->empty()) p.birth_place_id.reset();
+  if (p.death_place_id && p.death_place_id->empty()) p.death_place_id.reset();
+  if (p.burial_place_id && p.burial_place_id->empty()) p.burial_place_id.reset();
 }
 
 // 建档与更新共用的领域校验。空 Error 表示通过。

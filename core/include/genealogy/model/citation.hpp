@@ -16,6 +16,7 @@ enum class CitationSubjectType {
   Migration,
   Branch,
   Lineage,
+  Book,
 };
 
 std::string to_string(CitationSubjectType type);

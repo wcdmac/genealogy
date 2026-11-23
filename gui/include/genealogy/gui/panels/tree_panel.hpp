@@ -46,7 +46,7 @@ class TreePanel : public Panel {
   void poll();
   bool load_in_flight() const { return running_; }
   // 面板是否持有任何缓存数据（换库清理断言的观测缝）
-  bool has_cached_data() const {
+  bool has_cached_data() const override {
     return has_tree_ || !loaded_root_.empty() || graph_ != nullptr;
   }
   // 测试观测缝：装载结果（has_tree_ 为真时 tree_ 非空）

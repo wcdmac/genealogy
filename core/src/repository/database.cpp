@@ -35,7 +35,7 @@ int migration_status(sqlite3* db, const char* name,
   sqlite3_prepare_v2(db,
       "SELECT checksum FROM _schema_migrations WHERE name = ?1",
       -1, &st, nullptr);
-  if (st == nullptr) return 0;
+  if (st == nullptr) return -2;  // 准备失败，与"未应用"区分
   sqlite3_bind_text(st, 1, name, -1, SQLITE_TRANSIENT);
   if (sqlite3_step(st) != SQLITE_ROW) { sqlite3_finalize(st); return 0; }
   const auto* raw = sqlite3_column_text(st, 0);
@@ -131,6 +131,10 @@ Result<Database> Database::open(const std::filesystem::path& path) {
   for (std::size_t i = 0; i < count; ++i) {
     const auto& m = migrations[i];
     const int status = migration_status(raw, m.name, m.sql);
+    if (status == -2) {
+      return Error{ErrorCode::Internal,
+                   std::string("迁移校验表不可读: ") + std::string(m.name)};
+    }
     if (status == -1) {
       return Error{ErrorCode::Internal,
                    std::string("迁移校验和不匹配（同版本不同结构）: ") +
@@ -146,7 +150,10 @@ Result<Database> Database::open(const std::filesystem::path& path) {
     if (rebuild) {
       if (auto r = repo_internal::exec(raw, "PRAGMA foreign_keys=OFF;"); !r) return r.error();
     }
-    if (auto r = repo_internal::exec(raw, "BEGIN IMMEDIATE;"); !r) return r.error();
+    if (auto r = repo_internal::exec(raw, "BEGIN IMMEDIATE;"); !r) {
+      if (rebuild) (void)repo_internal::exec(raw, "PRAGMA foreign_keys=ON;");
+      return r.error();
+    }
     auto apply = repo_internal::exec(raw, m.sql);
     if (apply) apply = record_migration(raw, m.name, m.sql);
     if (auto r = repo_internal::exec(raw, apply ? "COMMIT;" : "ROLLBACK;"); !r) {

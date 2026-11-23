@@ -49,7 +49,7 @@ Args parse_args(int argc, char** argv) {
         !std::isfinite(v) || v < lo || v > hi) {
       std::fprintf(stderr, "%s 应为 %.0f..%.0f 的数字，得到: %s\n", flag, lo,
                    hi, text.c_str());
-      std::exit(2);
+      std::exit(3);
     }
     return v;
   };
@@ -58,7 +58,7 @@ Args parse_args(int argc, char** argv) {
     auto next = [&]() -> std::string {
       if (i + 1 >= argc) {
         std::fprintf(stderr, "参数 %s 缺值\n", k.c_str());
-        std::exit(2);
+        std::exit(3);
       }
       return argv[++i];
     };
@@ -83,7 +83,7 @@ Args parse_args(int argc, char** argv) {
       std::exit(0);
     } else {
       std::fprintf(stderr, "未知参数: %s（--help 看用法）\n", k.c_str());
-      std::exit(2);
+      std::exit(3);
     }
   }
   return a;

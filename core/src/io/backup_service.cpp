@@ -174,11 +174,18 @@ Result<std::string> restore_database(const fs::path& snapshot,
       moved_wal = fs::path(wal.string() + stamp);
       fs::rename(wal, moved_wal, ec);
       if (ec) return Error{ErrorCode::IoError, "移开残留 WAL 失败: " + ec.message()};
+      moved = true;  // 让 rollback 能把旁车移回
     }
     if (fs::exists(shm, ec)) {
       moved_shm = fs::path(shm.string() + stamp);
       fs::rename(shm, moved_shm, ec);
-      if (ec) return Error{ErrorCode::IoError, "移开残留 SHM 失败: " + ec.message()};
+      if (ec) {
+        const std::string rb = rollback();
+        return Error{ErrorCode::IoError,
+                     "移开残留 SHM 失败: " + ec.message() +
+                         (rb.empty() ? "" : "；回滚: " + rb)};
+      }
+      moved = true;
     }
   }
 

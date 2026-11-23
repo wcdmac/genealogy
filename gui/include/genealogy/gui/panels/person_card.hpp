@@ -41,7 +41,7 @@ class PersonCardPanel : public Panel {
   enum class SwitchAction { Stay, DiscardAndLoad, SaveAndLoad };
   void resolve_switch(SwitchAction action, DbSession& session);
   // 面板是否持有任何缓存/未保存数据（换库清理断言的观测缝）
-  bool has_cached_data() const { return dirty_ || !loaded_id_.empty(); }
+  bool has_cached_data() const override { return dirty_ || !loaded_id_.empty(); }
   // 装载全局选中人物进缓冲（切换/重载的执行体，也是测试驱动入口）
   bool load(DbSession& session);
 

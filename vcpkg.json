@@ -11,7 +11,7 @@
   ],
   "features": {
     "gui": {
-      "description": "桌面 GUI（Dear ImGui MIT + GLFW zlib；ImGui 经 FetchContent 引入）",
+      "description": "桌面 GUI（Dear ImGui MIT + GLFW zlib；ImGui 已 vendor 到 third_party/imgui）",
       "dependencies": ["glfw3"]
     }
   }

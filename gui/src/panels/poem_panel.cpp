@@ -21,11 +21,12 @@ void PoemPanel::draw(DbSession& session) {
     branch = true;
     // 同步回成员，否则下一帧被 branch_scope_ 覆回 false，
     // reload/set/check 仍按谱级 book 执行——支派派语实际不可用。
-    set_scope_branch(true, owner_id_buf_);
+    set_scope_branch(true, branch_id_buf_.empty() ? "book" : branch_id_buf_);
   }
   if (branch) {
     ImGui::SetNextItemWidth(220);
-    input_text("支派 ID", &owner_id_buf_);
+    input_text("支派 ID", &branch_id_buf_);
+    if (owner_id_buf_ != branch_id_buf_) set_scope_branch(true, branch_id_buf_);
   }
   if (ImGui::Button("读取")) {
     std::string why;

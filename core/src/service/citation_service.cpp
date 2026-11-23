@@ -50,8 +50,10 @@ Result<void> require_subject_exists(Database& db,
       if (!got) return not_found("引用主体不存在（branch）: " + subject_id);
       return {};
     }
-    case CitationSubjectType::Lineage: {
-      // 单谱单库：谱本体即 book 行，主体校验恒过（历史数据兼容保留枚举）
+    case CitationSubjectType::Lineage:
+    case CitationSubjectType::Book: {
+      // 单谱单库：谱本体即 book 行，主体校验恒过
+      // （lineage 历史兼容 / book 为 0008 迁移后的正式主体类型）
       return {};
     }
   }

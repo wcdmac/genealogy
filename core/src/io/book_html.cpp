@@ -99,12 +99,14 @@ std::string life_span(const Person& p) {
   return s;
 }
 
-// 世代序号越界（负/超大）人物的说明，由 by_generation 填充、渲染层读取。
-std::string g_invalid_generation_note;
+// 分组结果连同越界说明一起传出，避免全局可变状态（并发安全）。
+struct GenerationGroups {
+  std::vector<std::vector<const Person*>> groups;
+  std::string invalid_note;
+};
 
 // 按世代分组，族内按出生序/ID 稳定排序。
-std::vector<std::vector<const Person*>> by_generation(
-    const std::vector<Person>& persons) {
+GenerationGroups by_generation(const std::vector<Person>& persons) {
   std::vector<const Person*> sorted;
   sorted.reserve(persons.size());
   for (const auto& p : persons) sorted.push_back(&p);
@@ -116,7 +118,7 @@ std::vector<std::vector<const Person*>> by_generation(
     return a->id < b->id;
   });
   std::vector<std::vector<const Person*>> groups;
-  g_invalid_generation_note.clear();
+  std::string note;
   for (const Person* p : sorted) {
     const int g = generation_of(*p);
     // 负世代/超大世代序号不可作为数组下标：前者转 size_t 会翻转成巨大值
@@ -124,10 +126,10 @@ std::vector<std::vector<const Person*>> by_generation(
     // 单独的"世代异常"组，保证导出不崩且数据可见。
     constexpr int kMaxGeneration = 10000;
     if (g < 0 || g > kMaxGeneration) {
-      if (g_invalid_generation_note.empty())
-        g_invalid_generation_note = "世代序号越界人物: ";
-      else g_invalid_generation_note += ", ";
-      g_invalid_generation_note += p->family_name + p->given_name + "(" +
+      if (note.empty())
+        note = "世代序号越界人物: ";
+      else note += ", ";
+      note += p->family_name + p->given_name + "(" +
                              std::to_string(g) + ")";
       continue;
     }
@@ -135,7 +137,7 @@ std::vector<std::vector<const Person*>> by_generation(
     if (groups.size() <= gi) groups.resize(gi + 1);
     groups[gi].push_back(p);
   }
-  return groups;
+  return {std::move(groups), std::move(note)};
 }
 
 }  // namespace
@@ -221,14 +223,15 @@ Result<std::string> render_book_html(const BookHtmlOptions& opt) {
   // 注意：不能写 opt.persons ? *opt.persons : std::vector<Person>{} ——
   // 条件表达式会构造临时 vector，by_generation 的 const& 绑定后即悬垂。
   const std::vector<Person> empty_persons;
-  const auto groups = by_generation(opt.persons ? *opt.persons : empty_persons);
+  const auto grouped = by_generation(opt.persons ? *opt.persons : empty_persons);
+  const auto& groups = grouped.groups;
   switch (opt.tmpl) {
     case BookTemplate::Register:
       h << "<h2 class='gen'>世系表</h2><table class='register'>"
         << "<tr><th>世代</th><th>姓名</th><th>字/号</th><th>生卒</th><th>行几</th><th>父</th><th>备注</th></tr>\n";
       for (std::size_t g = 1; g < groups.size(); ++g) {
         for (const Person* p : groups[g]) {
-          h << "<tr><td>" << g << "</td><td>" << html_escape(p->family_name + p->given_name)
+          h << "<tr><td>" << (g - 1) << "</td><td>" << html_escape(p->family_name + p->given_name)
             << "</td><td>" << html_escape(p->courtesy_name.value_or(""))
             << (p->art_name ? " " + html_escape(*p->art_name) : "") << "</td><td>"
             << html_escape(life_span(*p)) << "</td><td>"
@@ -242,7 +245,7 @@ Result<std::string> render_book_html(const BookHtmlOptions& opt) {
     case BookTemplate::Genealogy:
       for (std::size_t g = 1; g < groups.size(); ++g) {
         if (groups[g].empty()) continue;
-        h << "<h2 class='gen'>第" << g << "世</h2><div class='genealogy'>";
+        h << "<h2 class='gen'>第" << (g - 1) << "世</h2><div class='genealogy'>";
         for (const Person* p : groups[g]) {
           h << html_escape(p->family_name + p->given_name)
             << "（" << html_escape(life_span(*p)) << "）<br/>";
@@ -253,7 +256,7 @@ Result<std::string> render_book_html(const BookHtmlOptions& opt) {
     case BookTemplate::Biography:
       for (std::size_t g = 1; g < groups.size(); ++g) {
         if (groups[g].empty()) continue;
-        h << "<h2 class='gen'>第" << g << "世</h2>";
+        h << "<h2 class='gen'>第" << (g - 1) << "世</h2>";
         for (const Person* p : groups[g]) {
           h << "<div class='bio'><h3>" << html_escape(p->family_name + p->given_name)
             << " <span class='note'>" << html_escape(life_span(*p)) << "</span></h3>"
@@ -264,8 +267,8 @@ Result<std::string> render_book_html(const BookHtmlOptions& opt) {
   }
   h << "<p class='note'>本谱由 genea 生成 · 打印时请在浏览器选择「另存为 PDF」"
     << "并启用背景图形。</p>\n</body></html>\n";
-  if (!g_invalid_generation_note.empty()) {
-    h << "<div class='note'>注：" << html_escape(g_invalid_generation_note)
+  if (!grouped.invalid_note.empty()) {
+    h << "<div class='note'>注：" << html_escape(grouped.invalid_note)
       << "（未列入世系，请修正世代序号）</div>\n";
   }
   return h.str();

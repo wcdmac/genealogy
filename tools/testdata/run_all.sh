@@ -8,10 +8,10 @@ set -e -o pipefail
 cd "$(dirname "$0")/../.."
 
 # 平台自适应后缀：Windows 是 .exe，Linux/macOS 无后缀
-EXE=""
-if [ "$(uname -s)" = "MINGW"* ] || [ "$(uname -s)" = "MSYS"* ] || [ "$(uname -s)" = "CYGWIN"* ]; then
-  EXE=".exe"
-fi
+case "$(uname -s)" in
+  MINGW*|MSYS*|CYGWIN*) EXE=".exe" ;;
+  *) EXE="" ;;
+esac
 
 echo "########## 1/2 单元测试（core + gui） ##########"
 "./build/bin/genealogy-core-tests${EXE}" 2>&1 | tail -1
@@ -19,7 +19,7 @@ echo "########## 1/2 单元测试（core + gui） ##########"
 
 echo
 echo "########## 2/2 CLI 端到端 ##########"
-bash tools/testdata/run_e2e.sh
+GENEA_BIN="./build/bin/genea${EXE}" bash tools/testdata/run_e2e.sh
 
 echo
 echo "ALL_LAYERS_PASS"

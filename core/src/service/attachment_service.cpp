@@ -73,7 +73,10 @@ Result<Attachment> AttachmentService::import_file(
   a.filename = source.filename().string();
   a.mime = "application/octet-stream";
   a.sha256 = sha;
-  a.size_bytes = static_cast<std::int64_t>(fs::file_size(source, ec));
+  const auto size = fs::file_size(source, ec);
+  if (ec)
+    return Error{ErrorCode::IoError, "读取附件大小失败: " + ec.message()};
+  a.size_bytes = static_cast<std::int64_t>(size);
   a.subject_type = subject_type;
   a.subject_id = subject_id;
   if (!caption.empty()) a.caption = caption;
@@ -83,7 +86,7 @@ Result<Attachment> AttachmentService::import_file(
       "subject_type,subject_id,caption) VALUES(?,?,?,?,?,?,?,?,?)";
   sqlite3_stmt* st = nullptr;
   if (sqlite3_prepare_v2(db_->raw(), sql, -1, &st, nullptr) != SQLITE_OK)
-    return Error{ErrorCode::IoError, "附件登记语句准备失败"};
+    return Error{ErrorCode::Internal, "附件登记语句准备失败"};
   sqlite3_bind_text(st, 1, a.id.c_str(), -1, SQLITE_TRANSIENT);
   const std::string kind_str = to_string(a.kind);
   sqlite3_bind_text(st, 2, kind_str.c_str(), -1, SQLITE_TRANSIENT);
@@ -98,7 +101,7 @@ Result<Attachment> AttachmentService::import_file(
   const bool done = sqlite3_step(st) == SQLITE_DONE;
   const std::string err = done ? "" : sqlite3_errmsg(db_->raw());
   sqlite3_finalize(st);
-  if (!done) return Error{ErrorCode::IoError, "附件登记失败: " + err};
+  if (!done) return Error{ErrorCode::Internal, "附件登记失败: " + err};
   return a;
 }
 
@@ -114,7 +117,7 @@ Result<std::vector<Attachment>> AttachmentService::list(
 
   sqlite3_stmt* st = nullptr;
   if (sqlite3_prepare_v2(db_->raw(), sql.c_str(), -1, &st, nullptr) != SQLITE_OK)
-    return Error{ErrorCode::IoError, "附件查询准备失败"};
+    return Error{ErrorCode::Internal, "附件查询准备失败"};
   int idx = 1;
   if (filter.subject_type) sqlite3_bind_text(st, idx++, filter.subject_type->c_str(), -1, SQLITE_TRANSIENT);
   if (filter.subject_id) sqlite3_bind_text(st, idx++, filter.subject_id->c_str(), -1, SQLITE_TRANSIENT);
@@ -141,8 +144,8 @@ Result<std::vector<Attachment>> AttachmentService::list(
   }
   sqlite3_finalize(st);
   if (step_rc != SQLITE_DONE)
-    return Error{ErrorCode::IoError,
-                 "附件查询失败: " + std::string(sqlite3_errstr(step_rc))};
+    return Error{ErrorCode::Internal,
+                 "附件查询失败: " + std::string(sqlite3_errmsg(db_->raw()))};
   return out;
 }
 
@@ -152,7 +155,7 @@ Result<Attachment> AttachmentService::get(const std::string& id) const {
       "caption FROM attachment WHERE id=?";
   sqlite3_stmt* st = nullptr;
   if (sqlite3_prepare_v2(db_->raw(), sql, -1, &st, nullptr) != SQLITE_OK)
-    return Error{ErrorCode::IoError, "附件查询准备失败"};
+    return Error{ErrorCode::Internal, "附件查询准备失败"};
   sqlite3_bind_text(st, 1, id.c_str(), -1, SQLITE_TRANSIENT);
   const int step_rc = sqlite3_step(st);
   if (step_rc != SQLITE_ROW) {
@@ -160,7 +163,7 @@ Result<Attachment> AttachmentService::get(const std::string& id) const {
     sqlite3_finalize(st);
     if (step_rc == SQLITE_DONE)
       return Error{ErrorCode::NotFound, "附件不存在: " + id};
-    return Error{ErrorCode::IoError, "附件查询失败: " + why};
+    return Error{ErrorCode::Internal, "附件查询失败: " + why};
   }
   Attachment a;
   a.id = col_text(st, 0);
@@ -187,7 +190,7 @@ Result<void> AttachmentService::remove(const std::string& id) {
   const bool done = sqlite3_step(st) == SQLITE_DONE;
   const std::string err = done ? "" : sqlite3_errmsg(db_->raw());
   sqlite3_finalize(st);
-  if (!done) return Error{ErrorCode::IoError, "删除附件失败: " + err};
+  if (!done) return Error{ErrorCode::Internal, "删除附件失败: " + err};
   return {};
 }
 

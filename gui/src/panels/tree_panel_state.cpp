@@ -39,6 +39,7 @@ void TreePanel::on_database_closed() {
   has_tree_ = false;
   graph_.reset();
   tree_.reset();
+  pending_generation_ = 0;
   pending_graph_.reset();
   pending_tree_.reset();
   pending_error_.clear();
@@ -122,6 +123,7 @@ void TreePanel::poll() {
   error_ = std::move(pending_error_);
   has_tree_ = error_.empty() && tree_ != nullptr;
   if (!has_tree_) graph_.reset();
+  pending_generation_ = 0;
   pending_graph_.reset();
   pending_tree_.reset();
   pending_error_.clear();

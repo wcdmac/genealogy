@@ -107,13 +107,16 @@ Result<MarkupResult> parse_markup(const std::string& source) {
         // 手工累加并 clamp：只取有效区间，避免 Result 语义被异常穿透。
         constexpr long long kMaxIndent = 1000000;
         long long value = 0;
+        bool clamped = false;
         for (char ch : num) {
+          if (value > kMaxIndent / 10) { clamped = true; break; }
           value = value * 10 + (ch - '0');
-          if (value > kMaxIndent) { value = kMaxIndent; break; }
+          if (value > kMaxIndent) { value = kMaxIndent; clamped = true; break; }
         }
-        out.warnings.push_back("第 " + std::to_string(line) +
-                               " 行 indent 值已限制到 " +
-                               std::to_string(value));
+        if (clamped)
+          out.warnings.push_back("第 " + std::to_string(line) +
+                                 " 行 indent 值超限，已限制到 " +
+                                 std::to_string(value));
         out.nodes.push_back({MarkupKind::Indent, "",
                              static_cast<int>(value), line});
       }
