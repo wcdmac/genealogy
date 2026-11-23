@@ -97,6 +97,13 @@ bool is_valid_ulid(std::string_view s) noexcept {
     if (!is_digit && !is_alpha) return false;
     if (c == 'I' || c == 'L' || c == 'O' || c == 'U') return false;
   }
+  // 时间戳 48 bit 编入 10 个 Crockford 字符（50 bit），首位只能是 0..7；
+  // "8..." 起的串解码后超出 48 bit 时间域，不是本实现能产生的 ULID。
+  const char first = s[0];
+  const int v = first >= '0' && first <= '9'
+      ? first - '0'
+      : 10 + (first >= 'A' ? first - 'A' : first - 'a');
+  if (v > 7) return false;
   return true;
 }
 

@@ -15,13 +15,13 @@ bool BackupPanel::backup(DbSession& session, const std::string& dir,
   fs::path out(dir);
   std::error_code ec;
   fs::create_directories(out, ec);
-  if (ec) { *why = "建不了备份目录: " + ec.message(); return false; }
+  if (ec) { if (why) *why = "建不了备份目录: " + ec.message(); return false; }
   const fs::path snapshot = out / ("genealogy-" + genealogy::io::backup_timestamp() + ".db");
   if (auto r = genealogy::io::snapshot_database(session.db(), snapshot); !r) {
-    *why = r.error().message();
+    if (why) *why = r.error().message();
     return false;
   }
-  *out_path = snapshot.string();
+  if (out_path) *out_path = snapshot.string();
   return true;
 }
 
@@ -49,8 +49,8 @@ bool BackupPanel::restore_and_reopen(DbSession& session,
 bool BackupPanel::restore(const std::string& snapshot, const std::string& target,
                           bool force, std::string* moved_old, std::string* why) {
   auto r = genealogy::io::restore_database(snapshot, target, force);
-  if (!r) { *why = r.error().message(); return false; }
-  *moved_old = *r;
+  if (!r) { if (why) *why = r.error().message(); return false; }
+  if (moved_old) *moved_old = *r;
   return true;
 }
 

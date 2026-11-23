@@ -40,7 +40,8 @@ void cleanup_db(const std::filesystem::path& path) {
 }
 
 // 格式合法但保证不存在的 ULID。注意不能用 26 个 0——那是
-const std::string kMissingId(26, 'Z');
+// 合法格式（首位 0..7、Crockford 字母表）但库中不存在的 ULID
+const std::string kMissingId = "7ZZZZZZZZZZZZZZZZZZZZZZZZZ";
 
 struct Fixture {
   Database& db() { return *db_; }

@@ -36,12 +36,14 @@ std::string css_string_escape(const std::string& s) {
     if (c == '\\' || c == '\'') {
       out += '\\';
       out += static_cast<char>(c);
-    } else if (c == '<') {
-      out += "&lt;";   // CSS 上下文里同样转义尖括号，避免与 HTML 解析器混淆
-    } else if (c == '>') {
-      out += "&gt;";
-    } else if (c == '&') {
-      out += "&amp;";
+    } else if (c == '<' || c == '>' || c == '&') {
+      // <style> 是 raw text 元素，HTML 实体不会被解码——必须用 CSS
+      // 十六进制转义（\3C 后跟空格结束转义序列），否则页眉字面显示 &lt;。
+      static const char hex[] = "0123456789abcdef";
+      out += "\\";
+      out += hex[(c >> 4) & 0xF];
+      out += hex[c & 0xF];
+      out += ' ';
     } else if (c == '\n' || c == '\r') {
       out += "\\A ";  // CSS 换行转义
     } else if (c < 0x20) {

@@ -142,3 +142,38 @@ TEST_CASE("审查修复回归：ULID 随机段满 80 bit") {
     if (id[10] != '0' || id[11] != '0' || id[12] != '0') any_nonzero = true;
   CHECK(any_nonzero);
 }
+
+TEST_CASE("审查修复回归：ULID 首位范围与世代显示") {
+  // 首位只能在 0..7（48 bit 时间戳编 10 字符）
+  CHECK(is_valid_ulid("01M84DQSYJN5Z8J5SNTJDX2QDQ"));
+  CHECK_FALSE(is_valid_ulid("80000000000000000000000000"));
+  CHECK_FALSE(is_valid_ulid("Z0000000000000000000000000"));
+
+  // generation_no=1 应显示"第1世"而非"第2世"
+  Person p;
+  p.id = "X"; p.family_name = "李"; p.given_name = "一世";
+  p.generation_no = 1;
+  std::vector<Person> ps{p};
+  io::BookHtmlOptions opt;
+  opt.embed_fonts = false; opt.persons = &ps;
+  opt.tmpl = io::BookTemplate::Genealogy;
+  auto html = io::render_book_html(opt);
+  REQUIRE(html.has_value());
+  CHECK(html->find("第1世") != std::string::npos);
+  CHECK(html->find("第2世") == std::string::npos);
+}
+
+TEST_CASE("审查修复回归：CSS 上下文十六进制转义") {
+  Book evil = sample_book();
+  evil.name = "A<B&C";
+  io::BookHtmlOptions opt;
+  opt.embed_fonts = false; opt.book = &evil;
+  auto html = io::render_book_html(opt);
+  REQUIRE(html.has_value());
+  // CSS 里应是 \3c 等十六进制转义，不是 HTML 实体
+  CHECK(html->find("\\3c ") != std::string::npos);
+  const auto css_pos = html->find("@top-center");
+  REQUIRE(css_pos != std::string::npos);
+  const auto css_end = html->find("}", css_pos);
+  CHECK(html->substr(css_pos, css_end - css_pos).find("&lt;") == std::string::npos);
+}

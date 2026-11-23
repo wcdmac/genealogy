@@ -263,8 +263,7 @@ Result<SyntheticData> generate_synthetic(const SyntheticOptions& opt) {
         emit_facts(child, child_year, d);
         out.persons.push_back(child);
       person_index.emplace(child.id, out.persons.size() - 1);
-        person_index.emplace(child.id, out.persons.size() - 1);
-        continue;
+      continue;
       }
       out.persons.push_back(child);
       person_index.emplace(child.id, out.persons.size() - 1);

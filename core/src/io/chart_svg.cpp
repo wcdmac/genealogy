@@ -248,7 +248,8 @@ std::string render_svg(const layout& l, const ChartOptions& opt,
                        const std::vector<std::string>& warnings,
                        std::size_t page_count, int style,
                        std::size_t page_no = 1,
-                       std::pair<int, int> gen_span = {1, 1}) {
+                       std::pair<int, int> gen_span = {1, 1},
+                       bool overlaps_previous = false) {
   const double maxx = l.nodes.empty() ? kNodeW :
       std::max_element(l.nodes.begin(), l.nodes.end(),
                        [](const laid_out& a, const laid_out& b) { return a.x < b.x; })->x + kNodeW;
@@ -287,7 +288,7 @@ std::string render_svg(const layout& l, const ChartOptions& opt,
     << " · 节点 " << l.nodes.size() << " · 第 " << page_no
     << (page_count > 0 ? "/" + std::to_string(page_count) : "")
     << " 页 · 第 " << (gen_span.first + 1) << "–" << (gen_span.second + 1) << " 世"
-    << (page_no > 1 && gen_span.first == 0 ? "（苏式：与上页重叠首世）" : "")
+    << (overlaps_previous ? "（苏式：与上页重叠首世）" : "")
     << " · 点击节点聚焦，输入姓名定位</text>\n";
 
   // 房支分色：每个节点用其 branch 色
@@ -431,6 +432,12 @@ Result<ChartResult> render_chart_svg(const ChartOptions& opt) {
       const int first_gen = [&] { int m = 1000000; for (const auto& n : full.nodes) m = std::min(m, n.gen); return m; }();
       ChartResult paged;
       paged.warnings = warnings;
+      // 预计算总页数，供页眉显示"第 N/M 页"
+      const std::size_t total_pages = [&]() {
+        std::size_t n = 0;
+        for (int g = first_gen; g <= maxgen; g += step) ++n;
+        return n;
+      }();
       for (int lo = first_gen; lo <= maxgen; lo += step) {
         const int hi = std::min(lo + opt.page_size - 1, maxgen);
         auto page_layout = slice_layout(full, lo, hi);
@@ -438,9 +445,10 @@ Result<ChartResult> render_chart_svg(const ChartOptions& opt) {
         p.first_generation = lo;
         p.last_generation = hi;
         p.overlaps_previous = overlap && lo > first_gen;
-        p.svg = render_svg(page_layout, opt, warnings, 0,
+        p.svg = render_svg(page_layout, opt, warnings, total_pages,
                            static_cast<int>(opt.style_hint),
-                           paged.pages.size() + 1, {lo, hi});
+                           paged.pages.size() + 1, {lo, hi},
+                           p.overlaps_previous);
         paged.pages.push_back(std::move(p));
         if (hi == maxgen) break;
       }
@@ -455,8 +463,18 @@ Result<ChartResult> render_chart_svg(const ChartOptions& opt) {
   out.node_count = l.nodes.size();
   out.page_count = 1;
   out.warnings = warnings;
-  out.svg = render_svg(l, opt, warnings, 1, static_cast<int>(opt.style_hint));
-  out.pages.push_back({out.svg, 1, 1, false});
+  // 非分页也按实际世代区间显示，避免固定 {1,1} 显示成"第2–2世"
+  int min_gen = 0, max_gen = 0;
+  if (!l.nodes.empty()) {
+    min_gen = max_gen = l.nodes.front().gen;
+    for (const auto& n : l.nodes) {
+      min_gen = std::min(min_gen, n.gen);
+      max_gen = std::max(max_gen, n.gen);
+    }
+  }
+  out.svg = render_svg(l, opt, warnings, 1, static_cast<int>(opt.style_hint),
+                       1, {min_gen, max_gen});
+  out.pages.push_back({out.svg, min_gen, max_gen, false});
   return out;
 }
 
