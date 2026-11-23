@@ -64,6 +64,8 @@ add_executable(genealogy-gui
   src/db_switch.cpp
   src/font.cpp
   src/panels/person_card.cpp
+  src/panels/new_person_panel.cpp
+  src/panels/new_person_panel_state.cpp
   src/panels/person_card_state.cpp
   src/panels/person_table.cpp
   src/panels/search_panel.cpp
@@ -72,6 +74,8 @@ add_executable(genealogy-gui
   src/panels/validation_panel_state.cpp
   src/panels/tree_panel.cpp
   src/panels/tree_panel_state.cpp
+  src/panels/export_panel.cpp
+  src/panels/export_panel_state.cpp
 )
 
 target_include_directories(genealogy-gui
@@ -106,6 +110,8 @@ if(BUILD_TESTS)
     ${PROJECT_SOURCE_DIR}/gui/src/db_switch.cpp
     ${PROJECT_SOURCE_DIR}/gui/src/panels/person_card.cpp
     ${PROJECT_SOURCE_DIR}/gui/src/panels/person_card_state.cpp
+    ${PROJECT_SOURCE_DIR}/gui/src/panels/new_person_panel.cpp
+    ${PROJECT_SOURCE_DIR}/gui/src/panels/new_person_panel_state.cpp
     ${PROJECT_SOURCE_DIR}/gui/src/panels/person_table.cpp
     ${PROJECT_SOURCE_DIR}/gui/src/panels/search_panel.cpp
     ${PROJECT_SOURCE_DIR}/gui/src/panels/relation_panel.cpp
@@ -113,6 +119,8 @@ if(BUILD_TESTS)
     ${PROJECT_SOURCE_DIR}/gui/src/panels/validation_panel_state.cpp
     ${PROJECT_SOURCE_DIR}/gui/src/panels/tree_panel.cpp
     ${PROJECT_SOURCE_DIR}/gui/src/panels/tree_panel_state.cpp
+    ${PROJECT_SOURCE_DIR}/gui/src/panels/export_panel.cpp
+    ${PROJECT_SOURCE_DIR}/gui/src/panels/export_panel_state.cpp
   )
   target_include_directories(genealogy-gui-tests
     PRIVATE ${PROJECT_SOURCE_DIR}/gui/include

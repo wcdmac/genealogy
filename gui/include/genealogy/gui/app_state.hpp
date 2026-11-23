@@ -11,6 +11,11 @@ struct AppState {
   // 当前选中的人物（全局联动：表格/检索/树点选 → 人物卡跟随）。
   std::string selected_person_id;
 
+  // 关系快捷录入：人物卡按钮设置锚点与关系类型，新建面板读取并预填。
+  // kind: "child" | "father" | "mother" | "spouse"；空表示无待建关系。
+  std::string new_relation_kind;
+  std::string new_relation_anchor;
+
   // 关系面板的两个端点（默认沿用选中者 + 空）。
   std::string relation_ego;
   std::string relation_alter;

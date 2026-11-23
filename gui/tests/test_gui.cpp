@@ -30,6 +30,8 @@
 #include <string>
 
 #include <genealogy/gui/db_switch.hpp>
+#include <genealogy/gui/panels/export_panel.hpp>
+#include <genealogy/gui/panels/new_person_panel.hpp>
 #include <genealogy/gui/panels/person_card.hpp>
 #include <genealogy/gui/panels/person_table.hpp>
 #include <genealogy/gui/panels/relation_panel.hpp>
@@ -526,5 +528,150 @@ TEST_CASE("面板状态机：换库清理序列（复核 2.13 + 第三轮新-C5�
   // 六面板缓存全清——换库后检索/关系/校验/人物卡/树不再展示旧库数据
   for (const auto* p : panels) {
     CHECK_FALSE(p->has_cached_data());
+  }
+}
+
+TEST_CASE("新建人物面板：智能预填与父子关系创建") {
+  TempDb db;
+  std::string why;
+  REQUIRE(db.open(&why));
+  // 先建焦点人物（男，陈某，世代 5）
+  Person focus = make_person("陈", "大山", Gender::Male, "1950");
+  focus.generation_no = 5;
+  auto f = db.session.persons().create_person(focus);
+  REQUIRE(f.has_value());
+
+  AppState state;
+  state.selected_person_id = f->id;
+  NewPersonPanel panel(state);
+  panel.prefill(db.session, f->id);
+  CHECK(panel.draft().family_name == "陈");
+  CHECK(panel.draft().generation_no == "6");
+  CHECK(panel.draft().father_id == f->id);
+
+  // 创建儿子（老谱原文日期）
+  panel.draft().given_name = "小川";
+  panel.draft().birth_date = "同治三年四月初四";
+  REQUIRE(panel.create(db.session));
+  CHECK(state.selected_person_id != f->id);  // 新焦点
+  auto son = db.session.persons().get_person(state.selected_person_id);
+  REQUIRE(son.has_value());
+  CHECK(son->family_name == "陈");
+  CHECK(son->father_id == f->id);
+  CHECK(son->generation_no.value_or(0) == 6);
+  CHECK(son->birth_date.lunar.value_or("").find("同治") != std::string::npos);
+  // 创建后一次性字段清空、预填保留
+  CHECK(panel.draft().given_name.empty());
+  CHECK(panel.draft().family_name == "陈");
+}
+
+TEST_CASE("新建人物面板：空名拒绝、坏日期报错") {
+  TempDb db;
+  std::string why;
+  REQUIRE(db.open(&why));
+  AppState state;
+  NewPersonPanel panel(state);
+  CHECK_FALSE(panel.create(db.session));  // 空名
+  CHECK(state.status_is_error);
+  panel.draft().given_name = "某";
+  panel.draft().birth_date = "不存在的年月";
+  // from_raw 照录不校验，故原文任何内容都可存——改测 ISO 非法
+  panel.draft().birth_date = "9999-99-99";
+  CHECK_FALSE(panel.create(db.session));
+  CHECK(state.status_is_error);
+}
+
+TEST_CASE("排版导出面板：三种产出均可生成") {
+  TempDb db;
+  std::string why;
+  REQUIRE(db.open(&why));
+  Person p = make_person("林", "太祖", Gender::Male, "1900");
+  auto created = db.session.persons().create_person(p);
+  REQUIRE(created.has_value());
+
+  AppState state;
+  state.selected_person_id = created->id;
+  ExportPanel panel(state);
+
+  SECTION("古籍版式：标记文本 → SVG") {
+    std::string markup = panel.build_markup(db.session, created->id);
+    CHECK(markup.find("〔卷〕") != std::string::npos);
+    CHECK(markup.find("林太祖") != std::string::npos);
+    std::string svg, err;
+    REQUIRE(panel.generate_layout(markup, "guji_classic", "", "林氏家谱",
+                                  &svg, &err));
+    CHECK(svg.find("<svg") != std::string::npos);
+    CHECK(svg.find("林氏家谱") != std::string::npos);
+    // 字号覆盖生效
+    std::string svg2;
+    REQUIRE(panel.generate_layout(markup, "guji_classic", "22pt", "林氏",
+                                  &svg2, &err));
+    CHECK(svg2.find("font-size:29px") != std::string::npos);
+  }
+  SECTION("世系图：焦点 → SVG") {
+    std::string svg, err;
+    REQUIRE(panel.generate_chart(db.session, "descendant", created->id, 5,
+                                 &svg, &err));
+    CHECK(svg.find("<svg") != std::string::npos);
+  }
+  SECTION("谱书：人物 → HTML") {
+    std::string html, err;
+    REQUIRE(panel.generate_book(db.session, &html, &err));
+    bool has_html = html.find("<html") != std::string::npos ||
+                    html.find("<!DOCTYPE") != std::string::npos;
+    CHECK(has_html);
+  }
+}
+
+TEST_CASE("关系快捷：子女与配偶真正建立关系") {
+  TempDb db;
+  std::string why;
+  REQUIRE(db.open(&why));
+  auto parent = db.session.persons().create_person(
+      make_person("赵", "父", Gender::Male, "1950"));
+  REQUIRE(parent.has_value());
+
+  AppState state;
+  state.selected_person_id = parent->id;
+  NewPersonPanel panel(state);
+
+  SECTION("+子女：新建儿子并自动填 father_id") {
+    state.new_relation_kind = "child";
+    state.new_relation_anchor = parent->id;
+    panel.prefill(db.session, parent->id);
+    CHECK(panel.draft().father_id == parent->id);
+    panel.draft().given_name = "儿";
+    REQUIRE(panel.create(db.session));
+    auto son = db.session.persons().get_person(state.selected_person_id);
+    REQUIRE(son.has_value());
+    CHECK(son->father_id == parent->id);
+  }
+
+  SECTION("+配偶：新建女性并建立婚姻 Union") {
+    state.new_relation_kind = "spouse";
+    state.new_relation_anchor = parent->id;
+    panel.prefill(db.session, parent->id);
+    panel.draft().given_name = "母";
+    panel.draft().gender = 1;  // 女
+    REQUIRE(panel.create(db.session));
+    UnionFilter uf;
+    auto unions = db.session.unions().list_unions(uf);
+    REQUIRE(unions.has_value());
+    CHECK(unions->size() == 1);
+    bool linked = false;
+    for (const auto& m : (*unions)[0].members)
+      if (m.person_id == state.selected_person_id) linked = true;
+    CHECK(linked);
+  }
+
+  SECTION("+父亲：新建父并回填锚点 father_id") {
+    state.new_relation_kind = "father";
+    state.new_relation_anchor = parent->id;
+    panel.prefill(db.session, parent->id);
+    panel.draft().given_name = "祖父";
+    REQUIRE(panel.create(db.session));
+    auto updated = db.session.persons().get_person(parent->id);
+    REQUIRE(updated.has_value());
+    CHECK(updated->father_id == state.selected_person_id);
   }
 }

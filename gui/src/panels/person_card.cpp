@@ -149,6 +149,22 @@ void PersonCardPanel::draw(DbSession& session) {
   link("母", mother_id_);
   for (const auto& id : spouse_ids_) link("配偶", id);
   for (const auto& id : child_ids_) link("子", id);
+
+  // 关系快捷录入（借鉴 Gramps 的关系按钮）：为当前焦点加父/母/配偶/子女。
+  // 设置 AppState 的待建关系，新建面板会自动预填并打开。
+  ImGui::SeparatorText("快捷建关系");
+  auto quick = [&](const char* label, const char* kind) {
+    if (ImGui::SmallButton(label)) {
+      state_.new_relation_kind = kind;
+      state_.new_relation_anchor = state_.selected_person_id;
+    }
+    ImGui::SameLine();
+  };
+  quick("+父亲", "father");
+  quick("+母亲", "mother");
+  quick("+配偶", "spouse");
+  quick("+子女", "child");
+  ImGui::NewLine();
 }
 
 }  // namespace genealogy::gui
