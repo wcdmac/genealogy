@@ -6,6 +6,7 @@
 
 #include <genealogy/gui/app_state.hpp>
 #include <genealogy/gui/panels.hpp>
+#include <genealogy/gui/svg_preview.hpp>
 
 #include <string>
 #include <vector>
@@ -43,6 +44,9 @@ class ExportPanel : public Panel {
   const std::string& markup() const { return markup_; }
   void set_preview(const std::string& p) { preview_ = p; }
   const std::string& preview() const { return preview_; }
+  // 解析当前预览 SVG 为可绘制场景（生成后调用）
+  bool refresh_scene(std::string* why);
+  const SvgScene& scene() const { return scene_; }
   int output_kind() const { return output_kind_; }
   void set_output_kind(int k) { output_kind_ = k; }
 
@@ -50,6 +54,8 @@ class ExportPanel : public Panel {
   AppState& state_;
   std::string markup_;
   std::string preview_;
+  SvgScene scene_;
+  bool show_preview_ = true;
   int output_kind_ = 0;  // 0 古籍版式 / 1 世系图 / 2 谱书
 };
 

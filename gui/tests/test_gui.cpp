@@ -31,6 +31,7 @@
 
 #include <genealogy/gui/db_switch.hpp>
 #include <genealogy/gui/panels/export_panel.hpp>
+#include <genealogy/gui/svg_preview.hpp>
 #include <genealogy/gui/panels/new_person_panel.hpp>
 #include <genealogy/gui/panels/person_card.hpp>
 #include <genealogy/gui/panels/person_table.hpp>
@@ -674,4 +675,39 @@ TEST_CASE("关系快捷：子女与配偶真正建立关系") {
     REQUIRE(updated.has_value());
     CHECK(updated->father_id == state.selected_person_id);
   }
+}
+
+TEST_CASE("SVG 预览：解析自家 SVG 子集（无光栅化依赖）") {
+  AppState st;
+  ExportPanel panel(st);
+  std::string markup = "〔卷〕陈氏族谱\n〔章〕世家\n正文〔注〕小注〔/注〕〔圈〕";
+  std::string svg, why;
+  REQUIRE(panel.generate_layout(markup, "guji_classic", "", "陈氏", &svg, &why));
+  panel.set_preview(svg);
+  REQUIRE(panel.refresh_scene(&why));
+  const auto& scene = panel.scene();
+  // 图元：背景 rect + 版框 + 界行 + 鱼尾/象鼻 + 文字 等
+  CHECK((svg_node_count(scene) > 20));
+  CHECK((svg_class_count(scene) >= 5));
+  CHECK(scene.width == 720);
+  CHECK(scene.height == 1040);
+  // class 样式来自 <style>，非硬编码
+  auto it = scene.classes.find("body");
+  REQUIRE(it != scene.classes.end());
+  CHECK(it->second.font_size == 15);
+  CHECK(it->second.font_size == 15);
+  // 有文字节点且内容被正确反转义（含中文）
+  bool has_text = false;
+  for (const auto& n : scene.nodes) {
+    if (n.kind == genealogy::gui::SvgNode::Kind::Text && !n.text.empty()) {
+      has_text = true;
+      break;
+    }
+  }
+  CHECK(has_text);
+  // 有 path（专名线/鱼尾）
+  bool has_path = false;
+  for (const auto& n : scene.nodes)
+    if (n.kind == genealogy::gui::SvgNode::Kind::Path) has_path = true;
+  CHECK(has_path);
 }

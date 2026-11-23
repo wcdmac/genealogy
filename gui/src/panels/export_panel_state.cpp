@@ -2,6 +2,8 @@
 
 #include <genealogy/gui/panels/export_panel.hpp>
 
+#include <genealogy/gui/svg_preview.hpp>
+
 #include <genealogy/io/book_html.hpp>
 #include <genealogy/io/chart_svg.hpp>
 #include <genealogy/io/layout_svg.hpp>
@@ -127,6 +129,16 @@ bool ExportPanel::generate_book(DbSession& session, std::string* out_html,
   auto html = io::render_book_html(opt);
   if (!html) { *why = html.error().message(); return false; }
   *out_html = *html;
+  return true;
+}
+
+bool ExportPanel::refresh_scene(std::string* why) {
+  auto parsed = parse_own_svg(preview_);
+  if (!parsed) {
+    *why = parsed.error().message();
+    return false;
+  }
+  scene_ = *parsed;
   return true;
 }
 

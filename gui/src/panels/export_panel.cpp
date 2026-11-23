@@ -2,9 +2,11 @@
 
 #include <genealogy/gui/panels/export_panel.hpp>
 #include <genealogy/gui/widgets.hpp>
+#include <genealogy/gui/svg_preview_draw.hpp>
 
 #include <imgui.h>
 
+#include <algorithm>
 #include <string>
 
 namespace genealogy::gui {
@@ -69,6 +71,12 @@ void ExportPanel::draw(DbSession& session) {
                           state_.selected_person_id, depth, &preview_, &why);
     } else
       ok = generate_book(session, &preview_, &why);
+    if (ok && output_kind_ == 0) {
+      std::string scene_err;
+      if (!refresh_scene(&scene_err)) {
+        state_.set_status("预览解析失败: " + scene_err, true);
+      }
+    }
     state_.set_status(ok ? "已生成排版产物（可导出文件）"
                          : "排版失败: " + why, !ok);
   }
@@ -89,7 +97,21 @@ void ExportPanel::draw(DbSession& session) {
 
   if (!preview_.empty()) {
     ImGui::SeparatorText("产物信息");
-    ImGui::Text("SVG 字节数: %zu", preview_.size());
+    ImGui::Text("SVG 字节数: %zu / 图元 %zu", preview_.size(),
+                svg_node_count(scene()));
+    ImGui::Checkbox("内嵌预览（ImDrawList 直绘，无光栅化依赖）", &show_preview_);
+    if (show_preview_ && !scene().nodes.empty()) {
+      ImGui::BeginChild("##svg_preview", ImVec2(0, 420), true,
+                        ImGuiWindowFlags_HorizontalScrollbar);
+      const ImVec2 avail = ImGui::GetContentRegionAvail();
+      const float scale = std::min(avail.x / scene().width,
+                                   avail.y / scene().height);
+      const ImVec2 size(scene().width * scale, scene().height * scale);
+      const ImVec2 cur = ImGui::GetCursorScreenPos();
+      ImGui::Dummy(size);
+      draw_svg_preview(scene(), ImGui::GetWindowDrawList(), cur, scale);
+      ImGui::EndChild();
+    }
   }
   ImGui::End();
 }

@@ -76,6 +76,8 @@ add_executable(genealogy-gui
   src/panels/tree_panel_state.cpp
   src/panels/export_panel.cpp
   src/panels/export_panel_state.cpp
+  src/svg_preview.cpp
+  src/svg_preview_draw.cpp
 )
 
 target_include_directories(genealogy-gui
@@ -121,6 +123,8 @@ if(BUILD_TESTS)
     ${PROJECT_SOURCE_DIR}/gui/src/panels/tree_panel_state.cpp
     ${PROJECT_SOURCE_DIR}/gui/src/panels/export_panel.cpp
     ${PROJECT_SOURCE_DIR}/gui/src/panels/export_panel_state.cpp
+    ${PROJECT_SOURCE_DIR}/gui/src/svg_preview.cpp
+    ${PROJECT_SOURCE_DIR}/gui/src/svg_preview_draw.cpp
   )
   target_include_directories(genealogy-gui-tests
     PRIVATE ${PROJECT_SOURCE_DIR}/gui/include
