@@ -29,7 +29,11 @@
 
 #include <genealogy/calendar/era.hpp>
 #include <genealogy/io/book_html.hpp>
+#include <genealogy/io/chart_svg.hpp>
+#include <genealogy/lineage/mourning.hpp>
 #include <genealogy/repository/book_repository.hpp>
+#include <genealogy/repository/person_repository.hpp>
+#include <genealogy/repository/union_repository.hpp>
 #include <genealogy/service/book_service.hpp>
 #include <genealogy/error.hpp>
 #include <genealogy/io/gedcom.hpp>
@@ -610,6 +614,10 @@ int cmd_io(const std::vector<std::string>& args, const std::string& db_path,
       return cmd_export_tree(
           std::vector<std::string>(rest.begin() + 1, rest.end()), db_path, format);
     }
+    if (sub == "export" && !rest.empty() && rest[0] == "chart") {
+      return cmd_export_chart(
+          std::vector<std::string>(rest.begin() + 1, rest.end()), db_path, format);
+    }
     if (sub == "export" && !rest.empty() && rest[0] == "book") {
       return cmd_export_book(
           std::vector<std::string>(rest.begin() + 1, rest.end()), db_path, format);
@@ -619,7 +627,7 @@ int cmd_io(const std::vector<std::string>& args, const std::string& db_path,
     std::cerr << "用法错误: " << e.what() << "\n";
     return 2;
   }
-  std::cerr << "用法错误: genea io import gedcom|export gedcom|export tree|export book|validate\n";
+  std::cerr << "用法错误: genea io import gedcom|export gedcom|export tree|export chart|export book|validate\n";
   return 2;
 }
 
@@ -1065,6 +1073,137 @@ int cmd_bench(const std::vector<std::string>& args, const std::string& db_path,
   return all_pass ? 0 : 1;
 }
 
+
+
+// P1 世系图导出：六种体例，纯 C++ SVG（规避 Graphviz EPL）。
+// 五服体例逐对计算服等，把等级与服期作为 warning 输出到 SVG 脚注；
+// 服制规则仍走 core 的 compute_mourning_degree（外置规则表，单一事实源）。
+int cmd_export_chart(const std::vector<std::string>& args,
+                     const std::string& db_path, const std::string& format) {
+  cxxopts::Options opts("genea io export chart", "导出世系图 SVG");
+  opts.add_options()
+      ("style", "体例: pedigree|descendant|hourglass|wufu|european|soviet",
+       cxxopts::value<std::string>()->default_value("descendant"))
+      ("person", "中心人物 ID", cxxopts::value<std::string>())
+      ("depth", "展开代数", cxxopts::value<int>()->default_value("5"))
+      ("page-size", "欧/苏式每页世数", cxxopts::value<int>()->default_value("5"))
+      ("no-spouses", "不显示配偶边", cxxopts::value<bool>()->default_value("false"))
+      ("title", "图标题", cxxopts::value<std::string>()->default_value(""))
+      ("out", "输出 SVG 文件（缺省打标准输出）", cxxopts::value<std::string>());
+  const auto r = parse_args(opts, args);
+
+  const auto style = io::chart_style_from_string(r["style"].as<std::string>());
+  if (!style) {
+    std::cerr << "用法错误: --style 应为 pedigree|descendant|hourglass|wufu|european|soviet\n";
+    return 2;
+  }
+  if (!r.count("person")) {
+    std::cerr << "用法错误: genea io export chart --person <ID> --style <体例>\n";
+    return 2;
+  }
+  const int depth = r["depth"].as<int>();
+  if (depth < 1 || depth > 30) {
+    std::cerr << "用法错误: --depth 须在 1..30\n";
+    return 2;
+  }
+  const int page_size = r["page-size"].as<int>();
+  if (page_size < 2 || page_size > 20) {
+    std::cerr << "用法错误: --page-size 须在 2..20\n";
+    return 2;
+  }
+
+  auto db = open_db(db_path);
+  if (!db) { print_error(db.error()); return exit_code_for(db.error()); }
+
+  PersonRepository people(*db);
+  PersonFilter pf;
+  pf.limit = 200000;
+  auto persons = people.list(pf);
+  if (!persons) { print_error(persons.error()); return exit_code_for(persons.error()); }
+  UnionRepository unions(*db);
+  UnionFilter uf;
+  uf.limit = 200000;
+  auto us = unions.list(uf);
+  if (!us) { print_error(us.error()); return exit_code_for(us.error()); }
+
+  auto graph = lineage::PersonGraph::build(std::move(*persons), std::move(*us));
+  io::ChartOptions opt;
+  opt.graph = &graph;
+  opt.style_hint = *style;
+  opt.focus_id = r["person"].as<std::string>();
+  opt.depth = depth;
+  opt.page_size = page_size;
+  opt.show_spouses = !r["no-spouses"].as<bool>();
+  opt.title = r["title"].as<std::string>();
+  if (opt.title.empty()) {
+    opt.title = std::string("世系图 · ") + io::to_string(*style);
+  }
+  auto chart = io::render_chart_svg(opt);
+  if (!chart) { print_error(chart.error()); return exit_code_for(chart.error()); }
+
+  // 五服：逐对算服等，给 SVG 追加服制脚注（规则来自外置 JSON）
+  if (*style == io::ChartStyle::Wufu) {
+    std::ostringstream foot;
+    int shown = 0;
+    for (const auto& w : chart->warnings) foot << w << "\n";
+    for (const auto& p : graph.nodes()) {
+      if (p.first == opt.focus_id || shown >= 20) continue;
+      lineage::MourningQuery q{opt.focus_id, p.first, "ming_qing"};
+      auto m = lineage::compute_mourning_degree(graph, q);
+      if (m) {
+        foot << (p.second->family_name + p.second->given_name) << ": " << m->garment_name
+             << "（" << m->period << "）\n";
+        ++shown;
+      }
+    }
+    const std::string note = foot.str();
+    // XML 文本转义（姓名来自导入数据，防 < & 破坏 SVG）
+    std::string note_xml;
+    for (char c : note) {
+      switch (c) {
+        case '&': note_xml += "&amp;"; break;
+        case '<': note_xml += "&lt;"; break;
+        case '>': note_xml += "&gt;"; break;
+        default: note_xml += c;
+      }
+    }
+    const std::string marker = "</svg>";
+    const auto pos = chart->svg.rfind(marker);
+    if (pos != std::string::npos) {
+      std::ostringstream extra;
+      extra << "<text x='40' y='" << (40 + chart->node_count * 2)
+            << "' class='warn'>服制明细（明清规则）：\n"
+            << note_xml << "</text>\n";
+      chart->svg.insert(pos, extra.str());
+    }
+  }
+
+  if (r.count("out")) {
+    bool ok = false;
+    write_file(r["out"].as<std::string>(), chart->svg, &ok);
+    if (!ok) {
+      print_error(Error{ErrorCode::IoError, "写不出文件 " + r["out"].as<std::string>()});
+      return 1;
+    }
+    if (format == "json") {
+      std::cout << nlohmann::json{{"file", r["out"].as<std::string>()},
+                                  {"bytes", chart->svg.size()},
+                                  {"nodes", chart->node_count},
+                                  {"pages", chart->page_count},
+                                  {"style", r["style"].as<std::string>()},
+                                  {"warnings", chart->warnings}}
+                       .dump(2) << "\n";
+    } else {
+      std::cout << "已导出" << r["style"].as<std::string>() << "图 "
+                << chart->node_count << " 节点 / " << chart->page_count << " 页到 "
+                << r["out"].as<std::string>() << "\n";
+      for (const auto& w : chart->warnings) std::cerr << "[提示] " << w << "\n";
+    }
+  } else {
+    std::cout << chart->svg;
+  }
+  return 0;
+}
 
 // P0 出版管线：家谱数据 → 自包含 HTML → 浏览器打印/另存 PDF。
 // 字体随包内嵌（完整思源宋体，约 31MB base64），产物单文件离线可用。

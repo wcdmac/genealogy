@@ -14,6 +14,10 @@ int cmd_io(const std::vector<std::string>& args, const std::string& db_path,
 int cmd_export_tree(const std::vector<std::string>& args,
                     const std::string& db_path, const std::string& format);
 
+// P1 世系图：六种体例的 SVG（自有生成器，无 Graphviz 依赖）。
+int cmd_export_chart(const std::vector<std::string>& args,
+                     const std::string& db_path, const std::string& format);
+
 // P0 出版：谱书 HTML（浏览器打印成册）。
 int cmd_export_book(const std::vector<std::string>& args,
                     const std::string& db_path, const std::string& format);

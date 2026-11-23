@@ -68,7 +68,7 @@ const char* kSubcommandsHelp =
     "  document add|list|show|search|remove\n"
     "  poem     set|show|check\n"
     "  date     convert|lunar|terms|era|info\n"
-    "  io       import gedcom|export gedcom|export tree|export book|validate\n"
+    "  io       import gedcom|export gedcom|export tree|export chart|export book|validate\n"
     "  bench";
 
 // 退出码映射 / 错误输出 / cxxopts 适配 / 开库 / 日期解析见 cli_util.hpp
