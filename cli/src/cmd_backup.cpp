@@ -25,6 +25,7 @@
 #include <nlohmann/json.hpp>
 
 #include <genealogy/error.hpp>
+#include <genealogy/io/backup_service.hpp>
 #include <genealogy/ulid.hpp>
 
 #include "cli_util.hpp"
@@ -179,13 +180,8 @@ int cmd_db_backup(const std::vector<std::string>& args,
 
   // VACUUM INTO：一致性快照。失败带 sqlite 原始信息（目标目录
   // 不可写、磁盘满都在这里暴露）。
-  const std::string sql = "VACUUM INTO " + sql_quote(snapshot.string());
-  char* errmsg = nullptr;
-  if (sqlite3_exec(db->raw(), sql.c_str(), nullptr, nullptr, &errmsg) !=
-      SQLITE_OK) {
-    const std::string message = errmsg ? errmsg : "未知错误";
-    sqlite3_free(errmsg);
-    print_error(Error{ErrorCode::IoError, "快照失败: " + message});
+  if (auto snap = genealogy::io::snapshot_database(*db, snapshot); !snap) {
+    print_error(snap.error());
     return 1;
   }
 

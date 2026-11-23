@@ -1,4 +1,5 @@
 #include <genealogy/gui/panels/person_table.hpp>
+#include <genealogy/gui/widgets.hpp>
 
 #include <imgui.h>
 
@@ -184,7 +185,12 @@ void PersonTablePanel::draw(DbSession& session) {
     ImGui::TableNextColumn();
     // 姓名这一列做成可选中的按钮（点选 → 人物卡联动）
     if (ImGui::SmallButton(r.given_name.c_str())) {
-      state_.selected_person_id = r.id;
+      if (ImGui::IsMouseDoubleClicked(ImGuiMouseButton_Left)) {
+        std::string why;
+        if (!begin_edit(r.id, &why)) state_.set_status(why, true);
+      } else {
+        state_.selected_person_id = r.id;
+      }
     }
     ImGui::TableNextColumn(); ImGui::TextUnformatted(r.courtesy_name.c_str());
     ImGui::TableNextColumn(); ImGui::TextUnformatted(r.gender.c_str());
@@ -194,6 +200,36 @@ void PersonTablePanel::draw(DbSession& session) {
     ImGui::TableNextColumn(); ImGui::TextUnformatted(r.id.c_str());
   }
   ImGui::EndTable();
+
+  // ---- 行内编辑区（双击姓名列进入）
+  if (editing()) {
+    ImGui::SeparatorText(("编辑人物：" + edit_id()).c_str());
+    ImGui::SetNextItemWidth(100);
+    input_text("姓", &efamily_);
+    ImGui::SameLine();
+    ImGui::SetNextItemWidth(120);
+    input_text("名", &egiven_);
+    ImGui::SameLine();
+    ImGui::SetNextItemWidth(100);
+    input_text("字", &ecourtesy_);
+    ImGui::RadioButton("男", &egender_, 0);
+    ImGui::SameLine();
+    ImGui::RadioButton("女", &egender_, 1);
+    ImGui::SameLine();
+    ImGui::RadioButton("未知", &egender_, 2);
+    ImGui::SetNextItemWidth(80);
+    input_text("世代", &egen_);
+    ImGui::SameLine();
+    ImGui::SetNextItemWidth(80);
+    input_text("行几", &ebirth_order_);
+    if (ImGui::Button("保存", ImVec2(100, 0))) {
+      std::string why;
+      if (!save_edit(session, &why)) state_.set_status("保存失败: " + why, true);
+      else state_.set_status("人物已保存");
+    }
+    ImGui::SameLine();
+    if (ImGui::Button("取消")) cancel_edit();
+  }
 }
 
 }  // namespace genealogy::gui

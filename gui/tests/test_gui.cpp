@@ -32,6 +32,10 @@
 #include <genealogy/gui/db_switch.hpp>
 #include <genealogy/gui/panels/export_panel.hpp>
 #include <genealogy/gui/svg_preview.hpp>
+#include <genealogy/gui/panels/branch_panel.hpp>
+#include <genealogy/gui/panels/place_panel.hpp>
+#include <genealogy/gui/panels/poem_panel.hpp>
+#include <genealogy/gui/panels/backup_panel.hpp>
 #include <genealogy/gui/panels/new_person_panel.hpp>
 #include <genealogy/gui/panels/person_card.hpp>
 #include <genealogy/gui/panels/person_table.hpp>
@@ -710,4 +714,152 @@ TEST_CASE("SVG 预览：解析自家 SVG 子集（无光栅化依赖）") {
   for (const auto& n : scene.nodes)
     if (n.kind == genealogy::gui::SvgNode::Kind::Path) has_path = true;
   CHECK(has_path);
+}
+
+TEST_CASE("支派面板：新建与更新（含乐观锁）") {
+  TempDb db;
+  std::string why;
+  REQUIRE(db.open(&why));
+  AppState state;
+  BranchPanel panel(state);
+  REQUIRE(panel.reload(db.session, &why));
+  CHECK(panel.rows().empty());
+
+  panel.new_draft();
+  panel.edit_name("长房");
+  panel.sync_draft();
+  REQUIRE(panel.save(db.session, &why));
+  CHECK(panel.rows().size() == 1);
+  CHECK_FALSE(panel.draft().id.empty());  // 新建分配了 id
+  const auto created_id = panel.draft().id;
+
+  // 选中并更新
+  panel.select(panel.rows()[0]);
+  CHECK(panel.editing());
+  panel.edit_note("始迁祖支");
+  panel.sync_draft();
+  REQUIRE(panel.save(db.session, &why));
+  CHECK(panel.rows().size() == 1);  // 更新不新增
+  CHECK(panel.rows()[0].id == created_id);
+  CHECK(panel.rows()[0].note.value_or("") == "始迁祖支");
+
+  // 空名拒绝
+  panel.new_draft();
+  CHECK_FALSE(panel.save(db.session, &why));
+}
+
+TEST_CASE("地点面板：新建、经纬度校验与沿革") {
+  TempDb db;
+  std::string why;
+  REQUIRE(db.open(&why));
+  AppState state;
+  PlacePanel panel(state);
+  REQUIRE(panel.reload(db.session, &why));
+
+  panel.new_draft();
+  panel.edit_name("河南颍川");
+  panel.edit_historical("颍川郡");
+  panel.sync_draft();
+  REQUIRE(panel.save(db.session, &why));
+  CHECK(panel.rows().size() == 1);
+  CHECK(panel.rows()[0].historical_name.value_or("") == "颍川郡");
+
+  // 经纬度校验（通过状态机的缓冲入口无法直接设字符串，验证 save 的空值语义）
+  panel.select(panel.rows()[0]);
+  panel.edit_lat("34.2");
+  panel.edit_lng("113.5");
+  REQUIRE(panel.save(db.session, &why));
+  CHECK(panel.rows()[0].lat.value_or(0) > 34);
+}
+
+
+TEST_CASE("字辈面板：谱级派语录入与读取") {
+  TempDb db;
+  std::string why;
+  REQUIRE(db.open(&why));
+  AppState state;
+  PoemPanel panel(state);
+  panel.edit_text("天地玄黄，宇宙洪荒");
+  REQUIRE(panel.set(db.session, &why));
+  CHECK(panel.entries().size() == 8);  // 引擎只取汉字
+  CHECK(panel.entries()[0].character == "天");
+  CHECK(panel.entries()[7].character == "荒");
+
+  // 清空缓冲再读取，应从服务拿回
+  panel.clear();
+  REQUIRE(panel.reload(db.session, &why));
+  CHECK(panel.entries().size() == 8);
+  CHECK(panel.text_buf().find("天") != std::string::npos);
+
+  // 一致性校验（空库无冲突）
+  REQUIRE(panel.check(db.session, &why));
+  CHECK(panel.conflicts().empty());
+}
+
+
+TEST_CASE("世系表：行内编辑走 rev 乐观锁") {
+  TempDb db;
+  std::string why;
+  REQUIRE(db.open(&why));
+  auto made = db.session.persons().create_person(
+      make_person("钱", "三", Gender::Male, "1980"));
+  REQUIRE(made.has_value());
+
+  AppState state;
+  state.db_path = db.path.string();
+  PersonTablePanel panel(state);
+  panel.reload_for_test(db.session);  // 载入 rows_
+
+  std::string err;
+  REQUIRE(panel.begin_edit(made->id, &err));
+  CHECK(panel.editing());
+  CHECK(panel.edit_given() == "三");
+
+  panel.edit_given("四");
+  panel.set_edit_gender(1);
+  REQUIRE(panel.save_edit(db.session, &err));
+  CHECK_FALSE(panel.editing());  // 保存后退出编辑态
+  auto updated = db.session.persons().get_person(made->id);
+  REQUIRE(updated.has_value());
+  CHECK(updated->given_name == "四");
+  CHECK(updated->gender == Gender::Female);
+
+  // 空名拒绝
+  REQUIRE(panel.begin_edit(made->id, &err));
+  panel.edit_given("");
+  CHECK_FALSE(panel.save_edit(db.session, &err));
+}
+
+
+TEST_CASE("备份面板：快照、拒绝覆盖、force 恢复") {
+  TempDb db;
+  std::string why;
+  REQUIRE(db.open(&why));
+  auto made = db.session.persons().create_person(
+      make_person("孙", "备份", Gender::Male, "1970"));
+  REQUIRE(made.has_value());
+
+  AppState state;
+  BackupPanel panel(state);
+  const auto dir = (std::filesystem::temp_directory_path() /
+                    ("genealogy-bk-" + generate_ulid())).string();
+  std::string snap, moved;
+  REQUIRE(panel.backup(db.session, dir, &snap, &why));
+  CHECK(std::filesystem::exists(snap));
+
+  // 目标已存在、未 force → 拒绝
+  CHECK_FALSE(panel.restore(snap, db.path.string(), false, &moved, &why));
+  CHECK(why.find("已存在") != std::string::npos);
+
+  // force → 旧库移开为 .bak，恢复成功
+  REQUIRE(panel.restore_and_reopen(db.session, snap, true, &moved, &why));
+  CHECK(moved.find(".bak-") != std::string::npos);
+  // 恢复后重新打开，数据在
+  DbSession reopened;
+  REQUIRE(reopened.open(db.path.string(), &why));
+  auto got = reopened.persons().get_person(made->id);
+  CHECK(got.has_value());
+
+  std::error_code ec;
+  std::filesystem::remove_all(dir, ec);
 }

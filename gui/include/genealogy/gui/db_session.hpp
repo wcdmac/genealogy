@@ -11,6 +11,7 @@
 #include <genealogy/repository/database.hpp>
 #include <genealogy/service/branch_service.hpp>
 #include <genealogy/service/event_service.hpp>
+#include <genealogy/service/generation_poem_service.hpp>
 #include <genealogy/repository/book_repository.hpp>
 #include <genealogy/service/person_service.hpp>
 #include <genealogy/service/place_service.hpp>
@@ -44,6 +45,7 @@ class DbSession {
   BookRepository& books() noexcept { return *books_; }
   BranchService& branches() noexcept { return *branches_; }
   PlaceService& places() noexcept { return *places_; }
+  GenerationPoemService& poems() noexcept { return *poems_; }
 
  private:
   std::string path_;
@@ -56,6 +58,7 @@ class DbSession {
   std::unique_ptr<BookRepository> books_;
   std::unique_ptr<BranchService> branches_;
   std::unique_ptr<PlaceService> places_;
+  std::unique_ptr<GenerationPoemService> poems_;
 
   void rebuild_services();
 };

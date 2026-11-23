@@ -163,6 +163,7 @@ target_sources(genealogy-core
   src/io/markup.cpp
   src/io/layout_svg.cpp
   src/io/page_layout.cpp
+  src/io/backup_service.cpp
   src/io/tree_render.cpp
   src/io/synthetic.cpp
   src/lineage/tree.cpp

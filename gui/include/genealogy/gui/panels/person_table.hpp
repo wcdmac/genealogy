@@ -34,6 +34,28 @@ class PersonTablePanel : public Panel {
   const char* title() const override { return "世系表"; }
   void draw(DbSession& session) override;
 
+  // 无头载入入口（与 draw 中"重新载入"同一落点）
+  void reload_for_test(DbSession& session) { reload(session); }
+
+  // ---- 行内编辑（无头可测）：双击姓名列进入编辑态
+  bool begin_edit(const std::string& id, std::string* why);  // 载入该人进缓冲
+  bool save_edit(DbSession& session, std::string* why);      // 写回（rev 乐观锁）
+  void cancel_edit();
+  bool editing() const { return !edit_id_.empty(); }
+  const std::string& edit_id() const { return edit_id_; }
+
+  // 无头编辑入口（与渲染层控件同一落点）
+  void edit_family(const std::string& v) { efamily_ = v; }
+  void edit_given(const std::string& v) { egiven_ = v; }
+  void edit_courtesy(const std::string& v) { ecourtesy_ = v; }
+  void edit_generation(const std::string& v) { egen_ = v; }
+  void edit_birth_order(const std::string& v) { ebirth_order_ = v; }
+  void set_edit_gender(int g) { egender_ = g; }
+
+  std::string edit_family() const { return efamily_; }
+  std::string edit_given() const { return egiven_; }
+  int edit_gender() const { return egender_; }
+
  private:
   void reload(DbSession& session);
 
@@ -47,6 +69,12 @@ class PersonTablePanel : public Panel {
   int sort_col_ = 0;
   bool sort_asc_ = true;
 
+  // 行内编辑缓冲
+  std::string edit_id_;
+  std::int64_t edit_rev_ = 0;
+  std::string efamily_, egiven_, ecourtesy_, egen_, ebirth_order_;
+  int egender_ = 2;
+
  public:
   void on_database_closed() override {
     rows_.clear();
@@ -54,7 +82,7 @@ class PersonTablePanel : public Panel {
     loaded_ = false;
   }
   // 面板是否持有任何缓存数据（换库清理断言的观测缝）
-  bool has_cached_data() const { return loaded_ || !rows_.empty(); }
+  bool has_cached_data() const { return loaded_ || !rows_.empty() || editing(); }
 };
 
 }  // namespace genealogy::gui

@@ -15,6 +15,7 @@ void DbSession::rebuild_services() {
   books_ = std::make_unique<BookRepository>(*db_);
   branches_ = std::make_unique<BranchService>(*db_);
   places_ = std::make_unique<PlaceService>(*db_);
+  poems_ = std::make_unique<GenerationPoemService>(*db_);
 }
 
 bool DbSession::open(const std::string& path, std::string* why) {
@@ -37,6 +38,7 @@ void DbSession::close() {
   books_.reset();
   branches_.reset();
   places_.reset();
+  poems_.reset();
   db_.reset();
   path_.clear();
 }

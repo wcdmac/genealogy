@@ -12,6 +12,10 @@
 #include <genealogy/gui/panels/person_card.hpp>
 #include <genealogy/gui/panels/new_person_panel.hpp>
 #include <genealogy/gui/panels/export_panel.hpp>
+#include <genealogy/gui/panels/branch_panel.hpp>
+#include <genealogy/gui/panels/place_panel.hpp>
+#include <genealogy/gui/panels/poem_panel.hpp>
+#include <genealogy/gui/panels/backup_panel.hpp>
 #include <genealogy/gui/panels/person_table.hpp>
 #include <genealogy/gui/panels/relation_panel.hpp>
 #include <genealogy/gui/panels/search_panel.hpp>
@@ -69,6 +73,10 @@ void GenealogyApp::build_panels() {
   panels_.push_back(std::make_unique<PersonCardPanel>(state_));
   panels_.push_back(std::make_unique<NewPersonPanel>(state_));
   panels_.push_back(std::make_unique<ExportPanel>(state_));
+  panels_.push_back(std::make_unique<BranchPanel>(state_));
+  panels_.push_back(std::make_unique<PlacePanel>(state_));
+  panels_.push_back(std::make_unique<PoemPanel>(state_));
+  panels_.push_back(std::make_unique<BackupPanel>(state_));
   panels_.push_back(std::make_unique<PersonTablePanel>(state_));
   panels_.push_back(std::make_unique<SearchPanel>(state_));
   panels_.push_back(std::make_unique<RelationPanel>(state_));
