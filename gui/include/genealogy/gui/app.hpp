@@ -12,6 +12,8 @@
 
 #include <genealogy/gui/app_state.hpp>
 #include <genealogy/gui/db_session.hpp>
+#include <genealogy/gui/file_browser.hpp>
+#include <genealogy/gui/navigation.hpp>
 #include <genealogy/gui/panels.hpp>
 
 #include <memory>
@@ -37,6 +39,7 @@ class GenealogyApp {
 
  private:
   void build_panels();
+  void draw_sidebar();          // 左侧固定导航栏
   void draw_menu_bar();
   void draw_status_bar();
   // 换库/关库的统一清理序列（db_switch.cpp，可无头单测）——菜单与
@@ -50,6 +53,9 @@ class GenealogyApp {
   bool want_quit_ = false;
   bool show_open_dialog_ = false;   // 菜单置位，主帧层级开弹窗
   char path_buf_[512] = {};
+  FileBrowser file_browser_;
+  int active_group_ = 1;        // 默认「查阅」组
+  bool sidebar_collapsed_ = false;
 };
 
 }  // namespace genealogy::gui

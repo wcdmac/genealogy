@@ -39,6 +39,8 @@
 #include <genealogy/gui/panels/timeline_panel.hpp>
 #include <genealogy/gui/panels/attachment_panel.hpp>
 #include <genealogy/gui/panels/merge_panel.hpp>
+#include <genealogy/gui/file_browser.hpp>
+#include <genealogy/gui/navigation.hpp>
 #include <genealogy/util/sha256.hpp>
 #include <genealogy/gui/panels/new_person_panel.hpp>
 #include <genealogy/gui/panels/person_card.hpp>
@@ -1046,4 +1048,68 @@ TEST_CASE("重复合并：检测四级建议、冲突拒绝、关系迁移") {
   CHECK(migrated->size() == 1);  // 事件迁到 winner
   std::error_code ec;
   std::filesystem::remove_all(dir, ec);
+}
+
+
+TEST_CASE("文件浏览器：目录浏览与 .db 过滤") {
+  const auto dir = std::filesystem::temp_directory_path() /
+                   ("genealogy-fb-" + generate_ulid());
+  std::filesystem::create_directories(dir / "sub");
+  { std::ofstream out(dir / "a.db", std::ios::binary); out << "x"; }
+  { std::ofstream out(dir / "b.txt", std::ios::binary); out << "x"; }
+  { std::ofstream out(dir / "C.DB", std::ios::binary); out << "x"; }
+  { std::ofstream out(dir / "sub" / "child.db", std::ios::binary); out << "x"; }
+
+  genealogy::gui::FileBrowser fb;
+  std::string why;
+  REQUIRE(fb.cd(dir.string(), &why));
+  REQUIRE(fb.refresh(&why));
+  // .db 过滤，大小写不敏感；目录始终列出
+  bool a_db = false, c_db = false, b_txt = false, sub_dir = false;
+  for (const auto& e : fb.entries()) {
+    if (e.name == "a.db") a_db = true;
+    if (e.name == "C.DB") c_db = true;
+    if (e.name == "b.txt") b_txt = true;
+    if (e.name == "sub" && e.is_dir) sub_dir = true;
+  }
+  CHECK(a_db);
+  CHECK(c_db);
+  CHECK_FALSE(b_txt);
+  CHECK(sub_dir);
+  // 目录排在文件前
+  REQUIRE(fb.entries().front().is_dir);
+
+  // 相对路径解析
+  const auto resolved = fb.resolve("a.db");
+  CHECK(resolved.find("a.db") != std::string::npos);
+  CHECK(resolved == (dir / "a.db").lexically_normal().string());
+
+  std::error_code ec;
+  std::filesystem::remove_all(dir, ec);
+}
+
+
+TEST_CASE("导航栏：五组工作流与布局预设") {
+  using namespace genealogy::gui;
+  const auto& groups = nav_groups();
+  CHECK(groups.size() == 4);  // 录入/查阅/管理/排版（系统入口在菜单）
+  // 所有面板索引都在合法范围且无重复
+  std::vector<int> seen;
+  for (const auto& g : groups)
+    for (int idx : g.panel_indices) {
+      CHECK(idx >= 0);
+      CHECK(idx < kPanelCount);
+      CHECK(std::find(seen.begin(), seen.end(), idx) == seen.end());
+      seen.push_back(idx);
+    }
+  // 「全部」预设覆盖所有面板
+  const auto all = layout_preset("全部");
+  CHECK(all.size() == static_cast<std::size_t>(kPanelCount));
+  // 「查阅」预设含人物卡/树/表格
+  const auto read = layout_preset("查阅");
+  CHECK(std::find(read.begin(), read.end(), kPersonCard) != read.end());
+  CHECK(std::find(read.begin(), read.end(), kTree) != read.end());
+  CHECK(std::find(read.begin(), read.end(), kPersonTable) != read.end());
+  // 未知预设返回空
+  CHECK(layout_preset("不存在").empty());
 }

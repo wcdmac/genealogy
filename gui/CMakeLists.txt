@@ -57,12 +57,15 @@ else()
 endif()
 
 # ---------------------------------------------------------------- 主程序
-add_executable(genealogy-gui
+# WIN32：Windows 下用 WinMain 入口，消除随 GUI 弹出的控制台黑框。
+add_executable(genealogy-gui WIN32
   src/main.cpp
   src/app.cpp
   src/db_session.cpp
   src/db_switch.cpp
   src/font.cpp
+  src/file_browser.cpp
+  src/navigation.cpp
   src/panels/person_card.cpp
   src/panels/new_person_panel.cpp
   src/panels/new_person_panel_state.cpp
@@ -125,6 +128,8 @@ if(BUILD_TESTS)
     tests/test_gui.cpp
     ${PROJECT_SOURCE_DIR}/gui/src/db_session.cpp
     ${PROJECT_SOURCE_DIR}/gui/src/db_switch.cpp
+    ${PROJECT_SOURCE_DIR}/gui/src/file_browser.cpp
+    ${PROJECT_SOURCE_DIR}/gui/src/navigation.cpp
     ${PROJECT_SOURCE_DIR}/gui/src/panels/person_card.cpp
     ${PROJECT_SOURCE_DIR}/gui/src/panels/person_card_state.cpp
     ${PROJECT_SOURCE_DIR}/gui/src/panels/new_person_panel.cpp

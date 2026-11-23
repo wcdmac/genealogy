@@ -88,6 +88,73 @@ void GenealogyApp::build_panels() {
   panels_.push_back(std::make_unique<RelationPanel>(state_));
   panels_.push_back(std::make_unique<TreePanel>(state_));
   panels_.push_back(std::make_unique<ValidationPanel>(state_));
+
+  // 默认只开四个核心面板（此前 15 个全开导致一屏浮动面板迷宫）；
+  // 其余按左侧导航或布局预设按需打开。
+  const int core[] = {genealogy::gui::kPersonCard,
+                      genealogy::gui::kPersonTable,
+                      genealogy::gui::kTree,
+                      genealogy::gui::kSearch};
+  for (int i = 0; i < genealogy::gui::kPanelCount; ++i)
+    panels_[static_cast<std::size_t>(i)]->open = false;
+  for (int idx : core) panels_[static_cast<std::size_t>(idx)]->open = true;
+}
+
+// 左侧固定导航栏：五组工作流，点面板项打开/聚焦；不占 dockspace。
+void GenealogyApp::draw_sidebar() {
+  const ImGuiViewport* vp = ImGui::GetMainViewport();
+  const float menu_h = ImGui::GetFrameHeight();
+  const float status_h = ImGui::GetFrameHeight();
+  if (sidebar_collapsed_) {
+    ImGui::SetNextWindowPos(ImVec2(vp->WorkPos.x, vp->WorkPos.y + menu_h));
+    ImGui::SetNextWindowSize(ImVec2(40, vp->WorkSize.y - menu_h - status_h));
+  } else {
+    ImGui::SetNextWindowPos(ImVec2(vp->WorkPos.x, vp->WorkPos.y + menu_h));
+    ImGui::SetNextWindowSize(ImVec2(210, vp->WorkSize.y - menu_h - status_h));
+  }
+  ImGuiWindowFlags flags = ImGuiWindowFlags_NoMove | ImGuiWindowFlags_NoResize |
+      ImGuiWindowFlags_NoCollapse | ImGuiWindowFlags_NoDocking |
+      ImGuiWindowFlags_NoTitleBar | ImGuiWindowFlags_NoScrollbar;
+  if (!ImGui::Begin("##sidebar", nullptr, flags)) { ImGui::End(); return; }
+
+  if (ImGui::Button(sidebar_collapsed_ ? "»" : "«", ImVec2(-1, 0)))
+    sidebar_collapsed_ = !sidebar_collapsed_;
+  if (sidebar_collapsed_) { ImGui::End(); return; }
+
+  ImGui::SeparatorText("家谱工作台");
+  ImGui::TextDisabled("%s", session_.is_open() ? "库已打开" : "未打开数据库");
+
+  const auto& groups = genealogy::gui::nav_groups();
+  for (std::size_t gi = 0; gi < groups.size(); ++gi) {
+    const auto& g = groups[gi];
+    const bool active = (static_cast<int>(gi) == active_group_);
+    if (ImGui::Selectable(g.name, active)) active_group_ = static_cast<int>(gi);
+    if (active) {
+      ImGui::Indent(10);
+      for (int idx : g.panel_indices) {
+        if (idx < 0 || idx >= static_cast<int>(panels_.size())) continue;
+        auto& p = panels_[static_cast<std::size_t>(idx)];
+        if (ImGui::MenuItem(p->title(), nullptr, &p->open)) {
+          if (p->open) ImGui::SetWindowFocus(p->title());
+        }
+      }
+      ImGui::Unindent(10);
+    }
+  }
+
+  ImGui::SeparatorText("布局预设");
+  for (const auto& name : genealogy::gui::layout_preset_names()) {
+    if (ImGui::Button(name.c_str(), ImVec2(-1, 0))) {
+      const auto targets = genealogy::gui::layout_preset(name);
+      for (int i = 0; i < static_cast<int>(panels_.size()); ++i) {
+        bool wanted = false;
+        for (int t : targets) if (t == i) { wanted = true; break; }
+        panels_[static_cast<std::size_t>(i)]->open = wanted;
+      }
+      state_.set_status("已切换到「" + name + "」布局");
+    }
+  }
+  ImGui::End();
 }
 
 void GenealogyApp::draw_menu_bar() {
@@ -266,11 +333,33 @@ bool GenealogyApp::run(std::string* err) {
     ImGui_ImplGlfw_NewFrame();
     ImGui::NewFrame();
 
-    // 全屏 dockspace：面板默认散布其上，可拖拽重组
+    // dockspace 只占侧栏右侧区域：避免 15 个面板的 dock 窗口盖住导航栏。
+    // 侧栏宽度与 draw_sidebar() 保持一致（210 / 折叠 40）。
     const ImGuiViewport* vp = ImGui::GetMainViewport();
-    ImGui::DockSpaceOverViewport(0, vp, ImGuiDockNodeFlags_PassthruCentralNode);
+    const float menu_h = ImGui::GetFrameHeight();
+    const float status_h = ImGui::GetFrameHeight();
+    const float side_w = sidebar_collapsed_ ? 40.0F : 210.0F;
+    ImGui::SetNextWindowPos(ImVec2(vp->WorkPos.x + side_w,
+                                   vp->WorkPos.y + menu_h));
+    ImGui::SetNextWindowSize(ImVec2(vp->WorkSize.x - side_w,
+                                    vp->WorkSize.y - menu_h - status_h));
+    ImGuiWindowFlags dock_flags = ImGuiWindowFlags_NoTitleBar |
+        ImGuiWindowFlags_NoCollapse | ImGuiWindowFlags_NoResize |
+        ImGuiWindowFlags_NoMove | ImGuiWindowFlags_NoBringToFrontOnFocus |
+        ImGuiWindowFlags_NoNavFocus;
+    if (const ImGuiViewport* dock_vp = ImGui::GetMainViewport()) {
+      ImGui::SetNextWindowViewport(dock_vp->ID);
+    }
+    ImGui::PushStyleVar(ImGuiStyleVar_WindowRounding, 0.0F);
+    ImGui::PushStyleVar(ImGuiStyleVar_WindowBorderSize, 0.0F);
+    ImGui::Begin("##dock_host", nullptr, dock_flags);
+    ImGui::DockSpace(ImGui::GetID("##main_dock"), ImVec2(0, 0),
+                     ImGuiDockNodeFlags_PassthruCentralNode);
+    ImGui::End();
+    ImGui::PopStyleVar(2);
 
     draw_menu_bar();
+    draw_sidebar();
     // 关系快捷：人物卡按钮设置待建关系 → 自动打开新建面板
     if (!state_.new_relation_kind.empty() && panels_.size() > 1)
       panels_[1]->open = true;
@@ -288,19 +377,67 @@ bool GenealogyApp::run(std::string* err) {
     // dockspace 顶层）——早先在菜单栏里 OpenPopup，弹窗根本不出现，
     // 因为菜单栏是另一个窗口，popup 层级互不相通。
     if (show_open_dialog_) {
+      // 以输入框里的路径定位初始目录（不存在则退回当前工作目录）
+      std::string start = path_buf_[0] ? path_buf_ : ".";
+      std::error_code ec;
+      auto p = std::filesystem::path(start);
+      if (!std::filesystem::is_directory(p, ec)) p = p.parent_path();
+      if (p.empty()) p = ".";
+      std::string why;
+      if (!file_browser_.cd(p.string(), &why)) file_browser_.cd(".", &why);
+      file_browser_.refresh(&why);
       ImGui::OpenPopup("打开数据库");
       show_open_dialog_ = false;
     }
     if (ImGui::BeginPopupModal("打开数据库", nullptr,
                                ImGuiWindowFlags_AlwaysAutoResize)) {
-      ImGui::SetNextItemWidth(420);
+      ImGui::TextUnformatted("选择家谱数据库（.db）：");
+      ImGui::SetNextItemWidth(520);
       ImGui::InputText("路径", path_buf_, sizeof(path_buf_));
-      if (ImGui::Button("打开")) {
+
+      // 目录导航
+      ImGui::Text("当前目录: %s", file_browser_.current().string().c_str());
+      ImGui::SameLine();
+      if (ImGui::Button("↑ 上级")) {
+        std::string why;
+        const auto parent = file_browser_.current().parent_path();
+        if (!parent.empty()) file_browser_.cd(parent.string(), &why);
+        file_browser_.refresh(&why);
+      }
+      ImGui::SameLine();
+      if (ImGui::Button("刷新")) {
+        std::string why;
+        file_browser_.refresh(&why);
+      }
+
+      ImGui::BeginChild("##file_list", ImVec2(520, 240), true);
+      for (const auto& e : file_browser_.entries()) {
+        ImGui::PushID(e.path.string().c_str());
+        const std::string label = e.is_dir ? "[目录] " + e.name + "/" : e.name;
+        if (ImGui::Selectable(label.c_str())) {
+          if (e.is_dir) {
+            std::string why;
+            file_browser_.cd(e.path.string(), &why);
+            file_browser_.refresh(&why);
+          } else {
+            const auto s = e.path.string();
+            std::snprintf(path_buf_, sizeof(path_buf_), "%s", s.c_str());
+          }
+        }
+        if (ImGui::IsItemClicked() && ImGui::IsMouseDoubleClicked(ImGuiMouseButton_Left)) {
+          if (!e.is_dir) {
+            const auto s = e.path.string();
+            std::snprintf(path_buf_, sizeof(path_buf_), "%s", s.c_str());
+          }
+        }
+        ImGui::PopID();
+      }
+      ImGui::EndChild();
+
+      if (ImGui::Button("打开", ImVec2(120, 0))) {
         std::string why;
         // open() 会先 close() 旧库（新库打开失败旧库也已不在）：
-        // 换库前后各面板缓存与全局选中态一律清掉（复核 2.13 +
-        // 第三轮新-C5），清理序列与「关闭数据库」同一份
-        //（reset_for_database_switch，可无头单测）。
+        // 换库前后各面板缓存与全局选中态一律清掉（复核 2.13 + 第三轮新-C5）
         reset_panels_for_switch();
         if (session_.open(path_buf_, &why)) {
           state_.db_path = path_buf_;
@@ -311,9 +448,7 @@ bool GenealogyApp::run(std::string* err) {
         }
       }
       ImGui::SameLine();
-      if (ImGui::Button("取消")) {
-        ImGui::CloseCurrentPopup();
-      }
+      if (ImGui::Button("取消")) ImGui::CloseCurrentPopup();
       ImGui::EndPopup();
     }
 

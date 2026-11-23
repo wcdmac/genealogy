@@ -9,6 +9,14 @@
 // 1 = 其他故障。这样「CI 上没显示器」与「GUI 真的崩了」可区分——
 // 前者是环境事实，后者是缺陷。
 
+#if defined(_WIN32)
+#ifndef WIN32_LEAN_AND_MEAN
+#define WIN32_LEAN_AND_MEAN
+#endif
+#include <windows.h>
+#include <shellapi.h>
+#endif
+
 #include <genealogy/gui/app.hpp>
 
 #include <GLFW/glfw3.h>
@@ -17,6 +25,7 @@
 #include <cstdio>
 #include <cstdlib>
 #include <string>
+#include <vector>
 
 namespace {
 
@@ -82,7 +91,8 @@ Args parse_args(int argc, char** argv) {
 
 }  // namespace
 
-int main(int argc, char** argv) {
+// 入口共用体：Windows GUI 子系统用 WinMain 调它，其余平台直接 main。
+int gui_main(int argc, char** argv) {
   const Args args = parse_args(argc, argv);
 
   if (args.headless_check) {
@@ -108,3 +118,32 @@ int main(int argc, char** argv) {
   }
   return 0;
 }
+
+
+#if defined(_WIN32)
+// WIN32 子系统不再自动附带控制台黑框；命令行参数用 GetCommandLineW +
+// CommandLineToArgvW 取（UTF-16 → UTF-8，与 CLI 的 wmain 同口径）。
+int WINAPI wWinMain(HINSTANCE, HINSTANCE, PWSTR, int) {
+  int argc = 0;
+  wchar_t* wide = nullptr;
+  LPWSTR* argv_w = CommandLineToArgvW(GetCommandLineW(), &argc);
+  if (argv_w == nullptr) return 1;
+  std::vector<std::string> utf8;
+  utf8.reserve(static_cast<std::size_t>(argc));
+  for (int i = 0; i < argc; ++i) {
+    const int n = WideCharToMultiByte(CP_UTF8, 0, argv_w[i], -1, nullptr, 0,
+                                      nullptr, nullptr);
+    if (n <= 0) { utf8.emplace_back(); continue; }
+    std::string s(static_cast<std::size_t>(n - 1), '\0');
+    WideCharToMultiByte(CP_UTF8, 0, argv_w[i], -1, s.data(), n, nullptr, nullptr);
+    utf8.push_back(std::move(s));
+  }
+  LocalFree(argv_w);
+  std::vector<char*> argv;
+  argv.reserve(utf8.size());
+  for (auto& s : utf8) argv.push_back(s.data());
+  return gui_main(static_cast<int>(argv.size()), argv.data());
+}
+#else
+int main(int argc, char** argv) { return gui_main(argc, argv); }
+#endif
