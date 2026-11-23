@@ -35,10 +35,18 @@ struct ChartOptions {
   std::string title;                 // 图标题
 };
 
+struct ChartPage {
+  std::string svg;                   // 该页完整独立 SVG（可单独打印）
+  int first_generation = 1;          // 本页起始世代
+  int last_generation = 1;           // 本页结束世代
+  bool overlaps_previous = false;    // 苏式：首世与上一页末世重叠
+};
+
 struct ChartResult {
-  std::string svg;                   // 单页 SVG（含内嵌样式与脚本）
-  std::size_t node_count = 0;
-  std::size_t page_count = 1;        // 欧/苏式跨页数
+  std::string svg;                   // 兼容：第一页 SVG（等于 pages[0].svg）
+  std::vector<ChartPage> pages;      // 物理分页结果（非分页体例只有 1 页）
+  std::size_t node_count = 0;        // 全图节点总数
+  std::size_t page_count = 1;        // = pages.size()
   std::vector<std::string> warnings; // 环检测/断链提示
 };
 

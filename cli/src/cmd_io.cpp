@@ -1076,8 +1076,7 @@ int cmd_bench(const std::vector<std::string>& args, const std::string& db_path,
 
 
 // P1 世系图导出：六种体例，纯 C++ SVG（规避 Graphviz EPL）。
-// 五服体例逐对计算服等，把等级与服期作为 warning 输出到 SVG 脚注；
-// 服制规则仍走 core 的 compute_mourning_degree（外置规则表，单一事实源）。
+// 五服体例由 core 的九族五服矩阵渲染（外置规则表，单一事实源）。
 int cmd_export_chart(const std::vector<std::string>& args,
                      const std::string& db_path, const std::string& format) {
   cxxopts::Options opts("genea io export chart", "导出世系图 SVG");
@@ -1141,53 +1140,41 @@ int cmd_export_chart(const std::vector<std::string>& args,
   auto chart = io::render_chart_svg(opt);
   if (!chart) { print_error(chart.error()); return exit_code_for(chart.error()); }
 
-  // 五服：逐对算服等，给 SVG 追加服制脚注（规则来自外置 JSON）
-  if (*style == io::ChartStyle::Wufu) {
-    std::ostringstream foot;
-    int shown = 0;
-    for (const auto& w : chart->warnings) foot << w << "\n";
-    for (const auto& p : graph.nodes()) {
-      if (p.first == opt.focus_id || shown >= 20) continue;
-      lineage::MourningQuery q{opt.focus_id, p.first, "ming_qing"};
-      auto m = lineage::compute_mourning_degree(graph, q);
-      if (m) {
-        foot << (p.second->family_name + p.second->given_name) << ": " << m->garment_name
-             << "（" << m->period << "）\n";
-        ++shown;
-      }
-    }
-    const std::string note = foot.str();
-    // XML 文本转义（姓名来自导入数据，防 < & 破坏 SVG）
-    std::string note_xml;
-    for (char c : note) {
-      switch (c) {
-        case '&': note_xml += "&amp;"; break;
-        case '<': note_xml += "&lt;"; break;
-        case '>': note_xml += "&gt;"; break;
-        default: note_xml += c;
-      }
-    }
-    const std::string marker = "</svg>";
-    const auto pos = chart->svg.rfind(marker);
-    if (pos != std::string::npos) {
-      std::ostringstream extra;
-      extra << "<text x='40' y='" << (40 + chart->node_count * 2)
-            << "' class='warn'>服制明细（明清规则）：\n"
-            << note_xml << "</text>\n";
-      chart->svg.insert(pos, extra.str());
-    }
-  }
-
+  // 五服体例由 core 的九族矩阵直接渲染（服等已逐对算好），
+  // 其余体例沿用通用 SVG；此处不额外注入脚注。
   if (r.count("out")) {
-    bool ok = false;
-    write_file(r["out"].as<std::string>(), chart->svg, &ok);
-    if (!ok) {
-      print_error(Error{ErrorCode::IoError, "写不出文件 " + r["out"].as<std::string>()});
+    const std::string base = r["out"].as<std::string>();
+    nlohmann::json files = nlohmann::json::array();
+    bool all_ok = true;
+    // 多页（欧/苏式）写独立文件：foo.svg → foo-p1.svg / foo-p2.svg …
+    // 单页仍写原文件名，保持向后兼容。
+    if (chart->pages.size() > 1) {
+      const auto dot = base.find_last_of('.');
+      const std::string stem = dot == std::string::npos ? base : base.substr(0, dot);
+      const std::string ext = dot == std::string::npos ? "" : base.substr(dot);
+      for (std::size_t i = 0; i < chart->pages.size(); ++i) {
+        const std::string path = stem + "-p" + std::to_string(i + 1) + ext;
+        bool ok = false;
+        write_file(path, chart->pages[i].svg, &ok);
+        if (!ok) { all_ok = false; break; }
+        files.push_back({{"file", path},
+                         {"bytes", chart->pages[i].svg.size()},
+                         {"first_generation", chart->pages[i].first_generation + 1},
+                         {"last_generation", chart->pages[i].last_generation + 1},
+                         {"overlaps_previous", chart->pages[i].overlaps_previous}});
+      }
+    } else {
+      bool ok = false;
+      write_file(base, chart->svg, &ok);
+      if (!ok) all_ok = false;
+      else files.push_back({{"file", base}, {"bytes", chart->svg.size()}});
+    }
+    if (!all_ok) {
+      print_error(Error{ErrorCode::IoError, "写不出文件 " + base});
       return 1;
     }
     if (format == "json") {
-      std::cout << nlohmann::json{{"file", r["out"].as<std::string>()},
-                                  {"bytes", chart->svg.size()},
+      std::cout << nlohmann::json{{"files", files},
                                   {"nodes", chart->node_count},
                                   {"pages", chart->page_count},
                                   {"style", r["style"].as<std::string>()},
@@ -1195,12 +1182,23 @@ int cmd_export_chart(const std::vector<std::string>& args,
                        .dump(2) << "\n";
     } else {
       std::cout << "已导出" << r["style"].as<std::string>() << "图 "
-                << chart->node_count << " 节点 / " << chart->page_count << " 页到 "
-                << r["out"].as<std::string>() << "\n";
+                << chart->node_count << " 节点 / " << chart->page_count << " 页：\n";
+      for (const auto& f : files) {
+        const int lo = f.value("first_generation", 0);
+        const int hi = f.value("last_generation", 0);
+        std::cout << "  " << f["file"].get<std::string>()
+                  << (lo ? "（第 " + std::to_string(lo) + "–" + std::to_string(hi) + " 世）" : "")
+                  << (f.value("overlaps_previous", false) ? " [与上页重叠一世]" : "")
+                  << "\n";
+      }
       for (const auto& w : chart->warnings) std::cerr << "[提示] " << w << "\n";
     }
   } else {
-    std::cout << chart->svg;
+    // 无 --out：多页时各页用注释分隔打印，便于管道保存
+    for (std::size_t i = 0; i < chart->pages.size(); ++i) {
+      if (i) std::cout << "\n<!-- === 第 " << (i + 1) << " 页 === -->\n";
+      std::cout << chart->pages[i].svg;
+    }
   }
   return 0;
 }

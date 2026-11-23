@@ -131,6 +131,7 @@ target_sources(genealogy-core
   src/io/gedcom.cpp
   src/io/book_html.cpp
   src/io/chart_svg.cpp
+  src/io/wufu_matrix.cpp
   src/io/tree_render.cpp
   src/io/synthetic.cpp
   src/lineage/tree.cpp

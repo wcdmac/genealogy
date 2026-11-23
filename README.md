@@ -41,7 +41,7 @@ Dear ImGui + GLFW（**严禁 Qt**）+ CLI 三端共用同一领域核心；**无
   在世者按隐私级别脱敏（本地库由 GUI 显式开关控制）；原 M8 云端安全
   （ACL/幂等/限流/audit）随 REST 裁撤一并关闭
 - [x] **P1 世系图（2026-11-23）**：`genea io export chart` 六种体例（祖先图 pedigree / 后代图 descendant / 沙漏图 hourglass / 五服图 wufu / 欧式 european / 苏式 soviet），
-  纯 C++ 自生成 SVG（规避 Graphviz EPL 依赖），内置焦点高亮、折叠计数、搜索定位、房支分色、缺失祖先/成环显式告警；五服图逐对调 core 规则引擎算服等
+  纯 C++ 自生成 SVG（规避 Graphviz EPL 依赖），内置焦点高亮、搜索定位、房支分色、缺失祖先/成环显式告警；欧/苏式物理分页（苏式跨页重叠一世）、五服九族严格矩阵、同层防重叠与万级节点性能回归
 - [x] **P0 出版与字体（2026-11-23）**：`genea io export book` 三种版式（世系表/世系谱/行传）
   × A4/16 开 × 纵横向，生成自包含 HTML（内嵌完整思源宋体，浏览器 Ctrl+P 另存 PDF，竖排+页码+派语）；
   随包完整思源黑体/宋体 SC（OFL 1.1，56MB，`bin/fonts/`，GUI 优先使用），不做子集化以免缺字

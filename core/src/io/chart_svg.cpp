@@ -1,4 +1,5 @@
 #include <genealogy/io/chart_svg.hpp>
+#include <genealogy/io/wufu_matrix.hpp>
 
 #include <algorithm>
 #include <cmath>
@@ -93,8 +94,10 @@ layout descendants(const lineage::PersonGraph& g, const std::string& root,
   std::vector<std::size_t> frontier{ri};
   for (int gen = 0; gen < depth; ++gen) {
     std::vector<std::size_t> next;
-    // 先收集本层所有父的子，再统一排序定位（避免父子互相覆盖）
+    // 先收集本层所有父的子，再统一排序定位（避免父子互相覆盖）。
+    // 配偶必须与子女同层参与 x 分配——否则 x 恒为 0，与首个子女重叠。
     std::vector<std::vector<std::size_t>> kid_groups;
+    std::vector<std::vector<std::size_t>> spouse_groups;
     for (std::size_t pi : frontier) {
       const auto& kids = g.children_of(out.nodes[pi].person->id);
       std::vector<std::size_t> group;
@@ -106,16 +109,24 @@ layout descendants(const lineage::PersonGraph& g, const std::string& root,
         group.push_back(add(c, gen + 1, 0));
       }
       kid_groups.push_back(group);
+      std::vector<std::size_t> sgroup;
       if (with_spouses) {
         for (const Person* sp : g.spouses_of(out.nodes[pi].person->id)) {
           const std::size_t si = add(sp, gen, 0);
+          sgroup.push_back(si);
           out.edges.emplace_back(pi, si);
         }
       }
+      spouse_groups.push_back(sgroup);
     }
-    // 按组顺序把每层子节点依次排开，父节点随后居中
+    // 按组顺序把每层节点依次排开：先配偶（与本代主干同 gen），再子女。
+    // 每个节点独占 kNodeW+kGapX，保证同层不重叠。
     double cursor = kMargin;
     for (std::size_t gi = 0; gi < kid_groups.size(); ++gi) {
+      for (std::size_t si : spouse_groups[gi]) {
+        out.nodes[si].x = cursor;
+        cursor += kNodeW + kGapX;
+      }
       for (std::size_t ci : kid_groups[gi]) {
         out.nodes[ci].x = cursor;
         cursor += kNodeW + kGapX;
@@ -200,9 +211,37 @@ std::string palette() {
   return "#2f6f9f,#a0522d,#3b7a45,#8a4f9e,#b8860b,#4a6fa5,#a14444,#2e7d7d";
 }
 
+// 按世代区间裁出独立一页：节点重新编号，边只保留两端都在页内的，
+// y 坐标归零到本页顶部（跨页不再依赖 CSS page-break，页码由 CLI 写入文件名）。
+layout slice_layout(const layout& full, int gen_lo, int gen_hi) {
+  layout page;
+  std::unordered_map<std::size_t, std::size_t> remap;
+  double min_y = 0;
+  for (std::size_t i = 0; i < full.nodes.size(); ++i) {
+    const auto& n = full.nodes[i];
+    if (n.gen < gen_lo || n.gen > gen_hi) continue;
+    remap[i] = page.nodes.size();
+    min_y = page.nodes.empty() ? n.y : std::min(min_y, n.y);
+    page.nodes.push_back(n);
+  }
+  for (const auto& e : full.edges) {
+    const auto a = remap.find(e.first), b = remap.find(e.second);
+    if (a == remap.end() || b == remap.end()) continue;
+    page.edges.emplace_back(a->second, b->second);
+  }
+  // 焦点若不在本页，落到第一个节点（保证高亮可见）
+  page.focus_index = 0;
+  if (const auto it = remap.find(full.focus_index); it != remap.end())
+    page.focus_index = it->second;
+  for (auto& n : page.nodes) n.y -= min_y;
+  return page;
+}
+
 std::string render_svg(const layout& l, const ChartOptions& opt,
                        const std::vector<std::string>& warnings,
-                       std::size_t page_count, int style) {
+                       std::size_t page_count, int style,
+                       std::size_t page_no = 1,
+                       std::pair<int, int> gen_span = {1, 1}) {
   const double maxx = l.nodes.empty() ? kNodeW :
       std::max_element(l.nodes.begin(), l.nodes.end(),
                        [](const laid_out& a, const laid_out& b) { return a.x < b.x; })->x + kNodeW;
@@ -238,7 +277,9 @@ std::string render_svg(const layout& l, const ChartOptions& opt,
     << "</style>\n"
     << "<text class='hint' x='" << kMargin << "' y='20'>"
     << esc(opt.title.empty() ? "世系图" : opt.title)
-    << " · 节点 " << l.nodes.size() << " · 页 " << page_count
+    << " · 节点 " << l.nodes.size() << " · 第 " << page_no << "/" << page_count
+    << " 页 · 第 " << (gen_span.first + 1) << "–" << (gen_span.second + 1) << " 世"
+    << (page_no > 1 && gen_span.first == 0 ? "（苏式：与上页重叠首世）" : "")
     << " · 点击节点聚焦，输入姓名定位</text>\n";
 
   // 房支分色：每个节点用其 branch 色
@@ -365,36 +406,49 @@ Result<ChartResult> render_chart_svg(const ChartOptions& opt) {
         l.edges.emplace_back(e.first + base, e.second + base);
       break;
     }
-    case ChartStyle::Wufu:
-      // 五服图：以焦点为 ego，按世代铺开；服等由规则引擎计算后作标注。
-      // 这里用 descendant 骨架（同一代际关系），服色由前端分色表达；
-      // 精确的斩衰/齐衰/大功/小功/缌麻由 compute_mourning_degree 提供，
-      // 属性标注在 CLI 层补入（core 图表只负责结构）。
-      l = descendants(g, opt.focus_id, opt.depth, false, &warnings);
-      warnings.push_back("五服等级标注由 CLI 逐对计算，SVG 显示房支分色");
-      break;
+    case ChartStyle::Wufu: {
+      // 九族五服严格矩阵：纵轴九族 × 横轴五服，服等由外置规则表逐对计算。
+      auto matrix = render_wufu_matrix(opt);
+      return matrix;  // 矩阵自带独立布局，不走下面的通用 render_svg
+    }
     case ChartStyle::European:
     case ChartStyle::Soviet: {
-      // 五世一图：每页只取 [start, start+page_size) 代，跨页时
-      // 苏式要求上一页末世与下一页首世重叠一世（第五世两图共见）。
+      // 物理分页：每页独立完整 SVG，可单独打印/另存 PDF。
+      // 欧式不重叠；苏式要求下一页首世与上一页末世相同（第五世两图共见）。
       auto full = descendants(g, opt.focus_id, opt.depth, false, &warnings);
       if (full.nodes.empty()) { l = full; break; }
       const int maxgen = [&] { int m = 0; for (const auto& n : full.nodes) m = std::max(m, n.gen); return m; }();
-      pages = std::max(1, static_cast<int>(std::ceil(
-          static_cast<double>(maxgen + 1) / opt.page_size)));
-      l = full;  // 单 SVG 内以分页标记表达（打印由 CSS page-break 控制）
-      warnings.push_back(std::string("共 ") + std::to_string(pages) + " 页，每页 "
-                         + std::to_string(opt.page_size) + " 世"
-                         + (opt.style_hint == ChartStyle::Soviet ? "，苏式跨页重叠一世" : ""));
-      break;
+      const bool overlap = opt.style_hint == ChartStyle::Soviet;
+      const int step = std::max(1, opt.page_size - (overlap ? 1 : 0));
+      const int first_gen = [&] { int m = 1000000; for (const auto& n : full.nodes) m = std::min(m, n.gen); return m; }();
+      ChartResult paged;
+      paged.warnings = warnings;
+      for (int lo = first_gen; lo <= maxgen; lo += step) {
+        const int hi = std::min(lo + opt.page_size - 1, maxgen);
+        auto page_layout = slice_layout(full, lo, hi);
+        ChartPage p;
+        p.first_generation = lo;
+        p.last_generation = hi;
+        p.overlaps_previous = overlap && lo > first_gen;
+        p.svg = render_svg(page_layout, opt, warnings, 0,
+                           static_cast<int>(opt.style_hint),
+                           paged.pages.size() + 1, {lo, hi});
+        paged.pages.push_back(std::move(p));
+        if (hi == maxgen) break;
+      }
+      paged.node_count = full.nodes.size();
+      paged.page_count = paged.pages.size();
+      paged.svg = paged.pages.empty() ? std::string() : paged.pages[0].svg;
+      return paged;
     }
   }
 
   ChartResult out;
   out.node_count = l.nodes.size();
-  out.page_count = pages;
+  out.page_count = 1;
   out.warnings = warnings;
-  out.svg = render_svg(l, opt, warnings, pages, static_cast<int>(opt.style_hint));
+  out.svg = render_svg(l, opt, warnings, 1, static_cast<int>(opt.style_hint));
+  out.pages.push_back({out.svg, 1, 1, false});
   return out;
 }
 
