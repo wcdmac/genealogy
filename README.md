@@ -11,7 +11,7 @@ Dear ImGui + GLFW（**严禁 Qt**）+ CLI 三端共用同一领域核心；**无
 
 - [x] monorepo 骨架 + CMake + vcpkg manifest
 - [x] core：领域模型（person/lineage/branch/place/union/event/migration）/ GenealogyDate 多历法值对象 / ULID / SQLite 仓储 + 迁移 / 用例层
-- [x] cli：`db init|seed|backup|restore` / `person add|list|show|name|relation|tree|remove` / `book show|update` / `branch|place|union|event|migration|source|citation|document add|list|show|remove`（各命令组以实际帮助为准） / `poem set|show|check` / `date convert|lunar|terms|era|info` / `io import|export|validate` / `bench`
+- [x] cli：`db init|seed|backup|restore` / `person add|list|show|name|relation|tree|remove` / `book show|update` / `branch|place|union|event|migration|source|citation|document add|list|show|remove`（各命令组以实际帮助为准） / `poem set|show|check` / `date convert|lunar|terms|era|info` / `io import gedcom|export gedcom|export tree|export book|validate` / `bench`
 - [x] **M1.3 世系算法引擎**：世系图快照 + BFS 关系路径 + 世代序号（自始祖起算）+ 辈分差 + 五服（明清定型版）+ 称谓；规则表数据外置（`shared/rules/*.json`，构建时嵌入）
 - [x] **M1.4 历法引擎**：公历↔农历互转（**1368-3000**，1633 个农历年；1368-1644 为大统历朔闰史实段，1368-1582 儒略口径、1583-1644 格里口径）/ 24 节气时刻（北京时间，到分，1645 起）/ 干支纪年纪月纪日 / 生肖 / 年号纪年（西汉建元至民国，499 条区间）
 - [x] **M1.5 GEDCOM 5.5.1 导入导出 + 一致性校验规则引擎**：三层解析（字符集/结构/映射）、
@@ -40,6 +40,9 @@ Dear ImGui + GLFW（**严禁 Qt**）+ CLI 三端共用同一领域核心；**无
   名号变更史（person_name：谱名/乳名/学名/改后名/身后名，起止 + 主名全人唯一）+
   在世者按隐私级别脱敏（本地库由 GUI 显式开关控制）；原 M8 云端安全
   （ACL/幂等/限流/audit）随 REST 裁撤一并关闭
+- [x] **P0 出版与字体（2026-11-23）**：`genea io export book` 三种版式（世系表/世系谱/行传）
+  × A4/16 开 × 纵横向，生成自包含 HTML（内嵌完整思源宋体，浏览器 Ctrl+P 另存 PDF，竖排+页码+派语）；
+  随包完整思源黑体/宋体 SC（OFL 1.1，56MB，`bin/fonts/`，GUI 优先使用），不做子集化以免缺字
 - [x] Catch2 测试（core / CLI / GUI 三层，单谱单库契约）+ 三平台 CI
   （构建/测试/打包/CLI e2e/备份演练/GUI 无头自检）+ 许可证白名单卡点
 

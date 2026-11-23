@@ -35,3 +35,8 @@ opencc-js
 
 # 说明：lunar-javascript 只用于与紫金山天文台官方数据交叉核验，
 # 最终写入的数据以官方《1900-2025年日历》为准。
+
+# 随包 CJK 字体（P0，SIL OFL 1.1——允许闭源商用/随包分发，见
+# assets/fonts/OFL-*.txt 全文；字体未经修改，保留原 RFN 名）
+source-han-sans-sc
+source-han-serif-sc

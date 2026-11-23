@@ -2,6 +2,7 @@
 
 #include <imgui.h>
 
+#include <cstdint>
 #include <cstdio>
 #include <string>
 #include <vector>
@@ -11,13 +12,74 @@
 #define WIN32_LEAN_AND_MEAN
 #endif
 #include <windows.h>
+#elif defined(__APPLE__)
+#include <mach-o/dyld.h>
+#else
+#include <unistd.h>
 #endif
 
 namespace genealogy::gui {
 
 namespace {
 
-// 按平台列出候选中文字体（存在第一个就用）。
+#if defined(_WIN32)
+std::string wide_to_utf8(const wchar_t* w) {
+  if (w == nullptr) return {};
+  const int size = WideCharToMultiByte(CP_UTF8, 0, w, -1, nullptr, 0, nullptr, nullptr);
+  if (size <= 0) return {};
+  std::string out(static_cast<std::size_t>(size - 1), '\0');
+  WideCharToMultiByte(CP_UTF8, 0, w, -1, out.data(), size, nullptr, nullptr);
+  return out;
+}
+#endif
+
+// P0：随包完整字体优先（避免缺字与版权风险），系统字体仅作兜底。
+// 探测顺序：① exe 同目录 fonts/（CPack bin/fonts/）
+//           ② exe 上级 share/genealogy/fonts/（Unix 安装布局）
+//           ③ exe 上两级的 assets/fonts/（开发期 build/bin → 仓库根）
+//           ④ 当前工作目录 assets/fonts/（从仓库根启动）
+std::vector<std::string> bundled_font_candidates() {
+  std::vector<std::string> dirs;
+  std::string exe_dir;
+#if defined(_WIN32)
+  wchar_t exe[MAX_PATH] = {};
+  const DWORD n = GetModuleFileNameW(nullptr, exe, MAX_PATH);
+  if (n > 0 && n < MAX_PATH) exe_dir = wide_to_utf8(exe);
+#elif defined(__APPLE__)
+  char buf[4096] = {};
+  std::uint32_t n = sizeof(buf);
+  if (_NSGetExecutablePath(buf, &n) == 0) exe_dir = std::string(buf);
+#else
+  char buf[4096] = {};
+  const ssize_t n = readlink("/proc/self/exe", buf, sizeof(buf) - 1);
+  if (n > 0) { buf[n] = '\0'; exe_dir = std::string(buf); }
+#endif
+  if (!exe_dir.empty()) {
+    const auto slash = exe_dir.find_last_of("\\/");
+    if (slash != std::string::npos) {
+      const std::string dir = exe_dir.substr(0, slash);
+#if defined(_WIN32)
+      dirs.push_back(dir + "\\fonts\\");
+      dirs.push_back(dir + "\\..\\share\\genealogy\\fonts\\");
+      dirs.push_back(dir + "\\..\\..\\assets\\fonts\\");
+#else
+      dirs.push_back(dir + "/fonts/");
+      dirs.push_back(dir + "/../share/genealogy/fonts/");
+      dirs.push_back(dir + "/../../assets/fonts/");
+#endif
+    }
+  }
+  dirs.push_back("assets/fonts/");
+
+  std::vector<std::string> out;
+  for (const auto& d : dirs) {
+    out.push_back(d + "SourceHanSansSC-Regular.otf");
+    out.push_back(d + "SourceHanSansSC-Bold.otf");
+  }
+  return out;
+}
+
+// 按平台列出候选中文字体（随包字体都失败时的最后兜底）。
 std::vector<std::string> font_candidates() {
 #if defined(_WIN32)
   const char* windir = std::getenv("WINDIR");
@@ -52,21 +114,35 @@ std::vector<std::string> font_candidates() {
 }  // namespace
 
 bool load_chinese_font(ImGuiIO& io, float size_px, std::string* err) {
-  // 1.93 的函数名：Common 版 = 默认 + 半宽 + 日文假名 + 2500 常用简体字。
-  // 2500 字对家谱界面够用（Full 版 21000 字，图集会大 3 倍以上，
-  // 生僻字在行传原文里仍可能出现——真遇到再切 Full）。
-  const ImWchar* ranges = io.Fonts->GetGlyphRangesChineseSimplifiedCommon();
+  // P0：随包字体用 Full ranges（21000+ 字），覆盖老谱生僻字；
+  // ImGui 1.93 的图集对完整 CJK 较大，Oversample 降为 1 控内存。
+  const ImWchar* full = io.Fonts->GetGlyphRangesChineseFull();
+  const ImWchar* common = io.Fonts->GetGlyphRangesChineseSimplifiedCommon();
 
-  // 先试系统中文字体；都失败就退回内置默认字体（英文 UI 仍可用）。
+  ImFontConfig cfg;
+  cfg.OversampleH = 1;   // Full 字集下过采样会让图集翻倍
+  cfg.OversampleV = 1;
+  cfg.PixelSnapH = true;
+  // ① 随包完整字体（避免缺字；已随安装分发，路径见 bundled_font_candidates）
+  bool loaded_bundled = false;
+  for (const auto& path : bundled_font_candidates()) {
+    std::FILE* f = std::fopen(path.c_str(), "rb");
+    if (f == nullptr) continue;
+    std::fclose(f);
+    if (io.Fonts->AddFontFromFileTTF(path.c_str(), size_px, &cfg, full) != nullptr) {
+      loaded_bundled = true;
+      break;
+    }
+  }
+  if (loaded_bundled) return true;
+
+  // ② 系统字体兜底（Common ranges，控制图集大小）
+  cfg.OversampleH = 2;
   for (const auto& path : font_candidates()) {
     std::FILE* f = std::fopen(path.c_str(), "rb");
     if (f == nullptr) continue;
     std::fclose(f);
-    ImFontConfig cfg;
-    cfg.OversampleH = 2;   // 横向过采样：中文笔画密，默认 1 会发虚
-    cfg.OversampleV = 1;
-    cfg.PixelSnapH = true;
-    if (io.Fonts->AddFontFromFileTTF(path.c_str(), size_px, &cfg, ranges) !=
+    if (io.Fonts->AddFontFromFileTTF(path.c_str(), size_px, &cfg, common) !=
         nullptr) {
       return true;
     }

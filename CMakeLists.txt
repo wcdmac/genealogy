@@ -118,6 +118,13 @@ set(CPACK_PACKAGE_FILE_NAME
 set(CPACK_SOURCE_IGNORE_FILES "/\\\\.git/;/build/")
 include(CPack)
 
+# P0：随包完整 CJK 字体（GUI 与 F0 出版共用，避免缺字）。
+# 装到 bin/fonts/ 与 GUI exe 同目录——font.cpp 的 bundled_font_candidates()
+# 首选该路径；OFL 全文与来源说明一并安装。
+install(DIRECTORY "${CMAKE_CURRENT_SOURCE_DIR}/assets/fonts/"
+        DESTINATION bin/fonts
+        FILES_MATCHING PATTERN "*.otf" PATTERN "*.txt" PATTERN "README.md")
+
 # Windows 运行时 DLL 统一收进包的 bin/。server/gui 的 POST_BUILD 已把
 # vcpkg DLL 全量拷到 build/bin，这里 install 期 glob 收集。
 # 两个前车之鉴：

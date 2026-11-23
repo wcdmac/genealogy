@@ -129,6 +129,7 @@ target_sources(genealogy-core
   src/calendar/era.cpp
   src/calendar/era_tables.cpp
   src/io/gedcom.cpp
+  src/io/book_html.cpp
   src/io/tree_render.cpp
   src/io/synthetic.cpp
   src/lineage/tree.cpp

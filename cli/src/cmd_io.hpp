@@ -14,6 +14,10 @@ int cmd_io(const std::vector<std::string>& args, const std::string& db_path,
 int cmd_export_tree(const std::vector<std::string>& args,
                     const std::string& db_path, const std::string& format);
 
+// P0 出版：谱书 HTML（浏览器打印成册）。
+int cmd_export_book(const std::vector<std::string>& args,
+                    const std::string& db_path, const std::string& format);
+
 // 性能验收：灌库 + 跑基准（M1.6）。
 int cmd_bench(const std::vector<std::string>& args, const std::string& db_path,
               const std::string& format);

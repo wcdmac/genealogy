@@ -93,6 +93,30 @@ def offline_deps() -> set[str]:
     return {d["name"] for d in data.get("deps", []) if "name" in d}
 
 
+def check_bundled_fonts() -> list[str]:
+    """P0：随包字体必须随附 OFL 许可全文与来源说明（OFL 条件 2）。
+
+    字体不在 manifest 里，靠目录约定卡点：assets/fonts/*.otf 存在时，
+    OFL-*.txt 与 README.md 必须齐备，防止分发时漏带许可文本。
+    """
+    d = ROOT / "assets" / "fonts"
+    if not d.is_dir():
+        return []
+    bad: list[str] = []
+    otfs = sorted(d.glob("*.otf"))
+    if not otfs:
+        return bad
+    licenses = list(d.glob("OFL-*.txt"))
+    if not licenses:
+        bad.append("assets/fonts 含字体但缺 OFL-*.txt 许可全文")
+    if not (d / "README.md").is_file():
+        bad.append("assets/fonts 缺 README.md（来源与许可说明）")
+    for f in otfs:
+        if "sourcehan" not in f.name.lower():
+            bad.append(f"字体 {f.name} 未在白名单登记（仅允许思源 OFL 字体）")
+    return bad
+
+
 def main() -> int:
     violations: list[str] = []
 
@@ -106,6 +130,7 @@ def main() -> int:
     for dep in sorted(offline_deps()):
         if dep not in allowed:
             violations.append(f"离线生成依赖不在白名单: {dep}")
+    violations.extend(check_bundled_fonts())
 
     scan_counts: dict[str, int] = {}
     for path in sorted(ROOT.rglob("*")):

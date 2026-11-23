@@ -1,5 +1,6 @@
 add_executable(genealogy-core-tests
   test_ulid.cpp
+  test_book_html.cpp
   test_genealogy_date.cpp
   test_person_repository.cpp
   test_repositories_m1.cpp

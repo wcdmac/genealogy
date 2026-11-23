@@ -28,6 +28,9 @@
 #include <vector>
 
 #include <genealogy/calendar/era.hpp>
+#include <genealogy/io/book_html.hpp>
+#include <genealogy/repository/book_repository.hpp>
+#include <genealogy/service/book_service.hpp>
 #include <genealogy/error.hpp>
 #include <genealogy/io/gedcom.hpp>
 #include <genealogy/ulid.hpp>
@@ -607,12 +610,16 @@ int cmd_io(const std::vector<std::string>& args, const std::string& db_path,
       return cmd_export_tree(
           std::vector<std::string>(rest.begin() + 1, rest.end()), db_path, format);
     }
+    if (sub == "export" && !rest.empty() && rest[0] == "book") {
+      return cmd_export_book(
+          std::vector<std::string>(rest.begin() + 1, rest.end()), db_path, format);
+    }
     if (sub == "validate") return cmd_validate(rest, db_path, format);
   } catch (const cxxopts::exceptions::exception& e) {
     std::cerr << "用法错误: " << e.what() << "\n";
     return 2;
   }
-  std::cerr << "用法错误: genea io import gedcom|export gedcom|export tree|validate\n";
+  std::cerr << "用法错误: genea io import gedcom|export gedcom|export tree|export book|validate\n";
   return 2;
 }
 
@@ -1056,6 +1063,98 @@ int cmd_bench(const std::vector<std::string>& args, const std::string& db_path,
   }
   // 临时库清理交由 BenchTempGuard 析构（第三轮新-C9）
   return all_pass ? 0 : 1;
+}
+
+
+// P0 出版管线：家谱数据 → 自包含 HTML → 浏览器打印/另存 PDF。
+// 字体随包内嵌（完整思源宋体，约 31MB base64），产物单文件离线可用。
+int cmd_export_book(const std::vector<std::string>& args,
+                    const std::string& db_path, const std::string& format) {
+  cxxopts::Options opts("genea io export book", "导出谱书 HTML（浏览器打印成册）");
+  opts.add_options()
+      ("template", "版式: register|genealogy|biography",
+       cxxopts::value<std::string>()->default_value("register"))
+      ("paper", "纸张: a4|16k", cxxopts::value<std::string>()->default_value("a4"))
+      ("landscape", "横向", cxxopts::value<bool>()->default_value("false"))
+      ("no-embed-fonts", "不内嵌字体（产物小，但依赖系统字体）",
+       cxxopts::value<bool>()->default_value("false"))
+      ("font-dir", "字体目录（缺省用随包 assets/fonts）",
+       cxxopts::value<std::string>())
+      ("out", "输出 HTML 文件（缺省打标准输出）", cxxopts::value<std::string>());
+  const auto r = parse_args(opts, args);
+
+  std::string tmpl = r["template"].as<std::string>();
+  io::BookTemplate bt = io::BookTemplate::Register;
+  if (tmpl == "genealogy") bt = io::BookTemplate::Genealogy;
+  else if (tmpl == "biography") bt = io::BookTemplate::Biography;
+  else if (tmpl != "register") {
+    std::cerr << "用法错误: --template 应为 register|genealogy|biography\n";
+    return 2;
+  }
+  std::string paper = r["paper"].as<std::string>();
+  io::PaperSize ps = io::PaperSize::A4;
+  if (paper == "16k") ps = io::PaperSize::K16;
+  else if (paper != "a4") {
+    std::cerr << "用法错误: --paper 应为 a4|16k\n";
+    return 2;
+  }
+
+  auto db = open_db(db_path);
+  if (!db) { print_error(db.error()); return exit_code_for(db.error()); }
+  BookService books(*db);
+  auto book = books.get_book();
+  if (!book) { print_error(book.error()); return exit_code_for(book.error()); }
+
+  PersonRepository persons(*db);
+  PersonFilter pf;
+  pf.limit = 200000;  // 单谱全量出版；规模上限已登记（ROADMAP 暂缓项）
+  auto rows = persons.list(pf);
+  if (!rows) { print_error(rows.error()); return exit_code_for(rows.error()); }
+
+  io::BookHtmlOptions opt;
+  opt.book = &*book;
+  opt.persons = &*rows;
+  opt.tmpl = bt;
+  opt.paper = ps;
+  opt.landscape = r["landscape"].as<bool>();
+  opt.embed_fonts = !r["no-embed-fonts"].as<bool>();
+  if (r.count("font-dir")) {
+    opt.font_dir = r["font-dir"].as<std::string>();
+  } else {
+    // 与 GUI font.cpp 同策略：安装后 exe 同目录 fonts/，开发期 cwd assets/fonts
+    namespace fs = std::filesystem;
+    std::error_code ec;
+    if (fs::is_directory("build/bin/fonts", ec)) opt.font_dir = "build/bin/fonts";
+    else if (fs::is_directory("assets/fonts", ec)) opt.font_dir = "assets/fonts";
+    else opt.font_dir = "fonts";  // 安装布局：相对 cwd 或由调用方 --font-dir 指定
+  }
+  auto html = io::render_book_html(opt);
+  if (!html) { print_error(html.error()); return exit_code_for(html.error()); }
+
+  if (r.count("out")) {
+    bool ok = false;
+    write_file(r["out"].as<std::string>(), *html, &ok);
+    if (!ok) {
+      print_error(Error{ErrorCode::IoError, "写不出文件 " + r["out"].as<std::string>()});
+      return 1;
+    }
+    if (format == "json") {
+      std::cout << nlohmann::json{{"file", r["out"].as<std::string>()},
+                                  {"bytes", html->size()},
+                                  {"persons", rows->size()},
+                                  {"template", tmpl},
+                                  {"paper", paper}}
+                       .dump(2) << "\n";
+    } else {
+      std::cout << "已导出谱书 " << rows->size() << " 人到 "
+                << r["out"].as<std::string>() << "（" << html->size() << " 字节）\n"
+                << "在浏览器打开该文件，Ctrl+P 另存为 PDF（纸张 " << paper
+                << (opt.landscape ? " 横向" : " 纵向") << "）。\n";
+    }
+  } else {
+    std::cout << *html;
+  }
+  return 0;
 }
 
 }  // namespace genea_cli
