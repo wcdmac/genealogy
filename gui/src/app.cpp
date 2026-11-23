@@ -89,72 +89,6 @@ void GenealogyApp::build_panels() {
   panels_.push_back(std::make_unique<TreePanel>(state_));
   panels_.push_back(std::make_unique<ValidationPanel>(state_));
 
-  // 默认只开四个核心面板（此前 15 个全开导致一屏浮动面板迷宫）；
-  // 其余按左侧导航或布局预设按需打开。
-  const int core[] = {genealogy::gui::kPersonCard,
-                      genealogy::gui::kPersonTable,
-                      genealogy::gui::kTree,
-                      genealogy::gui::kSearch};
-  for (int i = 0; i < genealogy::gui::kPanelCount; ++i)
-    panels_[static_cast<std::size_t>(i)]->open = false;
-  for (int idx : core) panels_[static_cast<std::size_t>(idx)]->open = true;
-}
-
-// 左侧固定导航栏：五组工作流，点面板项打开/聚焦；不占 dockspace。
-void GenealogyApp::draw_sidebar() {
-  const ImGuiViewport* vp = ImGui::GetMainViewport();
-  const float menu_h = ImGui::GetFrameHeight();
-  const float status_h = ImGui::GetFrameHeight();
-  if (sidebar_collapsed_) {
-    ImGui::SetNextWindowPos(ImVec2(vp->WorkPos.x, vp->WorkPos.y + menu_h));
-    ImGui::SetNextWindowSize(ImVec2(40, vp->WorkSize.y - menu_h - status_h));
-  } else {
-    ImGui::SetNextWindowPos(ImVec2(vp->WorkPos.x, vp->WorkPos.y + menu_h));
-    ImGui::SetNextWindowSize(ImVec2(210, vp->WorkSize.y - menu_h - status_h));
-  }
-  ImGuiWindowFlags flags = ImGuiWindowFlags_NoMove | ImGuiWindowFlags_NoResize |
-      ImGuiWindowFlags_NoCollapse | ImGuiWindowFlags_NoDocking |
-      ImGuiWindowFlags_NoTitleBar | ImGuiWindowFlags_NoScrollbar;
-  if (!ImGui::Begin("##sidebar", nullptr, flags)) { ImGui::End(); return; }
-
-  if (ImGui::Button(sidebar_collapsed_ ? "»" : "«", ImVec2(-1, 0)))
-    sidebar_collapsed_ = !sidebar_collapsed_;
-  if (sidebar_collapsed_) { ImGui::End(); return; }
-
-  ImGui::SeparatorText("家谱工作台");
-  ImGui::TextDisabled("%s", session_.is_open() ? "库已打开" : "未打开数据库");
-
-  const auto& groups = genealogy::gui::nav_groups();
-  for (std::size_t gi = 0; gi < groups.size(); ++gi) {
-    const auto& g = groups[gi];
-    const bool active = (static_cast<int>(gi) == active_group_);
-    if (ImGui::Selectable(g.name, active)) active_group_ = static_cast<int>(gi);
-    if (active) {
-      ImGui::Indent(10);
-      for (int idx : g.panel_indices) {
-        if (idx < 0 || idx >= static_cast<int>(panels_.size())) continue;
-        auto& p = panels_[static_cast<std::size_t>(idx)];
-        if (ImGui::MenuItem(p->title(), nullptr, &p->open)) {
-          if (p->open) ImGui::SetWindowFocus(p->title());
-        }
-      }
-      ImGui::Unindent(10);
-    }
-  }
-
-  ImGui::SeparatorText("布局预设");
-  for (const auto& name : genealogy::gui::layout_preset_names()) {
-    if (ImGui::Button(name.c_str(), ImVec2(-1, 0))) {
-      const auto targets = genealogy::gui::layout_preset(name);
-      for (int i = 0; i < static_cast<int>(panels_.size()); ++i) {
-        bool wanted = false;
-        for (int t : targets) if (t == i) { wanted = true; break; }
-        panels_[static_cast<std::size_t>(i)]->open = wanted;
-      }
-      state_.set_status("已切换到「" + name + "」布局");
-    }
-  }
-  ImGui::End();
 }
 
 void GenealogyApp::draw_menu_bar() {
@@ -333,33 +267,11 @@ bool GenealogyApp::run(std::string* err) {
     ImGui_ImplGlfw_NewFrame();
     ImGui::NewFrame();
 
-    // dockspace 只占侧栏右侧区域：避免 15 个面板的 dock 窗口盖住导航栏。
-    // 侧栏宽度与 draw_sidebar() 保持一致（210 / 折叠 40）。
+    // 全屏 dockspace：面板默认散布其上，可拖拽重组
     const ImGuiViewport* vp = ImGui::GetMainViewport();
-    const float menu_h = ImGui::GetFrameHeight();
-    const float status_h = ImGui::GetFrameHeight();
-    const float side_w = sidebar_collapsed_ ? 40.0F : 210.0F;
-    ImGui::SetNextWindowPos(ImVec2(vp->WorkPos.x + side_w,
-                                   vp->WorkPos.y + menu_h));
-    ImGui::SetNextWindowSize(ImVec2(vp->WorkSize.x - side_w,
-                                    vp->WorkSize.y - menu_h - status_h));
-    ImGuiWindowFlags dock_flags = ImGuiWindowFlags_NoTitleBar |
-        ImGuiWindowFlags_NoCollapse | ImGuiWindowFlags_NoResize |
-        ImGuiWindowFlags_NoMove | ImGuiWindowFlags_NoBringToFrontOnFocus |
-        ImGuiWindowFlags_NoNavFocus;
-    if (const ImGuiViewport* dock_vp = ImGui::GetMainViewport()) {
-      ImGui::SetNextWindowViewport(dock_vp->ID);
-    }
-    ImGui::PushStyleVar(ImGuiStyleVar_WindowRounding, 0.0F);
-    ImGui::PushStyleVar(ImGuiStyleVar_WindowBorderSize, 0.0F);
-    ImGui::Begin("##dock_host", nullptr, dock_flags);
-    ImGui::DockSpace(ImGui::GetID("##main_dock"), ImVec2(0, 0),
-                     ImGuiDockNodeFlags_PassthruCentralNode);
-    ImGui::End();
-    ImGui::PopStyleVar(2);
+    ImGui::DockSpaceOverViewport(0, vp, ImGuiDockNodeFlags_PassthruCentralNode);
 
     draw_menu_bar();
-    draw_sidebar();
     // 关系快捷：人物卡按钮设置待建关系 → 自动打开新建面板
     if (!state_.new_relation_kind.empty() && panels_.size() > 1)
       panels_[1]->open = true;

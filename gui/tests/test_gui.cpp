@@ -40,7 +40,6 @@
 #include <genealogy/gui/panels/attachment_panel.hpp>
 #include <genealogy/gui/panels/merge_panel.hpp>
 #include <genealogy/gui/file_browser.hpp>
-#include <genealogy/gui/navigation.hpp>
 #include <genealogy/util/sha256.hpp>
 #include <genealogy/gui/panels/new_person_panel.hpp>
 #include <genealogy/gui/panels/person_card.hpp>
@@ -1089,27 +1088,4 @@ TEST_CASE("文件浏览器：目录浏览与 .db 过滤") {
 }
 
 
-TEST_CASE("导航栏：五组工作流与布局预设") {
-  using namespace genealogy::gui;
-  const auto& groups = nav_groups();
-  CHECK(groups.size() == 4);  // 录入/查阅/管理/排版（系统入口在菜单）
-  // 所有面板索引都在合法范围且无重复
-  std::vector<int> seen;
-  for (const auto& g : groups)
-    for (int idx : g.panel_indices) {
-      CHECK(idx >= 0);
-      CHECK(idx < kPanelCount);
-      CHECK(std::find(seen.begin(), seen.end(), idx) == seen.end());
-      seen.push_back(idx);
-    }
-  // 「全部」预设覆盖所有面板
-  const auto all = layout_preset("全部");
-  CHECK(all.size() == static_cast<std::size_t>(kPanelCount));
-  // 「查阅」预设含人物卡/树/表格
-  const auto read = layout_preset("查阅");
-  CHECK(std::find(read.begin(), read.end(), kPersonCard) != read.end());
-  CHECK(std::find(read.begin(), read.end(), kTree) != read.end());
-  CHECK(std::find(read.begin(), read.end(), kPersonTable) != read.end());
-  // 未知预设返回空
-  CHECK(layout_preset("不存在").empty());
-}
+
