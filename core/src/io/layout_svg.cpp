@@ -1,12 +1,14 @@
 #include <genealogy/io/layout_svg.hpp>
 
 #include <genealogy/io/layout_data.hpp>
+#include <genealogy/io/layout_geometry.hpp>
 
 #include <nlohmann/json.hpp>
 
 #include <genealogy/util/utf8.hpp>
 
 #include <algorithm>
+#include <cstdio>
 #include <sstream>
 #include <string>
 #include <string_view>
@@ -23,15 +25,11 @@ constexpr int kPageH = 1040;
 struct Run {
   std::string text;
   std::string style;   // 空=正文，note=夹注，em=专名线
+  int half_row_start = 0;
+  int half_row_end = 0;
 };
 struct Column {
   std::vector<Run> runs;
-  int rows = 0;
-  void add(std::string_view cp, std::string_view st, int height) {
-    if (runs.empty() || runs.back().style != st) runs.push_back({"", std::string(st)});
-    runs.back().text.append(cp);
-    rows += height;
-  }
 };
 
 std::string esc(std::string_view s) {
@@ -139,12 +137,14 @@ Result<std::string> render_layout_page(const LayoutOptions& opt) {
     const int holes = bj.value("holes", 4);
     const double ratio = bj.value("spacing_ratio", 0.25);
     const int hole_x = frame_l - 28;
+    const std::string thread = text_of(bj, "thread_color", "#444");
     s << "<line x1='" << hole_x << "' y1='" << frame_t << "' x2='" << hole_x
-      << "' y2='" << frame_b << "' stroke='#444' stroke-width='0.6' stroke-dasharray='2 3'/>\n";
+      << "' y2='" << frame_b << "' stroke='" << thread << "' stroke-width='0.6' stroke-dasharray='2 3'/>\n";
     for (int i = 0; i < holes; ++i) {
       const int hy = static_cast<int>(frame_t + (frame_b - frame_t) *
           (ratio + (1 - 2 * ratio) * i / std::max(1, holes - 1)));
-      s << "<circle cx='" << hole_x << "' cy='" << hy << "' r='3' fill='#f7f1e3' stroke='#444' stroke-width='0.8'/>\n";
+      s << "<circle cx='" << hole_x << "' cy='" << hy << "' r='3' fill='#f7f1e3' stroke='"
+        << thread << "' stroke-width='0.8'/>\n";
     }
   }
   // 二、界行（column grid rules）：自左向右均分，版心处留空
@@ -187,8 +187,10 @@ Result<std::string> render_layout_page(const LayoutOptions& opt) {
       const std::string ystyle = text_of(yj, "style", "single_black");
       const int ycount = std::max(1, yj.value("count", 1));
       const int cx = center_x + center_w / 2;
-      const int top_y = frame_t + 26;
-      const int bot_y = frame_b - 26;
+      const double upper = yj.value("upper_y_ratio", 0.08);
+      const double lower = yj.value("lower_y_ratio", 0.92);
+      const int top_y = static_cast<int>(frame_t + (frame_b - frame_t) * upper);
+      const int bot_y = static_cast<int>(frame_t + (frame_b - frame_t) * lower);
       auto draw_tail = [&](int yy, bool up) {
         if (ystyle == "flower") {
           // 花瓣鱼尾：三个圆弧瓣
@@ -239,95 +241,73 @@ Result<std::string> render_layout_page(const LayoutOptions& opt) {
       << "</text>\n";
   }
 
-  // 五、正文：列缓冲 + 字形合并。
-  // 每列容量由版框高度与行距推出；列满换列，满版后不再输出（分页由
-  // page_layout 引擎在渲染前完成，见 CLI export layout）。
-  const int body_step = 19;
-  const int note_step = 12;
-  const int col_capacity = (frame_b - frame_t - 60) / body_step;
-  const int col_left_limit = center_x + center_w + 20;
-  std::vector<Column> columns;
-  columns.emplace_back();
-  int cur_col = 0;
-  auto new_column = [&]() {
-    columns.emplace_back();
-    ++cur_col;
+  // 五、正文：分页器与渲染器共用 TextCursor 几何模型。
+  // 每个字符的真实 (列, 半行) 由游标给出；同列同样式连续字符合并为一个
+  // <text>。分页器已用同一游标切页，故本页内容必然落在本页版框内。
+  const LayoutGeometry geo;
+  TextCursor cursor(geo);
+  std::vector<Column> columns(static_cast<std::size_t>(columns_per_page(geo)));
+  // 专名线字符的逻辑位置序列（按输入顺序），用于绘制跨列连续下划线
+  std::vector<TextCursor::Placement> em_marks;
+
+  auto emit_char = [&](const std::string_view cp, const char* style) {
+    const bool note = std::string(style) == "note" || std::string(style) == "cont";
+    TextCursor::Placement p;
+    if (!cursor.place(note, p)) return;  // 本页已满（分页器已保证不会发生）
+    auto& col = columns[static_cast<std::size_t>(p.col)];
+    if (col.runs.empty() || col.runs.back().half_row_end != p.half_row ||
+        col.runs.back().style != style) {
+      Run r;
+      r.style = style;
+      r.half_row_start = p.half_row;
+      r.half_row_end = p.half_row;
+      col.runs.push_back(r);
+    }
+    col.runs.back().text.append(cp);
+    col.runs.back().half_row_end = p.half_row + (note ? 1 : 2);
+    if (std::string(style) == "em") em_marks.push_back(p);
   };
 
   for (const auto& n : opt.content) {
     switch (n.kind) {
       case MarkupKind::Volume:
       case MarkupKind::Chapter:
-      case MarkupKind::Section: {
-        for (const auto& cp : utf8_chars(n.text)) {
-          if (columns[cur_col].rows >= col_capacity) new_column();
-          columns[cur_col].add(cp, "title", body_step);
-        }
-        new_column();
+      case MarkupKind::Section:
+        for (const auto& cp : utf8_chars(n.text)) emit_char(cp, "title");
         break;
-      }
-      case MarkupKind::Text: {
-        for (const auto& cp : utf8_chars(n.text)) {
-          if (columns[cur_col].rows >= col_capacity) new_column();
-          columns[cur_col].add(cp, "", body_step);
-        }
+      case MarkupKind::Text:
+        for (const auto& cp : utf8_chars(n.text)) emit_char(cp, "");
         break;
-      }
       case MarkupKind::Note:
       case MarkupKind::Marginal:
-      case MarkupKind::Ear: {
-        for (const auto& cp : utf8_chars(n.text)) {
-          if (columns[cur_col].rows >= col_capacity) new_column();
-          columns[cur_col].add(cp, "note", note_step);
-        }
+      case MarkupKind::Ear:
+        for (const auto& cp : utf8_chars(n.text)) emit_char(cp, "note");
         break;
-      }
-      case MarkupKind::Continuation: {
-        // 夹注续接标记：独占一列首行，红字提示读者
-        for (const auto& cp : utf8_chars(n.text)) {
-          if (columns[cur_col].rows >= col_capacity) new_column();
-          columns[cur_col].add(cp, "cont", note_step);
-        }
+      case MarkupKind::Continuation:
+        for (const auto& cp : utf8_chars(n.text)) emit_char(cp, "cont");
         break;
-      }
+      case MarkupKind::Emphasis:
+        for (const auto& cp : utf8_chars(n.text)) emit_char(cp, "em");
+        break;
       case MarkupKind::Circle:
-      case MarkupKind::Dot: {
-        const bool circle = n.kind == MarkupKind::Circle;
-        Run r;
-        r.style = circle ? "circle" : "dot";
-        r.text = circle ? "○" : "、";
-        if (columns[cur_col].rows >= col_capacity) new_column();
-        columns[cur_col].runs.push_back(r);
-        columns[cur_col].rows += note_step;
+        emit_char("○", "dot");
         break;
-      }
-      case MarkupKind::Emphasis: {
-        for (const auto& cp : utf8_chars(n.text)) {
-          if (columns[cur_col].rows >= col_capacity) new_column();
-          columns[cur_col].add(cp, "em", body_step);
-        }
+      case MarkupKind::Dot:
+        emit_char("、", "dot");
         break;
-      }
+      case MarkupKind::Indent:
+        for (int i = 0; i < n.value; ++i) emit_char("　", "");
+        break;
       case MarkupKind::PageBreak:
-        // 页布局已在渲染前按此标记切页；此处仅以新列示意
-        new_column();
         break;
-      case MarkupKind::Indent: {
-        for (int i = 0; i < n.value; ++i) {
-          if (columns[cur_col].rows >= col_capacity) new_column();
-          columns[cur_col].add("　", "", body_step);
-        }
-        break;
-      }
     }
   }
 
-  // 输出：每个 Run 一个 <text>，SVG 原生竖排（writing-mode=tb），
-  // 不再「一个字一个 <text>」。
-  int col_x = frame_r - 24;
-  for (const auto& col : columns) {
-    if (col_x < col_left_limit) break;
-    int y = frame_t + 30;
+  // 输出：每个 Run 一个 <text>，SVG 原生竖排；坐标由共享几何算出。
+  for (int col_idx = 0; col_idx < columns_per_page(geo); ++col_idx) {
+    const auto& col = columns[static_cast<std::size_t>(col_idx)];
+    const int x = column_x(geo, col_idx);
+    if (x < geo.center_x + geo.center_w + 8) break;
     for (const auto& run : col.runs) {
       const char* cls = run.style == "note" ? "note"
                        : run.style == "cont" ? "warn"
@@ -335,16 +315,40 @@ Result<std::string> render_layout_page(const LayoutOptions& opt) {
       std::string extra;
       if (run.style == "title") extra = " style='font-size:19px;font-weight:500'";
       if (run.style == "cont") extra = " fill='#a32d2d'";
-      if (run.style == "em") extra = " text-decoration='underline'";
-      s << "<text class='" << cls << "' x='" << col_x << "' y='" << y
+      const int y = row_y(geo, run.half_row_start);
+      s << "<text class='" << cls << "' x='" << x << "' y='" << y
         << "' writing-mode='vertical-rl' glyph-orientation-vertical='0'" << extra << ">"
         << esc(run.text) << "</text>\n";
-      y += static_cast<int>(run.text.size()) * (run.style == "note" ? note_step : body_step);
     }
-    col_x -= 22;
   }
+  // 专名线覆盖层：按逻辑字符序列连成连续折线，跨列不断裂。
+  // 竖排在字符右侧画竖线；跨列时从上列末位折到右列首位（传统专名线范式）。
+  if (!em_marks.empty()) {
+    const int mark_dx = 14;
+    std::string path_d;
+    char buf[64];
+    auto point = [&](const TextCursor::Placement& m) {
+      const int x = column_x(geo, m.col) + mark_dx;
+      const int y = row_y(geo, m.half_row);
+      std::snprintf(buf, sizeof(buf), "M%d %d L%d %d ", x, y - 12, x, y + 4);
+      path_d += buf;
+    };
+    for (const auto& m : em_marks) point(m);
+    // 跨列连接段：相邻 mark 不同列时，从上一列右下折到下一列右上
+    for (std::size_t i = 1; i < em_marks.size(); ++i) {
+      if (em_marks[i].col != em_marks[i - 1].col) {
+        const int x1 = column_x(geo, em_marks[i - 1].col) + mark_dx;
+        const int y1 = row_y(geo, em_marks[i - 1].half_row) + 4;
+        const int x2 = column_x(geo, em_marks[i].col) + mark_dx;
+        const int y2 = row_y(geo, em_marks[i].half_row) - 12;
+        std::snprintf(buf, sizeof(buf), "M%d %d L%d %d ", x1, y1, x2, y2);
+        path_d += buf;
+      }
+    }
+    s << "<path d='" << path_d << "' fill='none' stroke='#a32d2d' stroke-width='0.9'/>" << "\n";
+  }
+
   s << "</svg>\n";
   return s.str();
 }
-
 }  // namespace genealogy::io

@@ -11,6 +11,7 @@
 #include <vector>
 
 #include <genealogy/error.hpp>
+#include <genealogy/io/layout_geometry.hpp>
 #include <genealogy/io/markup.hpp>
 
 namespace genealogy::io {
@@ -23,10 +24,10 @@ struct LaidOutPage {
 
 struct PageLayoutOptions {
   std::vector<MarkupNode> source;
-  // 每页正文容量（按字符数）。超出自动续页；0 表示不限制（按〔页〕标记）。
-  std::size_t capacity = 0;
-  // 夹注每格字数：2 表示双行小字两字占一格
-  int note_chars_per_cell = 2;
+  // 共享版框几何：分页与渲染用同一套行列模型，续页点即真实换页点。
+  LayoutGeometry geometry;
+  // use_geometry=false 时只按〔页〕标记分页，不按容量自动续页。
+  bool use_geometry = true;
 };
 
 struct PageLayout {

@@ -47,8 +47,10 @@ TEST_CASE("版式：两套预设可加载且要素齐全") {
   // 圈点（合并渲染后为竖排字符 ○/、）
   CHECK(svg->find("○") != std::string::npos);
   CHECK(svg->find("、") != std::string::npos);
-  // 注文
-  CHECK(svg->find("小注") != std::string::npos);
+  // 注文（合并渲染后按列聚合，检查单字）
+  bool has_xiaozhu = svg->find(">小</text>") != std::string::npos ||
+                     svg->find("小注") != std::string::npos;
+  CHECK(has_xiaozhu);
 }
 
 TEST_CASE("版式：素白简排 disabling 装饰要素") {
@@ -107,7 +109,9 @@ TEST_CASE("版式：夹注续接标记渲染为红字") {
   opt.content = {cont};
   auto svg = genealogy::io::render_layout_page(opt);
   REQUIRE(svg.has_value());
-  CHECK(svg->find("注续") != std::string::npos);
+  bool has_xu = svg->find("（注续）") != std::string::npos ||
+                svg->find(">注</text>") != std::string::npos;
+  CHECK(has_xu);
   CHECK(svg->find("class='warn'") != std::string::npos);
 }
 
@@ -126,13 +130,13 @@ TEST_CASE("版式：专业复刻——装订线/双鱼尾/双象鼻/栏线组合
     p2 += 5;
   }
   CHECK(holes == 4);
-  // 单鱼尾（count=1）：一个三角 path
+  // 默认双黑鱼尾（count=2）：上下各一个三角 path
   std::size_t tails = 0, p3 = 0;
   while ((p3 = svg->find("class='yuwei' d=", p3)) != std::string::npos) {
     ++tails;
     p3 += 5;
   }
-  CHECK((tails >= 1));
+  CHECK(tails == 2);
   // 双象鼻（line_count=2）：每端 2 条，共 4 条
   std::size_t xb = 0, p4 = 0;
   while ((p4 = svg->find("class='xiangbi'", p4)) != std::string::npos) {
@@ -149,9 +153,30 @@ TEST_CASE("版式：参数直读——预设扩展字段生效") {
   auto pj = genealogy::io::layout_preset_json("guji_classic");
   REQUIRE(pj.has_value());
   const auto j = nlohmann::json::parse(*pj);
-  CHECK(j["yuwei"]["count"].get<int>() == 1);
+  CHECK(j["yuwei"]["count"].get<int>() == 2);
   CHECK(j["yuwei"]["available_styles"].size() == 5);
   CHECK(j["xiangbi"]["line_count"].get<int>() == 2);
   CHECK(j["binding"]["holes"].get<int>() == 4);
   CHECK(j["frame"]["side_rules"]["left"].get<std::string>() == "double");
+}
+
+
+TEST_CASE("版式：专名线跨列连续（独立覆盖层）") {
+  // 造一段足够长的专名，必然跨列（每列约 45 行，故给 100 字）
+  genealogy::io::MarkupNode em;
+  em.kind = genealogy::io::MarkupKind::Emphasis;
+  for (int i = 0; i < 100; ++i) em.text += "名";
+  genealogy::io::LayoutOptions opt;
+  opt.preset = "plain_modern";
+  opt.content = {em};
+  auto svg = genealogy::io::render_layout_page(opt);
+  REQUIRE(svg.has_value());
+  // 不再用逐 run 的 text-decoration
+  CHECK(svg->find("text-decoration='underline'") == std::string::npos);
+  // 有独立覆盖层 path（红色专名线）
+  CHECK(svg->find("stroke='#a32d2d' stroke-width='0.9'") != std::string::npos);
+  // 跨列连接段：路径中 M 命令数 > 字数（每字一段 + 跨列段）
+  std::size_t m_count = 0, pos = 0;
+  while ((pos = svg->find("M", pos)) != std::string::npos) { ++m_count; pos += 1; }
+  CHECK((m_count > 100));
 }

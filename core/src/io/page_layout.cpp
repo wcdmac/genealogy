@@ -2,28 +2,19 @@
 
 #include <genealogy/util/utf8.hpp>
 
-#include <algorithm>
-#include <string>
+#include <utility>
 
 namespace genealogy::io {
 
 namespace {
 
-// 一段文本的码点数（用共用工具，不手写 UTF-8 偏移）
-std::size_t cp_count(const std::string& s) {
-  return utf8_chars(s).size();
+bool is_note_kind(MarkupKind k) {
+  return k == MarkupKind::Note || k == MarkupKind::Marginal || k == MarkupKind::Ear;
 }
 
-// 取前 n 个码点的子串，返回 {前缀, 余下}
-std::pair<std::string, std::string> split_cps(const std::string& s, std::size_t n) {
-  const auto cps = utf8_chars(s);
-  if (n >= cps.size()) return {s, {}};
-  std::string head, tail;
-  for (std::size_t i = 0; i < cps.size(); ++i) {
-    if (i < n) head.append(cps[i]);
-    else tail.append(cps[i]);
-  }
-  return {head, tail};
+// 续接标记文本
+const char* continuation_text(MarkupKind k) {
+  return is_note_kind(k) ? "（注续）" : "（续）";
 }
 
 }  // namespace
@@ -31,67 +22,69 @@ std::pair<std::string, std::string> split_cps(const std::string& s, std::size_t 
 Result<PageLayout> paginate_content(const PageLayoutOptions& opt) {
   PageLayout out;
   LaidOutPage cur;
-  std::size_t used = 0;
+  TextCursor cursor(opt.geometry);
 
+  // 当前页正在累积的节点下标（vector 重分配后下标仍有效）
+  std::size_t active = 0;
+  bool has_active = false;
+
+  auto finalize_active = [&]() { has_active = false; active = 0; };
   auto flush = [&](bool next_continued) {
+    finalize_active();
     out.pages.push_back(cur);
     cur = LaidOutPage{};
     cur.continuation = next_continued;
-    used = 0;
+    cursor.reset();
+  };
+  auto ensure_active = [&](const MarkupNode& src) {
+    if (has_active && cur.nodes[active].kind == src.kind) return;
+    MarkupNode n;
+    n.kind = src.kind;
+    n.line = src.line;
+    cur.nodes.push_back(n);
+    active = cur.nodes.size() - 1;
+    has_active = true;
   };
 
   for (const auto& node : opt.source) {
     if (node.kind == MarkupKind::PageBreak) {
+      finalize_active();
       flush(false);
       continue;
     }
-    // 夹注按 note_chars_per_cell 折抵格数：两字一格 → 字数/2
-    const bool is_note = node.kind == MarkupKind::Note ||
-                         node.kind == MarkupKind::Marginal ||
-                         node.kind == MarkupKind::Ear;
-    const int divisor = is_note ? std::max(1, opt.note_chars_per_cell) : 1;
-    std::string remaining = node.text;
-    bool first_chunk = true;
 
-    while (true) {
-      const std::size_t nodes_cps = cp_count(remaining);
-      const std::size_t cost = (nodes_cps + divisor - 1) / divisor;
-      const std::size_t room = opt.capacity == 0 ? nodes_cps
-                                                 : (opt.capacity > used ? opt.capacity - used : 0);
-      if (cost <= room || opt.capacity == 0) {
-        MarkupNode piece = node;
-        piece.text = remaining;
-        cur.nodes.push_back(piece);
-        used += cost;
-        out.total_chars += nodes_cps;
-        break;
-      }
+    // 圈/点/缩进/续标记：占位小，直接落到当前页（不触发自动续页）
+    if (node.kind == MarkupKind::Circle || node.kind == MarkupKind::Dot ||
+        node.kind == MarkupKind::Indent || node.kind == MarkupKind::Continuation) {
+      finalize_active();
+      cur.nodes.push_back(node);
+      continue;
+    }
 
-      // 装不下：按剩余格数切出本页能放的部分（夹注按 div 倍码点）
-      const std::size_t take_cps = room * divisor;
-      if (take_cps == 0) {
-        // 当前页已满，换页再试（标记续接）
+    const bool note = is_note_kind(node.kind);
+    for (const auto& cp : utf8_chars(node.text)) {
+      TextCursor::Placement place;
+      bool ok = opt.use_geometry ? cursor.place(note, place) : true;
+      if (!ok) {
+        // 真实几何：本页最后一列已满 → 换页续排
         flush(true);
         ++out.continued_count;
-        continue;
+        MarkupNode cont;
+        cont.kind = MarkupKind::Continuation;
+        cont.text = continuation_text(node.kind);
+        cur.nodes.push_back(cont);
+        finalize_active();
+        cursor.place(note, place);  // 新页必然放得下
       }
-      auto [head, tail] = split_cps(remaining, take_cps);
-      MarkupNode piece = node;
-      piece.text = head;
-      cur.nodes.push_back(piece);
-      out.total_chars += cp_count(head);
-      flush(true);
-      ++out.continued_count;
-      // 下一页插入续接标记，随后继续排余下夹注
-      MarkupNode cont;
-      cont.kind = MarkupKind::Continuation;
-      cont.text = is_note ? "（注续）" : "（续）";
-      cur.nodes.push_back(cont);
-      used += cp_count(cont.text);
-      remaining = tail;
+      ensure_active(node);
+      cur.nodes[active].text.append(cp);
+      ++out.total_chars;
     }
   }
   if (!cur.nodes.empty() || out.pages.empty()) out.pages.push_back(cur);
+  out.total_chars = 0;
+  for (const auto& page : out.pages)
+    for (const auto& n : page.nodes) out.total_chars += utf8_chars(n.text).size();
   return out;
 }
 

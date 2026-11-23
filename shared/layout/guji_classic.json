@@ -70,8 +70,8 @@
   },
   "yuwei": {
     "enabled": true,
-    "style": "single_black",
-    "count": 1,
+    "style": "double_black",
+    "count": 2,
     "available_styles": [
       "single_black",
       "double_black",
@@ -83,10 +83,10 @@
     "width": "14mm",
     "height": "6mm",
     "shape": "triangle",
-    "upper_y_ratio": 0.12,
-    "lower_y_ratio": 0.88,
+    "upper_y_ratio": 0.08,
+    "lower_y_ratio": 0.92,
     "gap": "4mm",
-    "stroke_width": 1.1,
+    "stroke_width": 1.0,
     "fill": "none"
   },
   "xiangbi": {
@@ -144,8 +144,9 @@
       8
     ],
     "margin": "8mm",
-    "hole_diameter": "2mm",
-    "spacing_ratio": 0.25
+    "hole_diameter": "2.5mm",
+    "spacing_ratio": 0.22,
+    "thread_color": "#5a3a2a"
   },
   "margins": {
     "head": "22mm",

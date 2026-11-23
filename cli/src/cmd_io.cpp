@@ -1379,8 +1379,7 @@ int cmd_export_book(const std::vector<std::string>& args,
     }
     io::PageLayoutOptions pl;
     pl.source = nodes;
-    pl.capacity = 600;  // 每页约 600 格；夹注按 note_chars_per_cell 折抵
-    pl.note_chars_per_cell = 2;
+    // 使用默认共享版框几何；分页点与渲染器完全一致
     auto layout = io::paginate_content(pl);
     if (!layout) { print_error(layout.error()); return exit_code_for(layout.error()); }
 
