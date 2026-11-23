@@ -1,0 +1,93 @@
+{
+  "id": "guji_classic",
+  "name": "古籍线装·通行格式",
+  "description": "公版古籍形制参数化预设；版心/鱼尾/象鼻/栏线/书耳/天头地脚/界行齐全。参数含义据古籍版本学通识，非任何软件独创表达。",
+  "paper": {
+    "size": "185mm 260mm",
+    "orientation": "portrait",
+    "margin_top": "22mm",
+    "margin_bottom": "18mm",
+    "margin_inner": "24mm",
+    "margin_outer": "16mm"
+  },
+  "frame": {
+    "enabled": true,
+    "outer_rules": "double",
+    "inner_rules": "none",
+    "stroke_width": 1.2,
+    "top_y": "22mm",
+    "bottom_offset": "18mm"
+  },
+  "columns": {
+    "count": 10,
+    "column_width": "13mm",
+    "gap": "1.5mm",
+    "write_direction": "rtl",
+    "grid_rules": true,
+    "grid_stroke": 0.5
+  },
+  "banxin": {
+    "enabled": true,
+    "width": "24mm",
+    "title": true,
+    "volume": true,
+    "page_number": true,
+    "content_order": [
+      "volume",
+      "title",
+      "page"
+    ]
+  },
+  "yuwei": {
+    "enabled": true,
+    "style": "single_black",
+    "count": 1,
+    "position": "center",
+    "width": "14mm",
+    "height": "6mm",
+    "shape": "triangle"
+  },
+  "xiangbi": {
+    "enabled": true,
+    "style": "single_line",
+    "top_length": "8mm",
+    "bottom_length": "8mm"
+  },
+  "shuer": {
+    "enabled": true,
+    "position": "top_left",
+    "width": "18mm",
+    "height": "10mm",
+    "shape": "rounded_rect"
+  },
+  "notes": {
+    "note_style": "double_small",
+    "note_size_ratio": 0.6,
+    "note_chars_per_line": 2,
+    "continue_across_pages": true
+  },
+  "punctuation": {
+    "mode": "circle",
+    "circle_diameter": "2.4mm",
+    "dot_diameter": "1.2mm",
+    "occupies_cell": false
+  },
+  "marginalia": {
+    "top": true,
+    "bottom": false,
+    "side": false,
+    "max_chars": 50
+  },
+  "cover": {
+    "title_vertical": true,
+    "title_band": true,
+    "binding_holes": 4,
+    "cover_pattern": "none"
+  },
+  "typography": {
+    "body_font": "Source Han Serif SC",
+    "body_size": "11pt",
+    "line_height": 1.75,
+    "note_font": "Source Han Serif SC"
+  }
+}

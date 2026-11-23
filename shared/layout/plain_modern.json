@@ -1,0 +1,92 @@
+{
+  "id": "plain_modern",
+  "name": "素白简排·现代整理本",
+  "description": "保留竖排与版心，去掉鱼尾/象鼻/书耳/栏线装饰，适合现代整理稿。",
+  "paper": {
+    "size": "210mm 297mm",
+    "orientation": "portrait",
+    "margin_top": "18mm",
+    "margin_bottom": "18mm",
+    "margin_inner": "22mm",
+    "margin_outer": "16mm"
+  },
+  "frame": {
+    "enabled": false,
+    "outer_rules": "none",
+    "inner_rules": "none",
+    "stroke_width": 0,
+    "top_y": "18mm",
+    "bottom_offset": "18mm"
+  },
+  "columns": {
+    "count": 12,
+    "column_width": "15mm",
+    "gap": "1mm",
+    "write_direction": "rtl",
+    "grid_rules": false,
+    "grid_stroke": 0
+  },
+  "banxin": {
+    "enabled": true,
+    "width": "18mm",
+    "title": true,
+    "volume": false,
+    "page_number": true,
+    "content_order": [
+      "title",
+      "page"
+    ]
+  },
+  "yuwei": {
+    "enabled": false,
+    "style": "none",
+    "count": 0,
+    "position": "center",
+    "width": "0mm",
+    "height": "0mm",
+    "shape": "none"
+  },
+  "xiangbi": {
+    "enabled": false,
+    "style": "none",
+    "top_length": "0mm",
+    "bottom_length": "0mm"
+  },
+  "shuer": {
+    "enabled": false,
+    "position": "top_left",
+    "width": "0mm",
+    "height": "0mm",
+    "shape": "none"
+  },
+  "notes": {
+    "note_style": "inline_small",
+    "note_size_ratio": 0.7,
+    "note_chars_per_line": 0,
+    "continue_across_pages": true
+  },
+  "punctuation": {
+    "mode": "modern",
+    "circle_diameter": "0mm",
+    "dot_diameter": "0mm",
+    "occupies_cell": true
+  },
+  "marginalia": {
+    "top": false,
+    "bottom": false,
+    "side": false,
+    "max_chars": 0
+  },
+  "cover": {
+    "title_vertical": true,
+    "title_band": false,
+    "binding_holes": 0,
+    "cover_pattern": "none"
+  },
+  "typography": {
+    "body_font": "Source Han Sans SC",
+    "body_size": "11pt",
+    "line_height": 1.7,
+    "note_font": "Source Han Sans SC"
+  }
+}

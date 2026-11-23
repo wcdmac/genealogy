@@ -58,6 +58,34 @@ add_custom_command(
   COMMENT "嵌入一致性校验规则表"
   VERBATIM)
 
+# 版式预设（shared/layout/*.json）嵌入——古籍版式要素全参数化
+set(LAYOUT_CLASSIC_OUT ${CMAKE_CURRENT_BINARY_DIR}/generated/layout_guji_classic.cpp)
+set(LAYOUT_PLAIN_OUT ${CMAKE_CURRENT_BINARY_DIR}/generated/layout_plain_modern.cpp)
+add_custom_command(
+  OUTPUT ${LAYOUT_CLASSIC_OUT}
+  COMMAND ${CMAKE_COMMAND}
+          -DIN=${PROJECT_SOURCE_DIR}/shared/layout/guji_classic.json
+          -DOUT=${LAYOUT_CLASSIC_OUT}
+          -DSYMBOL=kGujiClassicJson
+          -DNAMESPACE=genealogy::io::layout_data
+          -DHEADER=genealogy/io/layout_data.hpp
+          -P ${EMBED_TEXT_SCRIPT}
+  DEPENDS ${PROJECT_SOURCE_DIR}/shared/layout/guji_classic.json ${EMBED_TEXT_SCRIPT}
+  COMMENT "嵌入古籍线装版式预设"
+  VERBATIM)
+add_custom_command(
+  OUTPUT ${LAYOUT_PLAIN_OUT}
+  COMMAND ${CMAKE_COMMAND}
+          -DIN=${PROJECT_SOURCE_DIR}/shared/layout/plain_modern.json
+          -DOUT=${LAYOUT_PLAIN_OUT}
+          -DSYMBOL=kPlainModernJson
+          -DNAMESPACE=genealogy::io::layout_data
+          -DHEADER=genealogy/io/layout_data.hpp
+          -P ${EMBED_TEXT_SCRIPT}
+  DEPENDS ${PROJECT_SOURCE_DIR}/shared/layout/plain_modern.json ${EMBED_TEXT_SCRIPT}
+  COMMENT "嵌入素白简排版式预设"
+  VERBATIM)
+
 add_custom_command(
   OUTPUT ${EMBED_OUT}
   COMMAND ${CMAKE_COMMAND}
@@ -132,6 +160,8 @@ target_sources(genealogy-core
   src/io/book_html.cpp
   src/io/chart_svg.cpp
   src/io/wufu_matrix.cpp
+  src/io/markup.cpp
+  src/io/layout_svg.cpp
   src/io/tree_render.cpp
   src/io/synthetic.cpp
   src/lineage/tree.cpp
@@ -141,6 +171,8 @@ target_sources(genealogy-core
     ${RULES_MOURNING_OUT}
     ${RULES_APPEL_OUT}
     ${RULES_VALID_OUT}
+  ${LAYOUT_CLASSIC_OUT}
+  ${LAYOUT_PLAIN_OUT}
 )
 
 target_include_directories(genealogy-core

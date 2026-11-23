@@ -30,6 +30,8 @@
 #include <genealogy/calendar/era.hpp>
 #include <genealogy/io/book_html.hpp>
 #include <genealogy/io/chart_svg.hpp>
+#include <genealogy/io/layout_svg.hpp>
+#include <genealogy/io/markup.hpp>
 #include <genealogy/lineage/mourning.hpp>
 #include <genealogy/repository/book_repository.hpp>
 #include <genealogy/repository/person_repository.hpp>
@@ -614,6 +616,10 @@ int cmd_io(const std::vector<std::string>& args, const std::string& db_path,
       return cmd_export_tree(
           std::vector<std::string>(rest.begin() + 1, rest.end()), db_path, format);
     }
+    if (sub == "export" && !rest.empty() && rest[0] == "layout") {
+      return cmd_export_layout(
+          std::vector<std::string>(rest.begin() + 1, rest.end()), db_path, format);
+    }
     if (sub == "export" && !rest.empty() && rest[0] == "chart") {
       return cmd_export_chart(
           std::vector<std::string>(rest.begin() + 1, rest.end()), db_path, format);
@@ -627,7 +633,7 @@ int cmd_io(const std::vector<std::string>& args, const std::string& db_path,
     std::cerr << "用法错误: " << e.what() << "\n";
     return 2;
   }
-  std::cerr << "用法错误: genea io import gedcom|export gedcom|export tree|export chart|export book|validate\n";
+  std::cerr << "用法错误: genea io import gedcom|export gedcom|export tree|export chart|export book|export layout|validate\n";
   return 2;
 }
 
@@ -1074,6 +1080,90 @@ int cmd_bench(const std::vector<std::string>& args, const std::string& db_path,
 }
 
 
+
+
+// P2 古籍版式导出：自有标记语法 + 全要素版式（版心/鱼尾/象鼻/栏线/书耳）。
+int cmd_export_layout(const std::vector<std::string>& args,
+                      const std::string& db_path, const std::string& format) {
+  (void)db_path;  // 版式源文件是自包含文本，不依赖数据库
+  cxxopts::Options opts("genea io export layout", "标记文本 → 古籍版式 SVG");
+  opts.add_options()
+      ("source", "标记语法源文件（必需）", cxxopts::value<std::string>())
+      ("preset", "版式预设: guji_classic|plain_modern",
+       cxxopts::value<std::string>()->default_value("guji_classic"))
+      ("title", "书名", cxxopts::value<std::string>()->default_value(""))
+      ("volume", "卷次", cxxopts::value<std::string>()->default_value(""))
+      ("out", "输出 SVG（多页时写 foo-pN.svg）", cxxopts::value<std::string>());
+  const auto r = parse_args(opts, args);
+  if (!r.count("source")) {
+    std::cerr << "用法错误: genea io export layout --source <标记文本> [--preset ...]\n";
+    return 2;
+  }
+  std::ifstream in(r["source"].as<std::string>(), std::ios::binary);
+  if (!in) {
+    print_error(Error{ErrorCode::IoError,
+                      "读不出源文件 " + r["source"].as<std::string>()});
+    return 1;
+  }
+  const std::string source((std::istreambuf_iterator<char>(in)),
+                           std::istreambuf_iterator<char>());
+  auto parsed = io::parse_markup(source);
+  if (!parsed) { print_error(parsed.error()); return exit_code_for(parsed.error()); }
+  for (const auto& w : parsed->warnings) std::cerr << "[提示] " << w << "\n";
+
+  // 按〔页〕标记分页：无标记时全部一页
+  std::vector<std::vector<io::MarkupNode>> pages(1);
+  for (const auto& n : parsed->nodes) {
+    if (n.kind == io::MarkupKind::PageBreak) pages.emplace_back();
+    else pages.back().push_back(n);
+  }
+  while (!pages.empty() && pages.back().empty()) pages.pop_back();
+  if (pages.empty()) pages.emplace_back();
+
+  nlohmann::json files = nlohmann::json::array();
+  const std::string title = r["title"].as<std::string>();
+  const std::string volume = r["volume"].as<std::string>();
+  for (std::size_t i = 0; i < pages.size(); ++i) {
+    io::LayoutOptions opt;
+    opt.preset = r["preset"].as<std::string>();
+    opt.book_title = title;
+    opt.volume_title = volume;
+    opt.page_number = static_cast<int>(i + 1);
+    opt.total_pages = pages.size();
+    opt.content = pages[i];
+    auto svg = io::render_layout_page(opt);
+    if (!svg) { print_error(svg.error()); return exit_code_for(svg.error()); }
+    if (!r.count("out")) {
+      if (i) std::cout << "\n<!-- === 第 " << (i + 1) << " 页 === -->\n";
+      std::cout << *svg;
+      continue;
+    }
+    const std::string base = r["out"].as<std::string>();
+    const auto dot = base.find_last_of('.');
+    const std::string path = pages.size() > 1
+        ? (dot == std::string::npos ? base : base.substr(0, dot)) + "-p" +
+          std::to_string(i + 1) + (dot == std::string::npos ? "" : base.substr(dot))
+        : base;
+    bool ok = false;
+    write_file(path, *svg, &ok);
+    if (!ok) {
+      print_error(Error{ErrorCode::IoError, "写不出文件 " + path});
+      return 1;
+    }
+    files.push_back({{"file", path}, {"bytes", svg->size()}});
+  }
+  if (format == "json" && !files.empty()) {
+    std::cout << nlohmann::json{{"files", files},
+                                {"preset", r["preset"].as<std::string>()},
+                                {"pages", pages.size()},
+                                {"warnings", parsed->warnings}}
+                     .dump(2) << "\n";
+  } else if (!files.empty()) {
+    std::cout << "已导出古籍版式 " << pages.size() << " 页到:\n";
+    for (const auto& f : files) std::cout << "  " << f["file"].get<std::string>() << "\n";
+  }
+  return 0;
+}
 
 // P1 世系图导出：六种体例，纯 C++ SVG（规避 Graphviz EPL）。
 // 五服体例由 core 的九族五服矩阵渲染（外置规则表，单一事实源）。
