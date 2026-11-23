@@ -10,7 +10,12 @@
 // 夹注双行小字 1 字 = 1 半行（两字占一行）。换列时夹注补齐到整行，
 // 保证「两字一格」不被拆到两列。
 
+#include <algorithm>
+#include <cmath>
 #include <cstddef>
+#include <string>
+
+#include <nlohmann/json.hpp>
 
 namespace genealogy::io {
 
@@ -28,6 +33,33 @@ struct LayoutGeometry {
   int col_gap = 22;     // 列间距（像素）
   int top_pad = 30;     // 版框顶部留白
   int bottom_pad = 30;  // 版框底部留白
+  int body_px = 15;     // 正文字号（像素）——CSS 与几何的单一来源
+  int note_px = 10;     // 夹注字号（像素）
+  int mark_dx = 14;     // 专名线横向偏移（像素）
+
+  // 从预设 typography 推导全部度量。默认 11pt 时保持原视觉数值
+  // （body_step=19 / note_step=12 / col_gap=22 / mark_dx=14），零回归；
+  // 改预设字号后 CSS 字号、行距、列距、专名线偏移同步联动。
+  static LayoutGeometry from_preset(const nlohmann::json& j) {
+    LayoutGeometry g;
+    const auto& t = j.value("typography", nlohmann::json::object());
+    const std::string size = t.value("body_size", "11pt");
+    double pt = 11;
+    try { pt = std::stod(size); } catch (...) { pt = 11; }
+    g.body_px = static_cast<int>(std::lround(pt * 96.0 / 72.0));  // pt→px @96dpi
+    g.body_step = static_cast<int>(std::lround(g.body_px * 1.25)); // 字距 1.25em
+    g.col_gap = static_cast<int>(std::lround(g.body_px * 1.47));   // 行距≈1.47em
+    g.mark_dx = static_cast<int>(std::lround(g.body_px * 0.93));   // 专名线偏移
+
+    // 夹注字号取正文的 0.67（10/15，与原 .note 10px 一致）。
+    // 注意：notes.note_size_ratio 旧字段语义是「每格字数占比」而非字号比，
+    // 不用于字号推导，避免预设 0.6 把字号算成 9px。
+    constexpr double kNoteSizeRatio = 0.67;
+    g.note_px = std::max(6, static_cast<int>(
+        std::lround(g.body_px * kNoteSizeRatio)));
+    g.note_step = std::max(8, static_cast<int>(std::lround(g.note_px * 1.2)));
+    return g;
+  }
 };
 
 // 每列可容纳的半行数（行高口径 = 正文行）

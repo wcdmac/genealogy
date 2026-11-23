@@ -65,6 +65,15 @@ Result<std::string> layout_preset_json(const std::string& id) {
   return Error{ErrorCode::InvalidArgument, "未知版式预设: " + id};
 }
 
+Result<LayoutGeometry> geometry_for_preset(const std::string& id) {
+  auto pj = layout_preset_json(id);
+  if (!pj) return pj.error();
+  const auto j = nlohmann::json::parse(*pj, nullptr, false);
+  if (j.is_discarded())
+    return Error{ErrorCode::InvalidArgument, "版式预设 JSON 解析失败: " + id};
+  return LayoutGeometry::from_preset(j);
+}
+
 Result<std::string> render_layout_page(const LayoutOptions& opt) {
   auto pj = layout_preset_json(opt.preset);
   if (!pj) return pj.error();
@@ -85,6 +94,8 @@ Result<std::string> render_layout_page(const LayoutOptions& opt) {
   const bool show_grid = j.value("columns", nlohmann::json::object()).value("grid_rules", false);
   const int col_count = j.value("columns", nlohmann::json::object()).value("count", 10);
 
+  const LayoutGeometry geo = opt.geometry_override.value_or(
+      LayoutGeometry::from_preset(j));
   std::ostringstream s;
   s << "<?xml version='1.0' encoding='UTF-8'?>\n"
     << "<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 "
@@ -98,10 +109,10 @@ Result<std::string> render_layout_page(const LayoutOptions& opt) {
     << ".banxin{fill:none;stroke:#222;stroke-width:0.8;}\n"
     << ".yuwei{fill:none;stroke:#222;stroke-width:1;}\n"
     << ".xiangbi{fill:none;stroke:#222;stroke-width:0.8;}\n"
-    << ".body{font-size:15px;writing-mode:vertical-rl;}\n"
-    << ".note{font-size:10px;fill:#444;}\n"
-    << ".ear{font-size:11px;}\n"
-    << ".center{font-size:12px;}\n"
+    << ".body{font-size:" << geo.body_px << "px;writing-mode:vertical-rl;}\n"
+    << ".note{font-size:" << geo.note_px << "px;fill:#444;}\n"
+    << ".ear{font-size:" << geo.note_px << "px;}\n"
+    << ".center{font-size:" << geo.note_px << "px;}\n"
     << "</style>\n"
     << "<rect width='100%' height='100%' fill='#f7f1e3'/>\n";
 
@@ -244,7 +255,6 @@ Result<std::string> render_layout_page(const LayoutOptions& opt) {
   // 五、正文：分页器与渲染器共用 TextCursor 几何模型。
   // 每个字符的真实 (列, 半行) 由游标给出；同列同样式连续字符合并为一个
   // <text>。分页器已用同一游标切页，故本页内容必然落在本页版框内。
-  const LayoutGeometry geo;
   TextCursor cursor(geo);
   std::vector<Column> columns(static_cast<std::size_t>(columns_per_page(geo)));
   // 专名线字符的逻辑位置序列（按输入顺序），用于绘制跨列连续下划线
@@ -313,7 +323,9 @@ Result<std::string> render_layout_page(const LayoutOptions& opt) {
                        : run.style == "cont" ? "warn"
                        : "body";
       std::string extra;
-      if (run.style == "title") extra = " style='font-size:19px;font-weight:500'";
+      if (run.style == "title")
+        extra = " style='font-size:" + std::to_string(
+            static_cast<int>(std::lround(geo.body_px * 1.27))) + "px;font-weight:500'";
       if (run.style == "cont") extra = " fill='#a32d2d'";
       const int y = row_y(geo, run.half_row_start);
       s << "<text class='" << cls << "' x='" << x << "' y='" << y
@@ -321,29 +333,33 @@ Result<std::string> render_layout_page(const LayoutOptions& opt) {
         << esc(run.text) << "</text>\n";
     }
   }
-  // 专名线覆盖层：按逻辑字符序列连成连续折线，跨列不断裂。
-  // 竖排在字符右侧画竖线；跨列时从上列末位折到右列首位（传统专名线范式）。
+  // 专名线覆盖层：同列连续字符合并为一条长竖线，跨列折线连接。
+  // 比例从字号推导（mark_dx / 竖线上下伸出量），字号改变自动适配。
   if (!em_marks.empty()) {
-    const int mark_dx = 14;
+    const int mark_dx = geo.mark_dx;
+    const int over = std::max(2, static_cast<int>(std::lround(geo.body_px * 0.8)));
+    const int under = std::max(2, static_cast<int>(std::lround(geo.body_px * 0.27)));
     std::string path_d;
-    char buf[64];
-    auto point = [&](const TextCursor::Placement& m) {
-      const int x = column_x(geo, m.col) + mark_dx;
-      const int y = row_y(geo, m.half_row);
-      std::snprintf(buf, sizeof(buf), "M%d %d L%d %d ", x, y - 12, x, y + 4);
+    char buf[80];
+    // 按列切段：同列内合并首末为一条线
+    std::size_t i = 0;
+    while (i < em_marks.size()) {
+      const int col = em_marks[i].col;
+      std::size_t j = i + 1;
+      while (j < em_marks.size() && em_marks[j].col == col) ++j;
+      const int x = column_x(geo, col) + mark_dx;
+      const int y1 = row_y(geo, em_marks[i].half_row) - over;
+      const int y2 = row_y(geo, em_marks[j - 1].half_row) + under;
+      std::snprintf(buf, sizeof(buf), "M%d %d L%d %d ", x, y1, x, y2);
       path_d += buf;
-    };
-    for (const auto& m : em_marks) point(m);
-    // 跨列连接段：相邻 mark 不同列时，从上一列右下折到下一列右上
-    for (std::size_t i = 1; i < em_marks.size(); ++i) {
-      if (em_marks[i].col != em_marks[i - 1].col) {
-        const int x1 = column_x(geo, em_marks[i - 1].col) + mark_dx;
-        const int y1 = row_y(geo, em_marks[i - 1].half_row) + 4;
-        const int x2 = column_x(geo, em_marks[i].col) + mark_dx;
-        const int y2 = row_y(geo, em_marks[i].half_row) - 12;
-        std::snprintf(buf, sizeof(buf), "M%d %d L%d %d ", x1, y1, x2, y2);
+      // 与本段末字符到下一列首字符之间补折线（跨列连续）
+      if (j < em_marks.size() && em_marks[j].col != col) {
+        const int nx = column_x(geo, em_marks[j].col) + mark_dx;
+        const int ny = row_y(geo, em_marks[j].half_row) - over;
+        std::snprintf(buf, sizeof(buf), "M%d %d L%d %d ", x, y2, nx, ny);
         path_d += buf;
       }
+      i = j;
     }
     s << "<path d='" << path_d << "' fill='none' stroke='#a32d2d' stroke-width='0.9'/>" << "\n";
   }

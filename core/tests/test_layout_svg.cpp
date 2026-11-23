@@ -175,8 +175,58 @@ TEST_CASE("版式：专名线跨列连续（独立覆盖层）") {
   CHECK(svg->find("text-decoration='underline'") == std::string::npos);
   // 有独立覆盖层 path（红色专名线）
   CHECK(svg->find("stroke='#a32d2d' stroke-width='0.9'") != std::string::npos);
-  // 跨列连接段：路径中 M 命令数 > 字数（每字一段 + 跨列段）
+  // 同列合并成长线：M 命令数远小于字数（每列一段 + 跨列一段）
   std::size_t m_count = 0, pos = 0;
   while ((pos = svg->find("M", pos)) != std::string::npos) { ++m_count; pos += 1; }
-  CHECK((m_count > 100));
+  CHECK((m_count < 30));
+  // 且确实跨列（>2 段：至少 2 列 + 1 折线）
+  CHECK((m_count >= 3));
+}
+
+
+TEST_CASE("版式：字体度量单一来源——改字号联动几何与 CSS") {
+  using genealogy::io::LayoutGeometry;
+  auto pj = genealogy::io::layout_preset_json("guji_classic");
+  REQUIRE(pj.has_value());
+  const auto base = nlohmann::json::parse(*pj);
+  const auto g11 = LayoutGeometry::from_preset(base);
+  // 默认 11pt 保持原视觉数值（零回归）
+  CHECK(g11.body_px == 15);
+  CHECK(g11.body_step == 19);
+  CHECK(g11.note_step == 12);
+  CHECK(g11.col_gap == 22);
+  CHECK(g11.mark_dx == 14);
+
+  // 字号翻倍 → 全部几何联动放大
+  auto big = base;
+  big["typography"]["body_size"] = "22pt";
+  const auto g22 = LayoutGeometry::from_preset(big);
+  CHECK(g22.body_px == 29);            // 22pt@96dpi ≈ 29px
+  CHECK((g22.body_step > g11.body_step));
+  CHECK((g22.note_px > g11.note_px));
+  CHECK((g22.col_gap > g11.col_gap));
+  CHECK((g22.mark_dx > g11.mark_dx));
+  // 字号变大 → 每页列容量下降（几何与分页同步）
+  CHECK(genealogy::io::columns_per_page(g22) <=
+        genealogy::io::columns_per_page(g11));
+
+  // geometry_for_preset 与预设一致
+  auto fg = genealogy::io::geometry_for_preset("guji_classic");
+  REQUIRE(fg.has_value());
+  CHECK(fg->body_step == g11.body_step);
+  CHECK_FALSE(genealogy::io::geometry_for_preset("no_such").has_value());
+}
+
+TEST_CASE("版式：CSS 字号来自预设而非硬编码") {
+  genealogy::io::LayoutOptions opt;
+  opt.preset = "plain_modern";
+  opt.book_title = "字号测试";
+  auto svg = genealogy::io::render_layout_page(opt);
+  REQUIRE(svg.has_value());
+  const auto g = genealogy::io::geometry_for_preset("plain_modern");
+  REQUIRE(g.has_value());
+  CHECK(svg->find(".body{font-size:" + std::to_string(g->body_px) + "px") !=
+        std::string::npos);
+  CHECK(svg->find(".note{font-size:" + std::to_string(g->note_px) + "px") !=
+        std::string::npos);
 }

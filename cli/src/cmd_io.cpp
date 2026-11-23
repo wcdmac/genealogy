@@ -1093,6 +1093,8 @@ int cmd_export_layout(const std::vector<std::string>& args,
       ("preset", "版式预设: guji_classic|plain_modern",
        cxxopts::value<std::string>()->default_value("guji_classic"))
       ("title", "书名", cxxopts::value<std::string>()->default_value(""))
+      ("body-size", "正文字号覆盖（如 22pt），无需改预设 JSON",
+       cxxopts::value<std::string>()->default_value(""))
       ("volume", "卷次", cxxopts::value<std::string>()->default_value(""))
       ("out", "输出 SVG（多页时写 foo-pN.svg）", cxxopts::value<std::string>());
   const auto r = parse_args(opts, args);
@@ -1112,13 +1114,27 @@ int cmd_export_layout(const std::vector<std::string>& args,
   if (!parsed) { print_error(parsed.error()); return exit_code_for(parsed.error()); }
   for (const auto& w : parsed->warnings) std::cerr << "[提示] " << w << "\n";
 
-  // 按〔页〕标记分页：无标记时全部一页
-  std::vector<std::vector<io::MarkupNode>> pages(1);
-  for (const auto& n : parsed->nodes) {
-    if (n.kind == io::MarkupKind::PageBreak) pages.emplace_back();
-    else pages.back().push_back(n);
+  // 用预设字体度量分页，与渲染器共用同一几何（字号改动自动联动）
+  io::PageLayoutOptions pl;
+  pl.source = parsed->nodes;
+  auto preset_geo = io::geometry_for_preset(r["preset"].as<std::string>());
+  if (!preset_geo) { print_error(preset_geo.error()); return exit_code_for(preset_geo.error()); }
+  pl.geometry = *preset_geo;
+  // --body-size 覆盖：用相同推导规则重算几何，分页/渲染共用
+  if (r.count("body-size") && !r["body-size"].as<std::string>().empty()) {
+    auto pj = io::layout_preset_json(r["preset"].as<std::string>());
+    if (pj) {
+      auto pjson = nlohmann::json::parse(*pj, nullptr, false);
+      if (!pjson.is_discarded()) {
+        pjson["typography"]["body_size"] = r["body-size"].as<std::string>();
+        pl.geometry = io::LayoutGeometry::from_preset(pjson);
+      }
+    }
   }
-  while (!pages.empty() && pages.back().empty()) pages.pop_back();
+  auto paged = io::paginate_content(pl);
+  if (!paged) { print_error(paged.error()); return exit_code_for(paged.error()); }
+  std::vector<std::vector<io::MarkupNode>> pages;
+  for (const auto& pg : paged->pages) pages.push_back(pg.nodes);
   if (pages.empty()) pages.emplace_back();
 
   nlohmann::json files = nlohmann::json::array();
@@ -1132,6 +1148,7 @@ int cmd_export_layout(const std::vector<std::string>& args,
     opt.page_number = static_cast<int>(i + 1);
     opt.total_pages = pages.size();
     opt.content = pages[i];
+    opt.geometry_override = pl.geometry;
     auto svg = io::render_layout_page(opt);
     if (!svg) { print_error(svg.error()); return exit_code_for(svg.error()); }
     if (!r.count("out")) {
@@ -1379,7 +1396,10 @@ int cmd_export_book(const std::vector<std::string>& args,
     }
     io::PageLayoutOptions pl;
     pl.source = nodes;
-    // 使用默认共享版框几何；分页点与渲染器完全一致
+    // 与渲染器共用预设字体度量几何，分页点完全一致
+    auto bgeo = io::geometry_for_preset(r["layout-preset"].as<std::string>());
+    if (!bgeo) { print_error(bgeo.error()); return exit_code_for(bgeo.error()); }
+    pl.geometry = *bgeo;
     auto layout = io::paginate_content(pl);
     if (!layout) { print_error(layout.error()); return exit_code_for(layout.error()); }
 
