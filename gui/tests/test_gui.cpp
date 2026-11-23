@@ -36,6 +36,10 @@
 #include <genealogy/gui/panels/place_panel.hpp>
 #include <genealogy/gui/panels/poem_panel.hpp>
 #include <genealogy/gui/panels/backup_panel.hpp>
+#include <genealogy/gui/panels/timeline_panel.hpp>
+#include <genealogy/gui/panels/attachment_panel.hpp>
+#include <genealogy/gui/panels/merge_panel.hpp>
+#include <genealogy/util/sha256.hpp>
 #include <genealogy/gui/panels/new_person_panel.hpp>
 #include <genealogy/gui/panels/person_card.hpp>
 #include <genealogy/gui/panels/person_table.hpp>
@@ -860,6 +864,186 @@ TEST_CASE("备份面板：快照、拒绝覆盖、force 恢复") {
   auto got = reopened.persons().get_person(made->id);
   CHECK(got.has_value());
 
+  std::error_code ec;
+  std::filesystem::remove_all(dir, ec);
+}
+
+
+TEST_CASE("时间线面板：事件排序与地点统计") {
+  TempDb db;
+  std::string why;
+  REQUIRE(db.open(&why));
+  auto person = db.session.persons().create_person(
+      make_person("周", "事件", Gender::Male, "1900"));
+  REQUIRE(person.has_value());
+
+  auto place = db.session.places().create_place([] {
+    Place p; p.name = "河南"; return p; }());
+  REQUIRE(place.has_value());
+
+  // 两条事件：1920 出生、1950 卒（均关联地点）
+  for (const char* iso : {"1920-03-15", "1950-08-20"}) {
+    Event e;
+    e.subject_type = EventSubjectType::Person;
+    e.subject_id = person->id;
+    e.type = EventType::Birth;
+    auto parsed = GenealogyDate::from_iso(iso);
+    REQUIRE(parsed.has_value());
+    e.date = *parsed;
+    e.place_id = place->id;
+    auto made = db.session.events().create_event(e);
+    REQUIRE(made.has_value());
+  }
+
+  AppState state;
+  TimelinePanel panel(state);
+  REQUIRE(panel.reload(db.session, &why));
+  REQUIRE(panel.rows().size() == 2);
+  CHECK(panel.rows()[0].year == "1920-03-15");  // 按年份升序
+  CHECK(panel.rows()[1].year == "1950-08-20");
+  CHECK(panel.rows()[0].subject == "周事件");
+  CHECK(panel.rows()[0].place == "河南");
+  REQUIRE(panel.places().size() == 1);
+  CHECK(panel.places()[0].name == "河南");
+  CHECK(panel.places()[0].count == 2);
+
+  // 类型筛选：迁徙应无结果
+  panel.set_type_filter(5);
+  REQUIRE(panel.reload(db.session, &why));
+  CHECK(panel.rows().empty());
+}
+
+
+TEST_CASE("SHA-256 已知向量") {
+  // NIST FIPS 180-4 标准向量
+  CHECK(sha256_hex("abc") ==
+        "ba7816bf8f01cfea414140de5dae2223b00361a396177a9cb410ff61f20015ad");
+  CHECK(sha256_hex("") ==
+        "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855");
+  // 跨 64 字节边界
+  CHECK(sha256_hex(std::string(64, 'a')).size() == 64);
+  CHECK(sha256_hex(std::string(65, 'a')) != sha256_hex(std::string(64, 'a')));
+}
+
+TEST_CASE("附件面板：导入、sha256 去重与列表") {
+  TempDb db;
+  std::string why;
+  REQUIRE(db.open(&why));
+  auto person = db.session.persons().create_person(
+      make_person("吴", "附件", Gender::Male, "1980"));
+  REQUIRE(person.has_value());
+
+  const auto dir = std::filesystem::temp_directory_path() /
+                   ("genealogy-att-" + generate_ulid());
+  std::filesystem::create_directories(dir);
+  const auto file = dir / "portrait.txt";
+  { std::ofstream out(file, std::ios::binary); out << "portrait-bytes"; }
+
+  AppState state;
+  AttachmentPanel panel(state);
+  REQUIRE(panel.import_file(db.session, file.string(),
+                            AttachmentKind::Portrait, person->id,
+                            "遗像", &why));
+  REQUIRE(panel.rows().size() == 1);
+  CHECK(panel.rows()[0].sha256 == sha256_hex("portrait-bytes"));
+  CHECK(panel.rows()[0].caption.value_or("") == "遗像");
+  // 内容文件已落盘
+  const auto stored = db.session.attachments().content_path(
+      panel.rows()[0].sha256);
+  CHECK(std::filesystem::exists(stored));
+
+  // 再次导入同一文件 → 两条元数据但共享同一内容文件（sha256 去重）
+  REQUIRE(panel.import_file(db.session, file.string(),
+                            AttachmentKind::Photo, person->id, "", &why));
+  CHECK(panel.rows().size() == 2);
+  CHECK(panel.rows()[0].sha256 == panel.rows()[1].sha256);
+
+  // 删除一条
+  REQUIRE(panel.remove(db.session, panel.rows()[0].id, &why));
+  CHECK(panel.rows().size() == 1);
+  std::error_code ec;
+  std::filesystem::remove_all(dir, ec);
+}
+
+
+TEST_CASE("重复合并：检测四级建议、冲突拒绝、关系迁移") {
+  TempDb db;
+  std::string why;
+  REQUIRE(db.open(&why));
+
+  // 一对同名同出生年（强烈建议）
+  auto a = db.session.persons().create_person(
+      make_person("郑", "重复", Gender::Male, "1900"));
+  REQUIRE(a.has_value());
+  auto b = db.session.persons().create_person(
+      make_person("郑", "重复", Gender::Male, "1900"));
+  REQUIRE(b.has_value());
+  // 一个同名但出生年不同（不建议）
+  auto c = db.session.persons().create_person(
+      make_person("郑", "重复", Gender::Male, "1910"));
+  REQUIRE(c.has_value());
+
+  AppState state;
+  MergePanel panel(state);
+  REQUIRE(panel.scan(db.session, &why));
+  CHECK(panel.pairs().size() == 3);  // a-b, a-c, b-c
+  bool has_strong = false, has_unlikely = false;
+  for (const auto& p : panel.pairs()) {
+    if (p.confidence == genealogy::MergeConfidence::Strong) has_strong = true;
+    if (p.confidence == genealogy::MergeConfidence::Unlikely) has_unlikely = true;
+  }
+  CHECK(has_strong);
+  CHECK(has_unlikely);
+
+  // 预览无冲突（a 与 b 字段一致）
+  REQUIRE(panel.preview(db.session, a->id, b->id, &why));
+  CHECK(panel.conflicts().empty());
+
+  // 给 a、b 各设不同父亲 → 冲突，合并应拒绝
+  auto father1 = db.session.persons().create_person(
+      make_person("郑", "父甲", Gender::Male, "1870"));
+  auto father2 = db.session.persons().create_person(
+      make_person("郑", "父乙", Gender::Male, "1871"));
+  REQUIRE(father1.has_value());
+  REQUIRE(father2.has_value());
+  auto winner = db.session.persons().get_person(a->id);
+  REQUIRE(winner.has_value());
+  winner->father_id = father1->id;
+  REQUIRE(db.session.persons().update_person(*winner).has_value());
+  auto loser = db.session.persons().get_person(b->id);
+  REQUIRE(loser.has_value());
+  loser->father_id = father2->id;
+  REQUIRE(db.session.persons().update_person(*loser).has_value());
+  REQUIRE(panel.preview(db.session, a->id, b->id, &why));
+  CHECK_FALSE(panel.conflicts().empty());
+  CHECK(panel.conflicts()[0].field == "父亲");
+
+  // 清掉冲突后合并：关系迁移 + 快照
+  loser = db.session.persons().get_person(b->id);
+  REQUIRE(loser.has_value());
+  loser->father_id = father1->id;  // 与 winner 一致 → 无冲突
+  REQUIRE(db.session.persons().update_person(*loser).has_value());
+  // 给 loser 一个事件，验证迁移
+  Event e;
+  e.subject_type = genealogy::EventSubjectType::Person;
+  e.subject_id = b->id;
+  e.type = genealogy::EventType::Birth;
+  auto ev = db.session.events().create_event(e);
+  REQUIRE(ev.has_value());
+
+  const auto dir = (std::filesystem::temp_directory_path() /
+                    ("genealogy-merge-" + generate_ulid())).string();
+  genealogy::MergeService svc(db.session.db());
+  auto result = svc.merge(a->id, b->id, false, dir);
+  REQUIRE(result.has_value());
+  CHECK_FALSE(result->backup_path.empty());
+  CHECK(std::filesystem::exists(result->backup_path));
+  CHECK_FALSE(db.session.persons().get_person(b->id).has_value());  // loser 已删
+  genealogy::EventFilter ef;
+  ef.subject_id = a->id;
+  auto migrated = db.session.events().list_events(ef);
+  REQUIRE(migrated.has_value());
+  CHECK(migrated->size() == 1);  // 事件迁到 winner
   std::error_code ec;
   std::filesystem::remove_all(dir, ec);
 }

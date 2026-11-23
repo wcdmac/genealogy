@@ -16,6 +16,9 @@
 #include <genealogy/gui/panels/place_panel.hpp>
 #include <genealogy/gui/panels/poem_panel.hpp>
 #include <genealogy/gui/panels/backup_panel.hpp>
+#include <genealogy/gui/panels/timeline_panel.hpp>
+#include <genealogy/gui/panels/attachment_panel.hpp>
+#include <genealogy/gui/panels/merge_panel.hpp>
 #include <genealogy/gui/panels/person_table.hpp>
 #include <genealogy/gui/panels/relation_panel.hpp>
 #include <genealogy/gui/panels/search_panel.hpp>
@@ -77,6 +80,9 @@ void GenealogyApp::build_panels() {
   panels_.push_back(std::make_unique<PlacePanel>(state_));
   panels_.push_back(std::make_unique<PoemPanel>(state_));
   panels_.push_back(std::make_unique<BackupPanel>(state_));
+  panels_.push_back(std::make_unique<TimelinePanel>(state_));
+  panels_.push_back(std::make_unique<AttachmentPanel>(state_));
+  panels_.push_back(std::make_unique<MergePanel>(state_));
   panels_.push_back(std::make_unique<PersonTablePanel>(state_));
   panels_.push_back(std::make_unique<SearchPanel>(state_));
   panels_.push_back(std::make_unique<RelationPanel>(state_));

@@ -87,6 +87,12 @@ add_executable(genealogy-gui
   src/panels/poem_panel_state.cpp
   src/panels/backup_panel.cpp
   src/panels/backup_panel_state.cpp
+  src/panels/timeline_panel.cpp
+  src/panels/timeline_panel_state.cpp
+  src/panels/attachment_panel.cpp
+  src/panels/attachment_panel_state.cpp
+  src/panels/merge_panel.cpp
+  src/panels/merge_panel_state.cpp
 )
 
 target_include_directories(genealogy-gui
@@ -143,6 +149,12 @@ if(BUILD_TESTS)
     ${PROJECT_SOURCE_DIR}/gui/src/panels/poem_panel_state.cpp
     ${PROJECT_SOURCE_DIR}/gui/src/panels/backup_panel.cpp
     ${PROJECT_SOURCE_DIR}/gui/src/panels/backup_panel_state.cpp
+    ${PROJECT_SOURCE_DIR}/gui/src/panels/timeline_panel.cpp
+    ${PROJECT_SOURCE_DIR}/gui/src/panels/timeline_panel_state.cpp
+    ${PROJECT_SOURCE_DIR}/gui/src/panels/attachment_panel.cpp
+    ${PROJECT_SOURCE_DIR}/gui/src/panels/attachment_panel_state.cpp
+    ${PROJECT_SOURCE_DIR}/gui/src/panels/merge_panel.cpp
+    ${PROJECT_SOURCE_DIR}/gui/src/panels/merge_panel_state.cpp
   )
   target_include_directories(genealogy-gui-tests
     PRIVATE ${PROJECT_SOURCE_DIR}/gui/include
