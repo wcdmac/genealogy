@@ -4,9 +4,12 @@
 
 #include <nlohmann/json.hpp>
 
+#include <genealogy/util/utf8.hpp>
+
 #include <algorithm>
 #include <sstream>
 #include <string>
+#include <string_view>
 
 namespace genealogy::io {
 
@@ -15,7 +18,23 @@ namespace {
 constexpr int kPageW = 720;
 constexpr int kPageH = 1040;
 
-std::string esc(const std::string& s) {
+// 列缓冲：同一列里样式相同的连续字符合并为一个 <text>，
+// 万级字符页的元素数从「字数」降到「列数 × 样式段数」。
+struct Run {
+  std::string text;
+  std::string style;   // 空=正文，note=夹注，em=专名线
+};
+struct Column {
+  std::vector<Run> runs;
+  int rows = 0;
+  void add(std::string_view cp, std::string_view st, int height) {
+    if (runs.empty() || runs.back().style != st) runs.push_back({"", std::string(st)});
+    runs.back().text.append(cp);
+    rows += height;
+  }
+};
+
+std::string esc(std::string_view s) {
   std::string out;
   for (char c : s) {
     switch (c) {
@@ -25,22 +44,6 @@ std::string esc(const std::string& s) {
       case '"': out += "&quot;"; break;
       default: out += c;
     }
-  }
-  return out;
-}
-
-// UTF-8 码点切分：中文 3 字节，逐 char 遍历会切出非法字节序列
-// （与标记解析的〔〕偏移坑同源）。
-std::vector<std::string> utf8_chars(const std::string& s) {
-  std::vector<std::string> out;
-  for (std::size_t i = 0; i < s.size();) {
-    const unsigned char c = static_cast<unsigned char>(s[i]);
-    std::size_t n = 1;
-    if (c >= 0xF0) n = 4;
-    else if (c >= 0xE0) n = 3;
-    else if (c >= 0xC0) n = 2;
-    out.push_back(s.substr(i, std::min(n, s.size() - i)));
-    i += n;
   }
   return out;
 }
@@ -104,17 +107,46 @@ Result<std::string> render_layout_page(const LayoutOptions& opt) {
     << "</style>\n"
     << "<rect width='100%' height='100%' fill='#f7f1e3'/>\n";
 
-  // 一、栏线（外框/内框）
+  // 一、栏线（外框/内框）：四边线型独立可控（左右双边、上下单边等）
   if (show_frame) {
-    const std::string rules = text_of(j["frame"], "outer_rules", "double");
-    s << "<rect class='frame' x='" << frame_l << "' y='" << frame_t
-      << "' width='" << (frame_r - frame_l) << "' height='" << (frame_b - frame_t) << "'/>\n";
+    const auto& fj = j["frame"];
+    const std::string rules = text_of(fj, "outer_rules", "double");
+    auto side = [&](const char* key) {
+      if (!fj.is_object()) return rules;
+      const auto it = fj.find("side_rules");
+      if (it == fj.end() || !it->is_object()) return rules;
+      return text_of(*it, key, rules);
+    };
+    const std::string top = side("top"), bottom = side("bottom");
+    const std::string left = side("left"), right = side("right");
+    if (top != "none" && bottom != "none" && left != "none" && right != "none")
+      s << "<rect class='frame' x='" << frame_l << "' y='" << frame_t
+        << "' width='" << (frame_r - frame_l) << "' height='" << (frame_b - frame_t) << "'/>\n";
+    else {
+      if (top != "none") s << "<line class='frame' x1='" << frame_l << "' y1='" << frame_t << "' x2='" << frame_r << "' y2='" << frame_t << "'/>\n";
+      if (bottom != "none") s << "<line class='frame' x1='" << frame_l << "' y1='" << frame_b << "' x2='" << frame_r << "' y2='" << frame_b << "'/>\n";
+      if (left != "none") s << "<line class='frame' x1='" << frame_l << "' y1='" << frame_t << "' x2='" << frame_l << "' y2='" << frame_b << "'/>\n";
+      if (right != "none") s << "<line class='frame' x1='" << frame_r << "' y1='" << frame_t << "' x2='" << frame_r << "' y2='" << frame_b << "'/>\n";
+    }
     if (rules == "double")
       s << "<rect class='frame2' x='" << (frame_l + 4) << "' y='" << (frame_t + 4)
         << "' width='" << (frame_r - frame_l - 8) << "' height='"
         << (frame_b - frame_t - 8) << "'/>\n";
   }
-
+  // 装订线（四眼/六眼/八眼）：书口侧打孔，公版线装形制
+  if (enabled(j, "binding")) {
+    const auto& bj = j["binding"];
+    const int holes = bj.value("holes", 4);
+    const double ratio = bj.value("spacing_ratio", 0.25);
+    const int hole_x = frame_l - 28;
+    s << "<line x1='" << hole_x << "' y1='" << frame_t << "' x2='" << hole_x
+      << "' y2='" << frame_b << "' stroke='#444' stroke-width='0.6' stroke-dasharray='2 3'/>\n";
+    for (int i = 0; i < holes; ++i) {
+      const int hy = static_cast<int>(frame_t + (frame_b - frame_t) *
+          (ratio + (1 - 2 * ratio) * i / std::max(1, holes - 1)));
+      s << "<circle cx='" << hole_x << "' cy='" << hy << "' r='3' fill='#f7f1e3' stroke='#444' stroke-width='0.8'/>\n";
+    }
+  }
   // 二、界行（column grid rules）：自左向右均分，版心处留空
   if (show_grid) {
     const int usable_l = frame_l + 14, usable_r = center_x - 10;
@@ -137,20 +169,54 @@ Result<std::string> render_layout_page(const LayoutOptions& opt) {
     s << "<rect class='banxin' x='" << center_x << "' y='" << frame_t
       << "' width='" << center_w << "' height='" << (frame_b - frame_t) << "'/>\n";
     if (show_xiangbi) {
-      // 象鼻：版心上下两段horizon线（自绘，非任何软件图样）
-      s << "<line class='xiangbi' x1='" << center_x << "' y1='" << (frame_t + 34)
-        << "' x2='" << (center_x + center_w) << "' y2='" << (frame_t + 34) << "'/>\n"
-        << "<line class='xiangbi' x1='" << center_x << "' y1='" << (frame_b - 34)
-        << "' x2='" << (center_x + center_w) << "' y2='" << (frame_b - 34) << "'/>\n";
+      // 象鼻：单线/双线由预设 line_count 控制（自绘几何，非任何软件图样）
+      const int nline = std::max(1, j["xiangbi"].value("line_count", 2));
+      const int gap = nline > 1 ? 5 : 0;
+      for (int k = 0; k < nline; ++k) {
+        const int off = k * gap;
+        s << "<line class='xiangbi' x1='" << center_x << "' y1='" << (frame_t + 34 + off)
+          << "' x2='" << (center_x + center_w) << "' y2='" << (frame_t + 34 + off) << "'/>\n"
+          << "<line class='xiangbi' x1='" << center_x << "' y1='" << (frame_b - 34 - off)
+          << "' x2='" << (center_x + center_w) << "' y2='" << (frame_b - 34 - off) << "'/>\n";
+      }
     }
     if (show_yuwei) {
-      // 鱼尾：倒三角 + 横线（自行设计的几何形制）
-      const int yw_y = frame_t + 26, cx = center_x + center_w / 2;
-      s << "<path class='yuwei' d='M" << (cx - 26) << " " << yw_y
-        << " L" << (cx + 26) << " " << yw_y << " L" << cx << " " << (yw_y + 18)
-        << " Z'/>\n"
-        << "<line class='yuwei' x1='" << (cx - 30) << "' y1='" << (yw_y - 3)
-        << "' x2='" << (cx + 30) << "' y2='" << (yw_y - 3) << "'/>\n";
+      // 鱼尾：五种自绘形制，由预设 style/count 控制。
+      // 几何为公版古籍版式通识的简化表达，不描摹任何软件素材。
+      const auto& yj = j["yuwei"];
+      const std::string ystyle = text_of(yj, "style", "single_black");
+      const int ycount = std::max(1, yj.value("count", 1));
+      const int cx = center_x + center_w / 2;
+      const int top_y = frame_t + 26;
+      const int bot_y = frame_b - 26;
+      auto draw_tail = [&](int yy, bool up) {
+        if (ystyle == "flower") {
+          // 花瓣鱼尾：三个圆弧瓣
+          s << "<path class='yuwei' d='M" << (cx - 24) << " " << yy
+            << " Q" << (cx - 12) << " " << (yy + (up ? 16 : -16)) << " " << cx << " " << yy
+            << " Q" << (cx + 12) << " " << (yy + (up ? 16 : -16)) << " " << (cx + 24) << " " << yy
+            << " Z'/>\n";
+        } else if (ystyle == "cloud") {
+          // 云头鱼尾：波浪曲线
+          s << "<path class='yuwei' d='M" << (cx - 26) << " " << yy
+            << " Q" << (cx - 13) << " " << (yy - 12) << " " << cx << " " << yy
+            << " Q" << (cx + 13) << " " << (yy - 12) << " " << (cx + 26) << " " << yy
+            << " L" << cx << " " << (yy + (up ? 18 : -18)) << " Z'/>\n";
+        } else if (ystyle == "line") {
+          // 线鱼尾：仅横线，无三角
+          s << "<line class='yuwei' x1='" << (cx - 22) << "' y1='" << yy
+            << "' x2='" << (cx + 22) << "' y2='" << yy << "'/>\n";
+        } else {
+          // single_black / double_black：实心三角 + 横线
+          s << "<path class='yuwei' d='M" << (cx - 26) << " " << yy
+            << " L" << (cx + 26) << " " << yy << " L" << cx << " " << (yy + (up ? 18 : -18))
+            << " Z'/>\n"
+            << "<line class='yuwei' x1='" << (cx - 30) << "' y1='" << (yy - 3)
+            << "' x2='" << (cx + 30) << "' y2='" << (yy - 3) << "'/>\n";
+        }
+      };
+      draw_tail(top_y, true);
+      if (ycount > 1) draw_tail(bot_y, false);
     }
     const int cy = (frame_t + frame_b) / 2;
     if (!opt.volume_title.empty())
@@ -173,66 +239,109 @@ Result<std::string> render_layout_page(const LayoutOptions& opt) {
       << "</text>\n";
   }
 
-  // 五、正文（按标记节点渲染；竖排由 CSS writing-mode 实现）
-  int x = frame_r - 24;
-  int y = frame_t + 30;
+  // 五、正文：列缓冲 + 字形合并。
+  // 每列容量由版框高度与行距推出；列满换列，满版后不再输出（分页由
+  // page_layout 引擎在渲染前完成，见 CLI export layout）。
+  const int body_step = 19;
+  const int note_step = 12;
+  const int col_capacity = (frame_b - frame_t - 60) / body_step;
+  const int col_left_limit = center_x + center_w + 20;
+  std::vector<Column> columns;
+  columns.emplace_back();
+  int cur_col = 0;
+  auto new_column = [&]() {
+    columns.emplace_back();
+    ++cur_col;
+  };
+
   for (const auto& n : opt.content) {
     switch (n.kind) {
       case MarkupKind::Volume:
       case MarkupKind::Chapter:
       case MarkupKind::Section: {
-        s << "<text class='body' x='" << x << "' y='" << y
-          << "' style='font-size:19px;font-weight:500'>" << esc(n.text) << "</text>\n";
-        x -= 30;
+        for (const auto& cp : utf8_chars(n.text)) {
+          if (columns[cur_col].rows >= col_capacity) new_column();
+          columns[cur_col].add(cp, "title", body_step);
+        }
+        new_column();
         break;
       }
       case MarkupKind::Text: {
-        // 逐字竖排：一个字一行，到达底部换列
         for (const auto& cp : utf8_chars(n.text)) {
-          if (y > frame_b - 20) { y = frame_t + 30; x -= 22; }
-          if (x < center_x + center_w + 20) break;
-          s << "<text class='body' x='" << x << "' y='" << y << "'>"
-            << esc(cp) << "</text>\n";
-          y += 19;
+          if (columns[cur_col].rows >= col_capacity) new_column();
+          columns[cur_col].add(cp, "", body_step);
         }
         break;
       }
       case MarkupKind::Note:
       case MarkupKind::Marginal:
       case MarkupKind::Ear: {
-        s << "<text class='note' x='" << (x - 6) << "' y='" << y << "'>"
-          << esc(n.text) << "</text>\n";
-        y += 14;
+        for (const auto& cp : utf8_chars(n.text)) {
+          if (columns[cur_col].rows >= col_capacity) new_column();
+          columns[cur_col].add(cp, "note", note_step);
+        }
+        break;
+      }
+      case MarkupKind::Continuation: {
+        // 夹注续接标记：独占一列首行，红字提示读者
+        for (const auto& cp : utf8_chars(n.text)) {
+          if (columns[cur_col].rows >= col_capacity) new_column();
+          columns[cur_col].add(cp, "cont", note_step);
+        }
         break;
       }
       case MarkupKind::Circle:
-        s << "<circle cx='" << (x - 12) << "' cy='" << (y - 5)
-          << "' r='4' fill='none' stroke='#a32d2d' stroke-width='1'/>\n";
+      case MarkupKind::Dot: {
+        const bool circle = n.kind == MarkupKind::Circle;
+        Run r;
+        r.style = circle ? "circle" : "dot";
+        r.text = circle ? "○" : "、";
+        if (columns[cur_col].rows >= col_capacity) new_column();
+        columns[cur_col].runs.push_back(r);
+        columns[cur_col].rows += note_step;
         break;
-      case MarkupKind::Dot:
-        s << "<circle cx='" << (x - 12) << "' cy='" << (y - 5)
-          << "' r='2' fill='#a32d2d'/>\n";
-        break;
+      }
       case MarkupKind::Emphasis: {
         for (const auto& cp : utf8_chars(n.text)) {
-          if (y > frame_b - 20) { y = frame_t + 30; x -= 22; }
-          s << "<text class='body' x='" << x << "' y='" << y << "'>"
-            << esc(cp) << "</text>\n"
-            << "<line x1='" << (x + 14) << "' y1='" << (y - 12)
-            << "' x2='" << (x + 14) << "' y2='" << (y + 2)
-            << "' stroke='#a32d2d' stroke-width='0.8'/>\n";
-          y += 19;
+          if (columns[cur_col].rows >= col_capacity) new_column();
+          columns[cur_col].add(cp, "em", body_step);
         }
         break;
       }
       case MarkupKind::PageBreak:
-        x = frame_r - 24;
-        y = frame_t + 30;
+        // 页布局已在渲染前按此标记切页；此处仅以新列示意
+        new_column();
         break;
-      case MarkupKind::Indent:
-        y += n.value * 19;
+      case MarkupKind::Indent: {
+        for (int i = 0; i < n.value; ++i) {
+          if (columns[cur_col].rows >= col_capacity) new_column();
+          columns[cur_col].add("　", "", body_step);
+        }
         break;
+      }
     }
+  }
+
+  // 输出：每个 Run 一个 <text>，SVG 原生竖排（writing-mode=tb），
+  // 不再「一个字一个 <text>」。
+  int col_x = frame_r - 24;
+  for (const auto& col : columns) {
+    if (col_x < col_left_limit) break;
+    int y = frame_t + 30;
+    for (const auto& run : col.runs) {
+      const char* cls = run.style == "note" ? "note"
+                       : run.style == "cont" ? "warn"
+                       : "body";
+      std::string extra;
+      if (run.style == "title") extra = " style='font-size:19px;font-weight:500'";
+      if (run.style == "cont") extra = " fill='#a32d2d'";
+      if (run.style == "em") extra = " text-decoration='underline'";
+      s << "<text class='" << cls << "' x='" << col_x << "' y='" << y
+        << "' writing-mode='vertical-rl' glyph-orientation-vertical='0'" << extra << ">"
+        << esc(run.text) << "</text>\n";
+      y += static_cast<int>(run.text.size()) * (run.style == "note" ? note_step : body_step);
+    }
+    col_x -= 22;
   }
   s << "</svg>\n";
   return s.str();

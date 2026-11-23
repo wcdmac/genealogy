@@ -4,6 +4,8 @@
 #include <cctype>
 #include <map>
 
+#include <genealogy/util/utf8.hpp>
+
 namespace genealogy::io {
 
 namespace {
@@ -52,12 +54,17 @@ const char* to_string(MarkupKind k) {
     case MarkupKind::Emphasis: return "emphasis";
     case MarkupKind::PageBreak: return "pagebreak";
     case MarkupKind::Indent: return "indent";
+    case MarkupKind::Continuation: return "continuation";
   }
   return "text";
 }
 
 Result<MarkupResult> parse_markup(const std::string& source) {
   MarkupResult out;
+  // 标记字节长度从共用 UTF-8 工具推导，不硬编码——
+  // 〔 〕是三字节，手写 open+1 曾导致 indent→dent、中文标记全失配。
+  const std::size_t open_len = utf8_chars("〔")[0].size();
+  const std::size_t close_len = utf8_chars("〕")[0].size();
   std::size_t pos = 0;
   std::size_t line = 1;
 
@@ -83,8 +90,8 @@ Result<MarkupResult> parse_markup(const std::string& source) {
     // 踩坑：〔 〕是 UTF-8 三字节（E3 80 94 / E3 80 95），
     // inner 起点必须是 open+3 而非 open+1——否则把首字节切掉，
     // indent:N 变成 "dent:N"，中文标记全部失配（与历法 find('年') 窄化同源）。
-    const std::string inner = source.substr(open + 3, close - open - 3);
-    pos = close + 3;  // 〕 同样三字节
+    const std::string inner = source.substr(open + open_len, close - open - open_len);
+    pos = close + close_len;  // 跳过整个 〕 码位
 
     // 关闭标记：不再单独产生节点，内容已在开始时写入
     if (!inner.empty() && inner[0] == '/') continue;

@@ -162,6 +162,7 @@ target_sources(genealogy-core
   src/io/wufu_matrix.cpp
   src/io/markup.cpp
   src/io/layout_svg.cpp
+  src/io/page_layout.cpp
   src/io/tree_render.cpp
   src/io/synthetic.cpp
   src/lineage/tree.cpp

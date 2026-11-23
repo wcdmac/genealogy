@@ -40,6 +40,7 @@ enum class MarkupKind {
   Emphasis,   // 〔标〕专名线
   PageBreak,  // 〔页〕
   Indent,     // 〔indent:N〕（值在 value）
+  Continuation,  // 页布局引擎插入：夹注跨页续接标记（不来自源文件）
 };
 
 struct MarkupNode {

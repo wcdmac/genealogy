@@ -31,6 +31,7 @@
 #include <genealogy/io/book_html.hpp>
 #include <genealogy/io/chart_svg.hpp>
 #include <genealogy/io/layout_svg.hpp>
+#include <genealogy/io/page_layout.hpp>
 #include <genealogy/io/markup.hpp>
 #include <genealogy/lineage/mourning.hpp>
 #include <genealogy/repository/book_repository.hpp>
@@ -1307,7 +1308,11 @@ int cmd_export_book(const std::vector<std::string>& args,
        cxxopts::value<bool>()->default_value("false"))
       ("font-dir", "字体目录（缺省用随包 assets/fonts）",
        cxxopts::value<std::string>())
-      ("out", "输出 HTML 文件（缺省打标准输出）", cxxopts::value<std::string>());
+      ("use-layout", "走 P2 古籍版式引擎（输出 SVG 而非 HTML）",
+       cxxopts::value<bool>()->default_value("false"))
+      ("layout-preset", "use-layout 时的版式预设",
+       cxxopts::value<std::string>()->default_value("guji_classic"))
+      ("out", "输出文件（缺省打标准输出）", cxxopts::value<std::string>());
   const auto r = parse_args(opts, args);
 
   std::string tmpl = r["template"].as<std::string>();
@@ -1355,6 +1360,75 @@ int cmd_export_book(const std::vector<std::string>& args,
     else if (fs::is_directory("assets/fonts", ec)) opt.font_dir = "assets/fonts";
     else opt.font_dir = "fonts";  // 安装布局：相对 cwd 或由调用方 --font-dir 指定
   }
+  // P2 整合：--use-layout 时改走古籍版式引擎（共享页布局与夹注续排）。
+  // 从数据库人物生成标记节点：世代标题 + 每人一行，行传作为夹注。
+  if (r["use-layout"].as<bool>()) {
+    std::vector<io::MarkupNode> nodes;
+    for (const auto& p : *rows) {
+      io::MarkupNode n;
+      n.kind = io::MarkupKind::Text;
+      n.text = p.family_name + p.given_name +
+               (p.birth_date.gregorian ? "　" + *p.birth_date.gregorian : "");
+      nodes.push_back(n);
+      if (p.biography && !p.biography->empty()) {
+        io::MarkupNode note;
+        note.kind = io::MarkupKind::Note;
+        note.text = *p.biography;
+        nodes.push_back(note);
+      }
+    }
+    io::PageLayoutOptions pl;
+    pl.source = nodes;
+    pl.capacity = 600;  // 每页约 600 格；夹注按 note_chars_per_cell 折抵
+    pl.note_chars_per_cell = 2;
+    auto layout = io::paginate_content(pl);
+    if (!layout) { print_error(layout.error()); return exit_code_for(layout.error()); }
+
+    nlohmann::json files = nlohmann::json::array();
+    for (std::size_t i = 0; i < layout->pages.size(); ++i) {
+      io::LayoutOptions lo;
+      lo.preset = r["layout-preset"].as<std::string>();
+      lo.book_title = book->name.empty() ? "家谱" : book->name;
+      lo.volume_title = book->hall_name.value_or("");
+      lo.page_number = static_cast<int>(i + 1);
+      lo.total_pages = layout->pages.size();
+      lo.content = layout->pages[i].nodes;
+      auto svg = io::render_layout_page(lo);
+      if (!svg) { print_error(svg.error()); return exit_code_for(svg.error()); }
+      if (!r.count("out")) {
+        if (i) std::cout << "\n<!-- === 第 " << (i + 1) << " 页 === -->\n";
+        std::cout << *svg;
+        continue;
+      }
+      const std::string base = r["out"].as<std::string>();
+      const auto dot = base.find_last_of('.');
+      const std::string path = layout->pages.size() > 1
+          ? (dot == std::string::npos ? base : base.substr(0, dot)) + "-p" +
+            std::to_string(i + 1) + (dot == std::string::npos ? "" : base.substr(dot))
+          : base;
+      bool ok = false;
+      write_file(path, *svg, &ok);
+      if (!ok) {
+        print_error(Error{ErrorCode::IoError, "写不出文件 " + path});
+        return 1;
+      }
+      files.push_back({{"file", path}, {"bytes", svg->size()}});
+    }
+    if (format == "json" && !files.empty()) {
+      std::cout << nlohmann::json{{"files", files},
+                                  {"pages", layout->pages.size()},
+                                  {"continued_notes", layout->continued_count},
+                                  {"preset", r["layout-preset"].as<std::string>()}}
+                       .dump(2) << "\n";
+    } else if (!files.empty()) {
+      std::cout << "已用古籍版式导出 " << layout->pages.size() << " 页"
+                << "（夹注续排 " << layout->continued_count << " 段）：\n";
+      for (const auto& f : files)
+        std::cout << "  " << f["file"].get<std::string>() << "\n";
+    }
+    return 0;
+  }
+
   auto html = io::render_book_html(opt);
   if (!html) { print_error(html.error()); return exit_code_for(html.error()); }
 

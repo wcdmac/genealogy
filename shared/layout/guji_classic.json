@@ -16,7 +16,20 @@
     "inner_rules": "none",
     "stroke_width": 1.2,
     "top_y": "22mm",
-    "bottom_offset": "18mm"
+    "bottom_offset": "18mm",
+    "side_rules": {
+      "top": "double",
+      "bottom": "double",
+      "left": "double",
+      "right": "double",
+      "available": [
+        "four_double",
+        "lr_double",
+        "tb_single",
+        "four_single"
+      ]
+    },
+    "corner_joint": "miter"
   },
   "columns": {
     "count": 10,
@@ -36,22 +49,54 @@
       "volume",
       "title",
       "page"
+    ],
+    "volume_symmetric": true,
+    "available_orders": [
+      [
+        "volume",
+        "title",
+        "page"
+      ],
+      [
+        "title",
+        "volume",
+        "page"
+      ],
+      [
+        "title",
+        "page"
+      ]
     ]
   },
   "yuwei": {
     "enabled": true,
     "style": "single_black",
     "count": 1,
+    "available_styles": [
+      "single_black",
+      "double_black",
+      "flower",
+      "line",
+      "cloud"
+    ],
     "position": "center",
     "width": "14mm",
     "height": "6mm",
-    "shape": "triangle"
+    "shape": "triangle",
+    "upper_y_ratio": 0.12,
+    "lower_y_ratio": 0.88,
+    "gap": "4mm",
+    "stroke_width": 1.1,
+    "fill": "none"
   },
   "xiangbi": {
     "enabled": true,
-    "style": "single_line",
+    "style": "double_line",
+    "line_count": 2,
     "top_length": "8mm",
-    "bottom_length": "8mm"
+    "bottom_length": "8mm",
+    "gap": "3mm",
+    "stroke_width": 0.7
   },
   "shuer": {
     "enabled": true,
@@ -89,5 +134,25 @@
     "body_size": "11pt",
     "line_height": 1.75,
     "note_font": "Source Han Serif SC"
+  },
+  "binding": {
+    "enabled": true,
+    "holes": 4,
+    "available_holes": [
+      4,
+      6,
+      8
+    ],
+    "margin": "8mm",
+    "hole_diameter": "2mm",
+    "spacing_ratio": 0.25
+  },
+  "margins": {
+    "head": "22mm",
+    "foot": "18mm",
+    "inner": "24mm",
+    "outer": "16mm",
+    "head_multiplier": 1.0,
+    "foot_multiplier": 1.0
   }
 }
