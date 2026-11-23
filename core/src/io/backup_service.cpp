@@ -32,7 +32,7 @@ std::string backup_timestamp() {
 #if defined(_WIN32)
   localtime_s(&tm, &seconds);
 #else
-  localtime_r(&tm, &seconds);
+  localtime_r(&seconds, &tm);
 #endif
   char buf[32];
   std::strftime(buf, sizeof(buf), "%Y%m%dT%H%M%S", &tm);

@@ -151,6 +151,12 @@ Database& Database::operator=(Database&&) noexcept = default;
 
 sqlite3* Database::raw() const noexcept { return impl_->db.get(); }
 
+bool Database::checkpoint() {
+  return sqlite3_wal_checkpoint_v2(impl_->db.get(), nullptr,
+                                   SQLITE_CHECKPOINT_FULL, nullptr, nullptr) ==
+         SQLITE_OK;
+}
+
 std::recursive_mutex& Database::write_mutex() noexcept {
   return impl_->write_mu;
 }

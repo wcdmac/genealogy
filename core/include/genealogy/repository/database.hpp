@@ -34,6 +34,11 @@ class Database {
   // 仅供仓储内部使用；调用方不得关闭返回的句柄。
   sqlite3* raw() const noexcept;
 
+  // 把当前 WAL 帧 checkpoint 进主库。备份/并发写后想立即读到全量数据时
+  // 调用——多连接并发写后最后关闭的连接未必来得及 checkpoint，新读连接
+  // 可能看到稍旧快照（实测 189/250）。失败返回 false。
+  bool checkpoint();
+
   // 已应用的迁移数量。
   std::size_t schema_version() const;
 

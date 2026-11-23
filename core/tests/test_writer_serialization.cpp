@@ -90,25 +90,20 @@ TEST_CASE("写串行化：50 并发写（独立连接）零错误零 locked") {
   CHECK(inserted.load() == kWriters * kPerWriter);
 
   // 全部可读（写都在且库完好）。
-  // WAL 多连接并发写后，各写连接退出时最后一帧可能尚未 checkpoint；
-  // 新读连接偶发读到稍旧快照（实测 244/250，而 inserted 断言已全过）。
-  // 这里短重试读，等 WAL 帧可见——这是测试的同步窗口，不是产品缺陷
-  // （真实部署读连接各自 open，不受同进程写线程退出的时序影响）。
+  // WAL 多连接并发写后，各写连接退出时最后一帧未必已 checkpoint，
+  // 新读连接可能看到稍旧快照（CI Windows 实测 189/250，而 inserted 已全过）。
+  // 用 Database::checkpoint() 显式合并 WAL 再读——这是测试的同步窗口，
+  // 不是产品缺陷（真实部署读连接各自 open 会看到 WAL 中的帧）。
   {
+    auto opened = Database::open(path);
+    REQUIRE(opened);
+    REQUIRE(opened->checkpoint());
+    PersonService svc(*opened);
     PersonFilter f;
     f.limit = 100000;
-    std::size_t visible = 0;
-    for (int attempt = 0; attempt < 20; ++attempt) {
-      auto opened = Database::open(path);
-      REQUIRE(opened);
-      PersonService svc(*opened);
-      auto rows = svc.list_persons(f);
-      REQUIRE(rows.has_value());
-      visible = rows->size();
-      if (visible == static_cast<std::size_t>(kWriters * kPerWriter)) break;
-      std::this_thread::sleep_for(std::chrono::milliseconds(50));
-    }
-    CHECK(visible == static_cast<std::size_t>(kWriters * kPerWriter));
+    auto rows = svc.list_persons(f);
+    REQUIRE(rows.has_value());
+    CHECK(rows->size() == static_cast<std::size_t>(kWriters * kPerWriter));
   }
 
   cleanup_db(path);
