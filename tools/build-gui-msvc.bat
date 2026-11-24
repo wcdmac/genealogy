@@ -6,13 +6,13 @@ REM (Windows / MSVC) -- the M3 "everything" build.
 REM
 REM Same environment assembly as build-msvc.bat (see that file's
 REM header for why vcvars64.bat cannot be used here). Differences:
-REM   1. -DBUILD_SERVER=ON / -DBUILD_GUI=ON so both subdirectories run;
+REM   1. -DBUILD_GUI=ON so the GUI subdirectory runs;
 REM   2. -DVCPKG_MANIFEST_FEATURES=gui so manifest mode pulls the gui deps (imgui is vendored; glfw3).
 REM      Drogon + GLFW (the two features in vcpkg.json). Without it
 REM      the configure step installs only the default deps and
 REM      find_package(Drogon)/find_package(glfw3) fail.
 REM
-REM First-time setup: Drogon/GLFW and their deps must be installed
+REM First-time setup: GLFW and its deps must be installed
 REM into the vcpkg tree. On this machine that cannot go through plain
 REM `vcpkg install` -- see tools/vcpkg-install.ps1 (reg.exe blacklist
 REM + MSYS2 32-bit cmake + single-concurrency PDB deadlock, all

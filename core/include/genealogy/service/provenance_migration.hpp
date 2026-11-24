@@ -15,7 +15,7 @@
 //     待办标记，不迁移，留在原文里；
 //   · 来源按 lineage 自动派生（一谱一 Source，type=genealogy_book，
 //     title = lineage 名去括号 + 「家谱」，year_text = 括号内原文）；
-//     显式 bindings 可覆盖（同一 lineage_id 只派生一次）；
+//     显式 bindings 可覆盖（同一单谱本体只派生一次）；
 //   · confidence：note/bio 含「存疑」或「待核」→ low，否则 high
 //     （录入纪律：页码出自原卷直读）；
 //   · 幂等：与库内已有 citation（subject+source+locator 三键）去重，

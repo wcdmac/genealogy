@@ -267,12 +267,12 @@ Result<std::string> render_book_html(const BookHtmlOptions& opt) {
       }
       break;
   }
-  h << "<p class='note'>本谱由 genea 生成 · 打印时请在浏览器选择「另存为 PDF」"
-    << "并启用背景图形。</p>\n</body></html>\n";
   if (!grouped.invalid_note.empty()) {
     h << "<div class='note'>注：" << html_escape(grouped.invalid_note)
       << "（未列入世系，请修正世代序号）</div>\n";
   }
+  h << "<p class='note'>本谱由 genea 生成 · 打印时请在浏览器选择「另存为 PDF」"
+    << "并启用背景图形。</p>\n</body></html>\n";
   return h.str();
 }
 

@@ -12,6 +12,7 @@ nlohmann::json to_json(const Book& v) {
   if (v.commandery) j["commandery"] = *v.commandery;
   if (v.hall_name) j["hall_name"] = *v.hall_name;
   if (v.note) j["note"] = *v.note;
+  if (v.generation_poem) j["generation_poem"] = *v.generation_poem;
   j["rev"] = v.rev;
   return j;
 }

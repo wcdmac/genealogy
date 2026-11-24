@@ -38,6 +38,15 @@ SELECT 'book', '', '', NULL, NULL, NULL, NULL, NULL,
        strftime('%Y-%m-%dT%H:%M:%SZ','now'), 1
 WHERE NOT EXISTS (SELECT 1 FROM book);
 
+-- 多谱老库升级：多条 lineage 的派语 seq 都从 1 起，直接改 owner_id
+-- 会撞 UNIQUE(owner_type,owner_id,seq)（实测两谱 seq=1 即冲突，整库
+-- 迁移回滚无法打开）。先把 lineage 行的 seq 挪到临时高位，再按 rowid
+-- 累计重排为 1..N，保留全部派语及其先后顺序，最后统一挂到 book。
+UPDATE generation_poem SET seq = 1000000 + rowid WHERE owner_type = 'lineage';
+UPDATE generation_poem SET seq = (
+  SELECT COUNT(*) FROM generation_poem b
+  WHERE b.owner_type = 'lineage' AND b.rowid <= generation_poem.rowid
+) WHERE owner_type = 'lineage';
 UPDATE generation_poem SET owner_id = 'book' WHERE owner_type = 'lineage';
 
 -- ---- person 重建（去 lineage_id；列序保持其余不变）----

@@ -5,6 +5,7 @@
 #include <genealogy/ulid.hpp>
 
 #include <cstdlib>
+#include <cmath>
 
 namespace genealogy::gui {
 
@@ -32,7 +33,8 @@ bool PlacePanel::save(DbSession& session, std::string* why) {
   if (!lat_buf_.empty()) {
     char* end = nullptr;
     const double v = std::strtod(lat_buf_.c_str(), &end);
-    if (end == lat_buf_.c_str() || *end != '\0' || v < -90 || v > 90) {
+    if (end == lat_buf_.c_str() || *end != '\0' || !std::isfinite(v) ||
+        v < -90 || v > 90) {
       *why = "纬度须在 -90..90";
       return false;
     }
@@ -41,7 +43,8 @@ bool PlacePanel::save(DbSession& session, std::string* why) {
   if (!lng_buf_.empty()) {
     char* end = nullptr;
     const double v = std::strtod(lng_buf_.c_str(), &end);
-    if (end == lng_buf_.c_str() || *end != '\0' || v < -180 || v > 180) {
+    if (end == lng_buf_.c_str() || *end != '\0' || !std::isfinite(v) ||
+        v < -180 || v > 180) {
       *why = "经度须在 -180..180";
       return false;
     }

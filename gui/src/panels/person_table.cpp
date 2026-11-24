@@ -60,6 +60,7 @@ void PersonTablePanel::reload(DbSession& session) {
   for (const auto& p : *got) {
     TableRow r;
     r.id = p.id;
+    r.rev = p.rev;
     r.family_name = p.family_name;
     r.given_name = p.given_name;
     r.courtesy_name = p.courtesy_name.value_or("");

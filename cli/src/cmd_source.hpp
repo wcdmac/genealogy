@@ -3,7 +3,7 @@
 //   genea source add --type genealogy_book --title "..." [--author ...]
 //                    [--year 嘉庆四年] [--repository 上海图书馆] [--uri ...]
 //                    [--citation 规范引文] [--note ...]
-//   genea source list [--type genealogy_book] [--q 关键词]
+//   genea source list [--type genealogy_book] [--query 关键词]
 //   genea source show <id>
 //   genea source remove <id>            # 被引用时 409 拒绝
 //   genea citation add --subject-type person --subject <id> --source <id>

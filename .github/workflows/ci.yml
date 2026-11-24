@@ -149,7 +149,7 @@ jobs:
       # 世系环鲁棒性等 77 项）此前只在本地跑，CI 从未执行。此处接入，
       # 用 matrix.genea_bin 传各平台产物路径（run_e2e.sh 已转 LF 且支持
       # GENEA_BIN 覆盖，Windows/Linux/macOS 通吃）。
-      - name: CLI 端到端（77 项断言）
+      - name: CLI 端到端
         shell: bash
         run: |
           set -o pipefail

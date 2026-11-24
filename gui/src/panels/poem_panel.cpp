@@ -26,7 +26,8 @@ void PoemPanel::draw(DbSession& session) {
   if (branch) {
     ImGui::SetNextItemWidth(220);
     input_text("支派 ID", &branch_id_buf_);
-    if (owner_id_buf_ != branch_id_buf_) set_scope_branch(true, branch_id_buf_);
+    if (owner_id_buf_ != branch_id_buf_)
+      set_scope_branch(true, branch_id_buf_.empty() ? "book" : branch_id_buf_);
   }
   if (ImGui::Button("读取")) {
     std::string why;

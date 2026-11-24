@@ -66,10 +66,14 @@ void ExportPanel::draw(DbSession& session) {
                           state_.selected_person_id, depth, &preview_, &why);
     } else
       ok = generate_book(session, &preview_, &why);
-    if (ok && output_kind_ == 0) {
-      std::string scene_err;
-      if (!refresh_scene(&scene_err)) {
-        state_.set_status("预览解析失败: " + scene_err, true);
+    if (ok) {
+      if (output_kind_ == 2) {
+        scene_ = SvgScene{};  // 谱书是 HTML，不是 SVG：清掉上一次的旧预览
+      } else {
+        std::string scene_err;
+        if (!refresh_scene(&scene_err)) {
+          state_.set_status("预览解析失败: " + scene_err, true);
+        }
       }
     }
     state_.set_status(ok ? "已生成排版产物（可导出文件）"

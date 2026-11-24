@@ -1,5 +1,24 @@
 cmake_minimum_required(VERSION 3.21)
 
+# ---------- vcpkg 工具链 ----------
+# 依赖白名单见 shared/licenses/allowlist.txt，CI 有 license_check.py 卡点。
+if(DEFINED CMAKE_TOOLCHAIN_FILE)
+  # preset 里写死的 $env{VCPKG_ROOT} 在未设置时会展开成
+  # "/scripts/buildsystems/vcpkg.cmake" 却仍算「已定义」，兜底分支被
+  # 跳过、configure 报误导性的绝对路径。此处显式校验文件存在。
+  if(NOT EXISTS "${CMAKE_TOOLCHAIN_FILE}")
+    message(FATAL_ERROR
+      "CMAKE_TOOLCHAIN_FILE 不存在: ${CMAKE_TOOLCHAIN_FILE}"
+      "——请设置 VCPKG_ROOT 或改用不带工具链的 preset")
+  endif()
+elseif(DEFINED ENV{VCPKG_ROOT})
+  set(_toolchain "$ENV{VCPKG_ROOT}/scripts/buildsystems/vcpkg.cmake")
+  if(EXISTS "${_toolchain}")
+    set(CMAKE_TOOLCHAIN_FILE "${_toolchain}"
+        CACHE FILEPATH "vcpkg toolchain file")
+  endif()
+endif()
+
 project(genealogy
         VERSION 0.1.0
         DESCRIPTION "跨平台家谱管理软件：核心 C++20，GUI 禁 Qt，依赖仅限宽松许可"
@@ -36,25 +55,6 @@ option(BUILD_CORE   "构建 libgenealogy-core 核心库" ON)
 option(BUILD_CLI    "构建 genea 命令行" ON)
 option(BUILD_TESTS  "构建单元测试（Catch2）" ON)
 option(BUILD_GUI    "构建桌面 GUI（Dear ImGui + GLFW，MIT/zlib）" OFF)
-
-# ---------- vcpkg 工具链 ----------
-# 依赖白名单见 shared/licenses/allowlist.txt，CI 有 license_check.py 卡点。
-if(DEFINED CMAKE_TOOLCHAIN_FILE)
-  # preset 里写死的 $env{VCPKG_ROOT} 在未设置时会展开成
-  # "/scripts/buildsystems/vcpkg.cmake" 却仍算「已定义」，兜底分支被
-  # 跳过、configure 报误导性的绝对路径。此处显式校验文件存在。
-  if(NOT EXISTS "${CMAKE_TOOLCHAIN_FILE}")
-    message(FATAL_ERROR
-      "CMAKE_TOOLCHAIN_FILE 不存在: ${CMAKE_TOOLCHAIN_FILE}"
-      "——请设置 VCPKG_ROOT 或改用不带工具链的 preset")
-  endif()
-elseif(DEFINED ENV{VCPKG_ROOT})
-  set(_toolchain "$ENV{VCPKG_ROOT}/scripts/buildsystems/vcpkg.cmake")
-  if(EXISTS "${_toolchain}")
-    set(CMAKE_TOOLCHAIN_FILE "${_toolchain}"
-        CACHE FILEPATH "vcpkg toolchain file")
-  endif()
-endif()
 
 # ---------- 依赖 ----------
 # nlohmann-json / cxxopts / catch2 走 vcpkg manifest（见 vcpkg.json）。

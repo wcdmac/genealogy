@@ -13,7 +13,9 @@ std::vector<std::string> parse_poem(std::string_view text) {
   for (const auto& ch : utf8_chars(text)) {
     if (ch.size() == 1) continue;   // ASCII 一概不当辈字
     // 解出码位判 CJK。序列不足 3 字节的不可能是表意文字。
-    if (ch.size() < 3) continue;
+    // 只解析 3 字节 BMP 表意文字；4 字节扩展区字母表不同，
+    // 按 3 字节解会误判（如 0xF3 开头解出扩展 A 区码位）。
+    if (ch.size() != 3) continue;
     const auto* b = reinterpret_cast<const unsigned char*>(ch.data());
     const char32_t cp = static_cast<char32_t>(
         (static_cast<std::uint32_t>(b[0] & 0x0F) << 12) |

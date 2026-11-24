@@ -45,6 +45,16 @@ std::string backup_timestamp() {
 }
 
 Result<void> snapshot_database(Database& db, const fs::path& path) {
+  // SQLite 的 VACUUM INTO 要求目标不存在；命中时报明确 Conflict 而非
+  // 把 SQLite 的 "output file already exists" 藏在 IoError 里。
+  std::error_code exists_ec;
+  if (fs::exists(path, exists_ec)) {
+    if (exists_ec)
+      return Error{ErrorCode::IoError,
+                   "检查快照目标失败: " + exists_ec.message()};
+    return Error{ErrorCode::Conflict,
+                 "快照目标已存在（VACUUM INTO 不覆盖）: " + path.string()};
+  }
   const std::string sql = "VACUUM INTO " + quote_sql(path.string());
   char* errmsg = nullptr;
   if (sqlite3_exec(db.raw(), sql.c_str(), nullptr, nullptr, &errmsg) != SQLITE_OK) {
@@ -80,19 +90,24 @@ Result<void> verify_snapshot(const fs::path& path) {
     return Error{ErrorCode::IoError, "快照数据损坏: " + why};
   }
   stmt = nullptr;
-  if (sqlite3_prepare_v2(db, "PRAGMA quick_check", -1, &stmt, nullptr) ==
-      SQLITE_OK) {
-    while (sqlite3_step(stmt) == SQLITE_ROW) {
-      const auto* text = sqlite3_column_text(stmt, 0);
-      const std::string result = text ? reinterpret_cast<const char*>(text) : "";
-      if (result != "ok") {
-        sqlite3_finalize(stmt);
-        sqlite3_close(db);
-        return Error{ErrorCode::IoError, "快照完整性检查失败: " + result};
-      }
-    }
-    sqlite3_finalize(stmt);
+  const int qc_rc = sqlite3_prepare_v2(db, "PRAGMA quick_check", -1,
+                                       &stmt, nullptr);
+  if (qc_rc != SQLITE_OK) {
+    const std::string why = sqlite3_errmsg(db);
+    sqlite3_close(db);
+    return Error{ErrorCode::IoError,
+                 "快照完整性检查无法启动: " + why};
   }
+  while (sqlite3_step(stmt) == SQLITE_ROW) {
+    const auto* text = sqlite3_column_text(stmt, 0);
+    const std::string result = text ? reinterpret_cast<const char*>(text) : "";
+    if (result != "ok") {
+      sqlite3_finalize(stmt);
+      sqlite3_close(db);
+      return Error{ErrorCode::IoError, "快照完整性检查失败: " + result};
+    }
+  }
+  sqlite3_finalize(stmt);
   sqlite3_close(db);
   return {};
 }

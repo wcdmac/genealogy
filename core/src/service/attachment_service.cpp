@@ -38,7 +38,14 @@ fs::path AttachmentService::attachments_dir() const {
 }
 
 fs::path AttachmentService::content_path(const std::string& sha) const {
-  if (sha.empty()) return {};
+  // sha 必须是 64 位小写十六进制（sha256_hex 的输出）；否则拒绝拼接
+  // 路径，防将来外部传入 "../../etc/passwd" 形成目录穿越。
+  if (sha.size() != 64 ||
+      !std::all_of(sha.begin(), sha.end(), [](unsigned char c) {
+        return (c >= '0' && c <= '9') || (c >= 'a' && c <= 'f');
+      })) {
+    return {};
+  }
   return attachments_dir() / sha;
 }
 
@@ -125,7 +132,7 @@ Result<std::vector<Attachment>> AttachmentService::list(
     const std::string k = to_string(*filter.kind);
     sqlite3_bind_text(st, idx++, k.c_str(), -1, SQLITE_TRANSIENT);
   }
-  sqlite3_bind_int(st, idx++, filter.limit);
+  sqlite3_bind_int(st, idx++, filter.limit > 0 ? filter.limit : 200);
 
   std::vector<Attachment> out;
   int step_rc = SQLITE_OK;

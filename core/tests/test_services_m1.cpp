@@ -266,7 +266,8 @@ TEST_CASE("事件服务：主体存在性与类型", "[service][event]") {
   // 宗族事件
   Event lineage_event;
   lineage_event.subject_type = EventSubjectType::Lineage;
-  lineage_event.subject_id = generate_ulid();  // 单谱单库：谱级事件无主体表，仅需合法 ULID
+  // 单谱单库：谱级事件（历史 Lineage 枚举）主体统一为字面量 book
+  lineage_event.subject_id = "book";
   lineage_event.type = EventType::Annotation;
   lineage_event.description = "六修谱告成";
   const auto r2 = svc.create_event(lineage_event);

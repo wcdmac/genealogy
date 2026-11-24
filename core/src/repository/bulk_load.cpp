@@ -62,7 +62,8 @@ Result<void> BulkLoader::ensure_started() {
   // 失败路径必须解锁：递归锁若在此泄漏，后续任何 Transaction 都会永久阻塞
   //（析构只在 !started_ 分支 unlock 一次，无法配平多次失败后的重复 lock）。
   if (!impl_->place->ok() || !impl_->person->ok() || !impl_->union_row->ok() ||
-      !impl_->member->ok() || !impl_->event->ok()) {
+      !impl_->member->ok() || !impl_->event->ok() ||
+      !impl_->source->ok() || !impl_->citation->ok()) {
     db_.write_mutex().unlock();
     locked_ = false;
     return Error{ErrorCode::Internal, "灌库预备语句准备失败（SQL 或列名有误）"};

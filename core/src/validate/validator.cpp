@@ -11,6 +11,7 @@
 #include <genealogy/validate/validation.hpp>
 
 #include <algorithm>
+#include <cstdint>
 #include <array>
 #include <cmath>
 #include <functional>
@@ -452,8 +453,10 @@ void check_birth_order_gap(const RuleDef& r, const PersonGraph& g,
     orders.erase(std::unique(orders.begin(), orders.end()), orders.end());
     if (orders.size() < 2) continue;
     // 允许从 1 起，也允许从 0 起（行几从 0 记的谱也有）
-    const int span = orders.back() - orders.front() + 1;
-    if (span > static_cast<int>(orders.size())) {
+    // 用 int64 计算，避免 INT_MIN..INT_MAX 有符号溢出（UB）
+    const std::int64_t span = static_cast<std::int64_t>(orders.back()) -
+                              static_cast<std::int64_t>(orders.front()) + 1;
+    if (span > static_cast<std::int64_t>(orders.size())) {
       // 报 id 最小的那个孩子，方便谱师直接定位（迭代顺序不定，故按 id 取）
       const Person* first = nullptr;
       for (const auto& [id, p] : g.nodes()) {

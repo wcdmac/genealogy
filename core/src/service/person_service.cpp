@@ -81,6 +81,9 @@ Result<Person> PersonService::update_person(const Person& draft) {
 }
 
 Result<void> PersonService::remove_person(const std::string& id) {
+  // 预检与删除同一写事务，避免并发插入引用造成 TOCTOU 孤儿
+  Transaction tx(*db_);
+  if (tx.error()) return tx.error().value();
   // 有人以此人为父母时，外键会拦住删除（SQLite foreign_keys=ON）。
   // 这里是有意的：静默级联删掉一整枝子孙，比明确报错危险得多。
   // 但人物级事实（事件/迁徙）只关于此人本身——留在库里是悬挂的
@@ -161,8 +164,6 @@ Result<void> PersonService::remove_person(const std::string& id) {
   // 人物在结合中时最后一步 repo_.remove 会 FK 失败——没有事务的话
   // 事件/迁徙已经删掉，留下「人还在、事实没了」的部分删除。
   // Transaction 嵌套感知：外层已有事务时本层为空操作。
-  Transaction tx(*db_);
-  if (tx.error()) return *tx.error();
   // 翻页删到尽：单页上限不是总量上限，一次取一大页会让超过它的
   // 记录留下半截幽灵。游标 = 本页最后一条的 id（删完再取下一页）。
   EventRepository events(*db_);

@@ -196,3 +196,22 @@ TEST_CASE_METHOD(Fixture, "迁徙：更新与删除") {
   CHECK(!migrations.get(saved.id).has_value());
   CHECK(!migrations.remove(saved.id).has_value());  // 重复删报不存在
 }
+
+TEST_CASE_METHOD(Fixture, "审查修复回归：迁徙 update 与 create 共用必填校验") {
+  const Place place = make_place("测试地", 0, 0);
+
+  Migration m;
+  m.id = generate_ulid();
+  m.subject_type = MigrationSubjectType::Person;
+  m.subject_id = generate_ulid();  // subject 无外键，测试必填校验足够
+  m.to_place_id = place.id;
+  auto created = service.create_migration(m);
+  REQUIRE(created);
+
+  // update 清空必填的 to_place_id 应被拒绝（此前 update 不校验）
+  Migration bad = *created;
+  bad.to_place_id.reset();
+  auto rejected = service.update_migration(bad);
+  REQUIRE_FALSE(rejected);
+  CHECK(rejected.error().code() == ErrorCode::InvalidArgument);
+}

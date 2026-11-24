@@ -35,6 +35,9 @@ bool BranchPanel::save(DbSession& session, std::string* why) {
   Result<Branch> saved = is_new ? session.branches().create_branch(draft_)
                                 : session.branches().update_branch(draft_);
   if (!saved) {
+    // 新建失败时 id 已生成，若不清空会切到"编辑态"，
+    // 下次保存走 update 且 id 不存在 → 流程卡死。
+    if (is_new) draft_.id.clear();
     *why = saved.error().message();
     return false;
   }

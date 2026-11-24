@@ -11,7 +11,7 @@
 
 namespace genealogy {
 
-// 文档用例层。建档必填：lineage_id（宗族须存在）+ type + title。
+// 文档用例层。建档必填：title（单谱单库，0007 已移除 lineage_id）。
 // remove 无 409 保护——citation 的主体类型不含 document（设计如此，
 // 文档不是证据锚点），删除不会悬空任何引用。
 class DocumentService {

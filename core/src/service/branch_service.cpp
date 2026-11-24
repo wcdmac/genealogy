@@ -1,3 +1,4 @@
+#include <genealogy/repository/transaction.hpp>
 #include <genealogy/service/branch_service.hpp>
 
 #include <genealogy/ulid.hpp>
@@ -80,6 +81,9 @@ Result<Branch> BranchService::update_branch(const Branch& draft) {
 }
 
 Result<void> BranchService::remove_branch(const std::string& id) {
+  // 预检与删除必须在同一写事务内，否则并发插入引用会留下孤儿（TOCTOU）。
+  Transaction tx(*db_);
+  if (tx.error()) return tx.error().value();
   // ROADMAP M7.2：删除被引事实时 409——支派被证据引用则拒绝，
   // 引用解除（删 citation）后即可删除。
   CitationRepository citations(*db_);
@@ -90,7 +94,10 @@ Result<void> BranchService::remove_branch(const std::string& id) {
     return conflict("支派被 " + std::to_string(n) +
                    " 条证据引用，先解除引用再删除");
   }
-  return repo_.remove(id);
+  auto removed = repo_.remove(id);
+  if (!removed) return removed.error();
+  if (auto c = tx.commit(); !c) return c.error();
+  return {};
 }
 
 }  // namespace genealogy

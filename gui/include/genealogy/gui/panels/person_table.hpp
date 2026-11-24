@@ -7,6 +7,7 @@
 #include <genealogy/gui/app_state.hpp>
 #include <genealogy/gui/panels.hpp>
 
+#include <cstdint>
 #include <string>
 #include <vector>
 
@@ -25,6 +26,7 @@ struct TableRow {
   std::string privacy;
   std::string father_id;
   std::string mother_id;
+  std::int64_t rev = 0;  // 载入时版本，供行内编辑乐观锁使用
 };
 
 class PersonTablePanel : public Panel {
@@ -77,6 +79,7 @@ class PersonTablePanel : public Panel {
 
  public:
   void on_database_closed() override {
+    cancel_edit();  // 行内编辑缓冲也必须清空，否则换库后旧 id 残留可写错库
     rows_.clear();
     loaded_db_path_.clear();
     loaded_ = false;

@@ -37,7 +37,13 @@ int migration_status(sqlite3* db, const char* name,
       -1, &st, nullptr);
   if (st == nullptr) return -2;  // 准备失败，与"未应用"区分
   sqlite3_bind_text(st, 1, name, -1, SQLITE_TRANSIENT);
-  if (sqlite3_step(st) != SQLITE_ROW) { sqlite3_finalize(st); return 0; }
+  const int step_rc = sqlite3_step(st);
+  if (step_rc != SQLITE_ROW) {
+    const bool no_row = (step_rc == SQLITE_DONE);
+    sqlite3_finalize(st);
+    // BUSY/IO 等错误不能当作"未应用"，否则会重复执行迁移
+    return no_row ? 0 : -2;
+  }
   const auto* raw = sqlite3_column_text(st, 0);
   const std::string stored = raw ? reinterpret_cast<const char*>(raw) : "";
   sqlite3_finalize(st);

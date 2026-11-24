@@ -171,7 +171,7 @@ if(BUILD_TESTS)
 endif()
 
 # ---------------------------------------------------------------- DLL 分发
-# Windows 上 GLFW 与 Drogon 全家都是 DLL。加载器按「exe 目录 → PATH」
+# Windows 上 GLFW 是 DLL。加载器按「exe 目录 → PATH」
 # 查找，ctest 直接起 exe 时调用方 PATH 里未必有 vcpkg bin——
 # 拷到 exe 旁一劳永逸（与 server/CMakeLists.txt 同口径）。
 if(WIN32)

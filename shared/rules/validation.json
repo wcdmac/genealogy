@@ -81,7 +81,7 @@
       "check": "generation_no_missing",
       "params": {},
       "message": "已录入父母却未标世代序号",
-      "suggestion": "补世代序号后可参与字辈校验（R8 世代与派语一致性，M4）"
+      "suggestion": "补世代序号后可参与字辈校验"
     },
     {
       "id": "R9",

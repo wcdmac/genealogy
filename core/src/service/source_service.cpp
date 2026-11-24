@@ -1,3 +1,4 @@
+#include <genealogy/repository/transaction.hpp>
 #include <genealogy/service/source_service.hpp>
 
 #include <string>
@@ -32,6 +33,9 @@ Result<Source> SourceService::update_source(const Source& src) {
 }
 
 Result<void> SourceService::remove_source(const std::string& id) {
+  // 预检与删除必须在同一写事务内，否则并发插入引用会留下孤儿（TOCTOU）。
+  Transaction tx(*db_);
+  if (tx.error()) return tx.error().value();
   // 来源被 citation 引用时拒绝删除：证据锚点不许悬空
   // （citation.source_id 外键也会拦，这里先给出人话 Conflict）。
   CitationRepository citations(*db_);
@@ -42,7 +46,10 @@ Result<void> SourceService::remove_source(const std::string& id) {
     return conflict("来源被 " + std::to_string(n) +
                     " 条证据引用，先删除引用再删除来源");
   }
-  return repo_.remove(id);
+  auto removed = repo_.remove(id);
+  if (!removed) return removed.error();
+  if (auto c = tx.commit(); !c) return c.error();
+  return {};
 }
 
 }  // namespace genealogy

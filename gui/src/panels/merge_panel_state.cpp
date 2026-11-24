@@ -37,7 +37,11 @@ bool MergePanel::merge(DbSession& session, const std::string& backup_dir,
   if (!result) { *why = result.error().message(); return false; }
   backup_path_ = result->backup_path;
   state_.selected_person_id = pair.winner_id;
-  return scan(session, why);  // 合并后重新检测
+  // 合并已成功落库；重扫失败只提示，不得报成"合并失败"
+  std::string scan_why;
+  if (!scan(session, &scan_why))
+    state_.set_status("合并成功，但重扫重复列表失败: " + scan_why, true);
+  return true;  // 合并后重新检测
 }
 
 void MergePanel::clear() {

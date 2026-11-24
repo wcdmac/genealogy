@@ -13,6 +13,7 @@ bool PersonTablePanel::begin_edit(const std::string& id, std::string* why) {
     if (r.id == id) { found = &r; break; }
   if (found == nullptr) { *why = "人物不在当前表格中"; return false; }
   edit_id_ = id;
+  edit_rev_ = found->rev;  // 记录载入时 rev，保存时做乐观锁
   efamily_ = found->family_name;
   egiven_ = found->given_name;
   ecourtesy_ = found->courtesy_name;
@@ -28,6 +29,7 @@ bool PersonTablePanel::save_edit(DbSession& session, std::string* why) {
   auto current = session.persons().get_person(edit_id_);
   if (!current) { *why = current.error().message(); return false; }
   Person p = *current;
+  if (edit_rev_ > 0) p.rev = edit_rev_;  // 乐观锁：用载入时 rev 而非当前 rev
   p.family_name = efamily_;
   p.given_name = egiven_;
   p.courtesy_name = ecourtesy_.empty()

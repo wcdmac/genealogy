@@ -172,8 +172,9 @@ Result<SyntheticData> generate_synthetic(const SyntheticOptions& opt) {
   person_index.emplace(founder.id, out.persons.size() - 1);
   queue.push_back({founder.id, "", 2, opt.founder_year, 0});
 
-  int safety = 0;
-  const int max_iterations = static_cast<int>(opt.persons) * 4 + 1000;
+  // 用 size_t 计算避免 persons > INT_MAX/4 时有符号溢出
+  const std::size_t max_iterations = opt.persons * 4 + 1000;
+  std::size_t safety = 0;
   while (!queue.empty() && out.persons.size() < opt.persons &&
          safety++ < max_iterations) {
     const PendingBirth head = queue.front();

@@ -94,7 +94,7 @@ void RelationPanel::compute(DbSession& session) {
   mq.ego = ego;
   mq.alter = alter;
   if (auto md = lineage::compute_mourning_degree(graph, mq)) {
-    mourning_garment_ = to_string(md->grade);
+    mourning_garment_ = md->garment_name;
     mourning_period_ = md->period;
     mourning_months_ = md->period_months;
     mourning_rule_ = md->rule_id;

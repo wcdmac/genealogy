@@ -435,7 +435,12 @@ Result<ChartResult> render_chart_svg(const ChartOptions& opt) {
       // 预计算总页数，供页眉显示"第 N/M 页"
       const std::size_t total_pages = [&]() {
         std::size_t n = 0;
-        for (int g = first_gen; g <= maxgen; g += step) ++n;
+        for (int g = first_gen; g <= maxgen; g += step) {
+          ++n;
+          // 实际循环在 hi==maxgen 时提前 break，预计算必须同口径
+          const int hi = std::min(g + opt.page_size - 1, maxgen);
+          if (hi == maxgen) break;
+        }
         return n;
       }();
       for (int lo = first_gen; lo <= maxgen; lo += step) {

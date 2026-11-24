@@ -76,7 +76,10 @@ std::vector<std::pair<ImVec2, ImVec2>> path_segments(std::string_view d,
     return std::strtof(std::string(d.substr(b, i - b)).c_str(), nullptr);
   };
   auto point = [&]() {
-    return ImVec2(org.x + number() * sx * scale, org.y + number() * sy * scale);
+    // 同一表达式两次 number() 在 C++17 下求值顺序不确定，x/y 可能互换
+    const float px = number();
+    const float py = number();
+    return ImVec2(org.x + px * sx * scale, org.y + py * sy * scale);
   };
   while (i < d.size()) {
     const char c = d[i];

@@ -26,7 +26,7 @@ class GenerationPoemService {
 
   // 录入/更换派语。text 是联句原文（含标点亦可，引擎只取汉字）。
   // 归属（lineage/branch）必须已存在，否则 NotFound。
-  // 同时把原文写回 lineage.generation_poem / 留档（结构化条目是权威）。
+  // 同时把原文写回 book.generation_poem / 留档（结构化条目是权威）。
   Result<std::vector<GenerationPoemEntry>> set_poem(
       PoemOwner owner, const std::string& owner_id, const std::string& text);
 

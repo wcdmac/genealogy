@@ -1,3 +1,4 @@
+#include <genealogy/repository/transaction.hpp>
 #include <genealogy/service/event_service.hpp>
 
 #include <genealogy/ulid.hpp>
@@ -15,9 +16,11 @@ EventService::EventService(Database& db)
 
 Error EventService::validate(const Event& e) {
   if (e.subject_id.empty()) return invalid_argument("subject_id 必填");
-  // 0008 迁移产生的 book 主体 id 是字面量 "book"；历史 lineage 主体
-  // 仍沿用任意合法 ULID（既有测试与老库行为），两者分开处理。
-  const bool book_subject = (e.subject_type == EventSubjectType::Book);
+  // 谱本体事件（Book 与历史 Lineage 兼容枚举）的 subject_id 必须是字面量
+  // "book"——lineage 表已在 0007 删除，允许任意 ULID 会制造指向不存在
+  // 实体的孤儿事件，重新破坏 0008 的修复。
+  const bool book_subject = (e.subject_type == EventSubjectType::Book ||
+                             e.subject_type == EventSubjectType::Lineage);
   if (book_subject) {
     if (e.subject_id != "book")
       return invalid_argument("谱本体事件的 subject_id 必须是 book");
@@ -74,6 +77,9 @@ Result<Event> EventService::get_event(const std::string& id) {
 }
 
 Result<void> EventService::remove_event(const std::string& id) {
+  // 预检与删除必须在同一写事务内，否则并发插入引用会留下孤儿（TOCTOU）。
+  Transaction tx(*db_);
+  if (tx.error()) return tx.error().value();
   // ROADMAP M7.2：删除被引事实时 409——事件被证据引用则拒绝，
   // 引用解除（删 citation）后即可删除。
   CitationRepository citations(*db_);
@@ -84,7 +90,10 @@ Result<void> EventService::remove_event(const std::string& id) {
     return conflict("事件被 " + std::to_string(n) +
                    " 条证据引用，先解除引用再删除");
   }
-  return repo_.remove(id);
+  auto removed = repo_.remove(id);
+  if (!removed) return removed.error();
+  if (auto c = tx.commit(); !c) return c.error();
+  return {};
 }
 
 }  // namespace genealogy

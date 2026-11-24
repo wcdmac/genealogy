@@ -1,4 +1,4 @@
-# SQLite：官方 amalgamation 经 FetchContent 引入，编译为静态库。
+# SQLite：官方 amalgamation 源码已 vendor 到本目录，编译为静态库。
 #
 # 为什么不走 vcpkg 的 sqlite3 端口：本机 VS2026（18）+ 中文语言包 +
 # CMake Ninja 组合下，带 .rc 的端口构建会触发已知的 RC1107 问题
@@ -7,30 +7,22 @@
 # 直接编译反而少一层端口构建风险。FTS5 / JSON1 在此显式启用。
 #
 # 包含路径说明：只把 sqlite3.h / sqlite3ext.h 复制到干净的 include 目录
-# 再挂路径。不能把整个源码目录挂上去—— amalgamation 解包目录里有个无
-# 扩展名的 version 文件（内容就是版本号），会遮蔽标准库 <version> 头，
-# 导致 nlohmann/json 包含链上的编译全面报语法错误。
+# 再挂路径，不把整个源码目录挂上去——vendor 目录若有 extensionless 的
+# version 文件会遮蔽标准库 <version> 头，导致 nlohmann/json 编译报语法错误。
 
-include(FetchContent)
-
-FetchContent_Declare(
-  sqlite3
-  URL https://sqlite.org/2026/sqlite-autoconf-3530400.tar.gz
-  URL_HASH SHA512=c24374e9393a943157f533f96e89e6c5743e5f5aad169d8393cff3088ca5ccbe5cc0561681ace49c349d0fe402298ee2624d319f422967247ce0792e3b3aa01e
-  DOWNLOAD_EXTRACT_TIMESTAMP TRUE
-  EXCLUDE_FROM_ALL
-)
-
-FetchContent_MakeAvailable(sqlite3)
+# SQLite amalgamation 官方分发形态已 vendor 到本目录（sqlite3.c/.h/
+# sqlite3ext.h，公有领域）。configure 期不联网——离线/内网/CI 网络抖动
+# 下 FetchContent 会让整个 configure 挂死，与本项目"无联网组件"定位冲突。
+set(SQLITE3_SOURCE_DIR "${CMAKE_CURRENT_SOURCE_DIR}")
 
 set(SQLITE3_PUBLIC_INCLUDE ${CMAKE_CURRENT_BINARY_DIR}/include)
 file(MAKE_DIRECTORY ${SQLITE3_PUBLIC_INCLUDE})
-configure_file(${sqlite3_SOURCE_DIR}/sqlite3.h
+configure_file(${SQLITE3_SOURCE_DIR}/sqlite3.h
                ${SQLITE3_PUBLIC_INCLUDE}/sqlite3.h COPYONLY)
-configure_file(${sqlite3_SOURCE_DIR}/sqlite3ext.h
+configure_file(${SQLITE3_SOURCE_DIR}/sqlite3ext.h
                ${SQLITE3_PUBLIC_INCLUDE}/sqlite3ext.h COPYONLY)
 
-add_library(genealogy-sqlite3 STATIC ${sqlite3_SOURCE_DIR}/sqlite3.c)
+add_library(genealogy-sqlite3 STATIC ${SQLITE3_SOURCE_DIR}/sqlite3.c)
 
 target_include_directories(genealogy-sqlite3 PUBLIC ${SQLITE3_PUBLIC_INCLUDE})
 

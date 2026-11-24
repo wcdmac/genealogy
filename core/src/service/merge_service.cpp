@@ -35,8 +35,8 @@ std::optional<int> birth_year(const Person& p) {
 }  // namespace
 
 Result<std::vector<DuplicatePair>> MergeService::detect(int limit) const {
-  // 负数 limit 提升为 size_t 会变成巨大值，退化为不限量返回。
-  if (limit < 0) limit = 0;
+  // 负数 limit 无意义：回退默认值而非返回空集（与注释口径一致）。
+  if (limit < 0) limit = 100;
   PersonRepository repo(*db_);
   PersonFilter f;
   f.limit = 200000;
