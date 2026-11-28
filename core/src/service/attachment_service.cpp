@@ -7,6 +7,7 @@
 #include <sqlite3.h>
 
 #include <algorithm>
+#include <cstring>
 #include <filesystem>
 #include <fstream>
 #include <system_error>
@@ -47,8 +48,18 @@ std::string mime_for(const std::string& filename) {
   const auto dot = filename.rfind('.');
   if (dot == std::string::npos) return "application/octet-stream";
   const std::string ext = filename.substr(dot + 1);
+  // ASCII 大小写不敏感比较（第五轮 CI 修）：_stricmp 是 MSVC 专属，
+  // Linux/macOS 的 GCC/Clang 没有这个名字（stricmp/strcasecmp 各成一套），
+  // 自写等值比较保持全平台可移植。
   auto ieq = [&](const char* e) {
-    return _stricmp(ext.c_str(), e) == 0;
+    if (ext.size() != std::strlen(e)) return false;
+    for (std::size_t i = 0; i < ext.size(); ++i) {
+      char a = ext[i], b = e[i];
+      if (a >= 'A' && a <= 'Z') a += 'a' - 'A';
+      if (b >= 'A' && b <= 'Z') b += 'a' - 'A';
+      if (a != b) return false;
+    }
+    return true;
   };
   if (ieq("jpg") || ieq("jpeg")) return "image/jpeg";
   if (ieq("png")) return "image/png";
