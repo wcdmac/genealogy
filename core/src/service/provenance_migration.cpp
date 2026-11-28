@@ -91,9 +91,11 @@ Result<ProvenanceMigrationReport> migrate_note_provenance(
     // 用稳定兜底名，待谱元数据登记后重跑可用 binding.title 覆盖。
     if (title.empty()) title = "本家家谱";
     // 全量游标翻页查精确同名（第四轮 P3）：limit=200 时排在第 201 位起
-    // 的同名来源会被漏检，造成重复建档。
+    // 的同名来源会被漏检，造成重复建档。命中存值而非指针——页容器
+    // existing 是循环局部，break 后即析构（第五轮 CI 实测 Linux 上
+    // use-after-free 直接 bad_alloc，MSVC 分配器恰好没复用才侥幸通过）。
     std::optional<std::string> cursor;
-    const Source* hit = nullptr;
+    std::optional<Source> hit;
     for (;;) {
       SourceFilter f;
       f.title_contains = title;
@@ -106,12 +108,12 @@ Result<ProvenanceMigrationReport> migrate_note_provenance(
           existing->begin(), existing->end(),
           [&](const Source& s) { return s.title == title; });
       if (it != existing->end()) {
-        hit = &*it;
+        hit = *it;
         break;
       }
       cursor = existing->back().id;
     }
-    if (hit != nullptr) {
+    if (hit.has_value()) {
       ++report.sources_reused;
       source_id = hit->id;
       source_known = true;
