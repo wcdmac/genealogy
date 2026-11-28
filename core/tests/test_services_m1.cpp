@@ -4,6 +4,7 @@
 #include <catch2/catch_test_macros.hpp>
 
 #include <filesystem>
+#include <fstream>
 #include <string>
 #include <system_error>
 #include <vector>
@@ -15,12 +16,18 @@
 #include <genealogy/model/place.hpp>
 #include <genealogy/model/union.hpp>
 #include <genealogy/repository/database.hpp>
+#include <genealogy/service/attachment_service.hpp>
 #include <genealogy/service/book_service.hpp>
 #include <genealogy/service/branch_service.hpp>
 #include <genealogy/service/event_service.hpp>
+#include <genealogy/service/generation_poem_service.hpp>
+#include <genealogy/service/merge_service.hpp>
+#include <genealogy/service/migration_service.hpp>
 #include <genealogy/service/person_service.hpp>
 #include <genealogy/service/place_service.hpp>
 #include <genealogy/service/union_service.hpp>
+#include <genealogy/model/attachment.hpp>
+#include <genealogy/model/migration.hpp>
 #include <genealogy/ulid.hpp>
 
 using namespace genealogy;
@@ -89,8 +96,8 @@ TEST_CASE("谱元数据服务：必填校验、更新与乐观锁（单谱单库
   REQUIRE(updated->commandery.has_value());
   CHECK(*updated->commandery == "颍川");
 
-  // 单谱单库 book 恒单行，update 无条件写 rev=rev+1（不提供乐观锁），
-  // 连续更新应递增而非冲突
+  // 单谱单库 book 恒单行，携带最新 rev 的连续更新递增而非冲突
+  // （乐观锁在位：携带旧 rev 才冲突，见下方断言）
   Book again = *updated;
   again.hall_name = "德星堂";
   auto second = svc.update_book(again);
@@ -309,4 +316,165 @@ TEST_CASE("人物服务：必填与父母存在性校验", "[service][person]") 
   const auto r3 = svc.create_person(orphan);
   REQUIRE_FALSE(r3);
   REQUIRE(r3.error().code() == ErrorCode::NotFound);
+}
+
+TEST_CASE("谱元数据乐观锁：旧 rev 更新冲突（第四轮 P2-5）", "[service][book]") {
+  Fixture fx;
+  BookService svc(fx.db());
+  auto got = svc.get_book();
+  REQUIRE(got.has_value());
+  Book stale = *got;
+  stale.name = "并发方先改";
+  stale.surname = "陈";  // 主姓必填（新库 book 行姓氏为空）
+  auto win = svc.update_book(stale);
+  REQUIRE(win.has_value());
+
+  // 另一端还持有旧 rev 的副本，后写必须撞 409 而非静默覆盖
+  Book stale2 = *got;
+  stale2.name = "并发方后写";
+  stale2.surname = "陈";
+  auto conf = svc.update_book(stale2);
+  REQUIRE_FALSE(conf.has_value());
+  REQUIRE(conf.error().code() == ErrorCode::Conflict);
+
+  auto reread = svc.get_book();
+  REQUIRE(reread.has_value());
+  CHECK(reread->name == "并发方先改");
+}
+
+TEST_CASE("人物祖先环校验：直指与多代绕回（第四轮 P1-5）", "[service][person]") {
+  Fixture fx;
+  PersonService svc(fx.db());
+
+  auto self = fx.make_person("陈", "自指");
+  Person p = *svc.get_person(self.id);
+  p.father_id = self.id;  // 父亲=自己
+  auto r1 = svc.update_person(p);
+  REQUIRE_FALSE(r1.has_value());
+  REQUIRE(r1.error().code() == ErrorCode::InvalidArgument);
+
+  // 祖父链绕回：孙→祖父（合法），祖父→孙（成环）
+  auto grand = fx.make_person("陈", "祖父");
+  auto grandchild = fx.make_person("陈", "孙");
+  Person gc = *svc.get_person(grandchild.id);
+  gc.father_id = grand.id;
+  REQUIRE(svc.update_person(gc).has_value());
+  Person g = *svc.get_person(grand.id);
+  g.father_id = grandchild.id;
+  auto r2 = svc.update_person(g);
+  REQUIRE_FALSE(r2.has_value());
+  REQUIRE(r2.error().code() == ErrorCode::InvalidArgument);
+}
+
+TEST_CASE("合并拒绝亲缘对（第四轮 P1-4）", "[service][merge]") {
+  Fixture fx;
+  PersonService persons(fx.db());
+  auto father = fx.make_person("陈", "父");
+  auto son = fx.make_person("陈", "子");
+  Person s = *persons.get_person(son.id);
+  s.father_id = father.id;
+  REQUIRE(persons.update_person(s).has_value());
+
+  MergeService merges(fx.db());
+  // winner 的父亲=loser：合并会把 winner 改成自己的父亲
+  auto r = merges.merge(son.id, father.id, false, "");
+  REQUIRE_FALSE(r.has_value());
+  REQUIRE(r.error().code() == ErrorCode::Conflict);
+  // 反向（winner 是 loser 的子孙）同样拒绝
+  auto r2 = merges.merge(father.id, son.id, false, "");
+  REQUIRE_FALSE(r2.has_value());
+  REQUIRE(r2.error().code() == ErrorCode::Conflict);
+}
+
+TEST_CASE("谱级派语 owner_id 归一 book（第四轮 P2）", "[service][poem]") {
+  Fixture fx;
+  GenerationPoemService svc(fx.db());
+  // 历史调用方传任意 lineage id：服务必须归一到 book，否则派语按
+  // owner_id 分裂，get/check 用的又是另一份
+  auto set = svc.set_poem(PoemOwner::Lineage, "任意旧lineage编号", "仁义礼智信");
+  REQUIRE(set.has_value());
+  CHECK(set->size() == 5);
+  auto got = svc.get_poem(PoemOwner::Lineage, "book");
+  REQUIRE(got.has_value());
+  REQUIRE(got->size() == 5);
+  CHECK((*got)[0].character == "仁");
+  CHECK((*got)[4].character == "信");
+}
+
+TEST_CASE("迁徙主体存在性校验（第四轮 P2）", "[service][migration]") {
+  Fixture fx;
+  PlaceService places(fx.db());
+  Place dest;
+  dest.name = "金陵";
+  auto place = places.create_place(dest);
+  REQUIRE(place.has_value());
+
+  MigrationService svc(fx.db());
+  Migration m;
+  m.subject_type = MigrationSubjectType::Person;
+  m.subject_id = kMissingId;  // 格式合法但不存在
+  m.to_place_id = place->id;
+  auto r = svc.create_migration(m);
+  REQUIRE_FALSE(r.has_value());
+  REQUIRE(r.error().code() == ErrorCode::NotFound);
+}
+
+TEST_CASE("地点删除保护：被引用时 409（第四轮 P2）", "[service][place]") {
+  Fixture fx;
+  PlaceService places(fx.db());
+  Place draft;
+  draft.name = "老宅";
+  auto place = places.create_place(draft);
+  REQUIRE(place.has_value());
+
+  PersonService persons(fx.db());
+  Person p;
+  p.family_name = "陈";
+  p.given_name = "宅主";
+  p.birth_place_id = place->id;
+  auto made = persons.create_person(p);
+  REQUIRE(made.has_value());
+
+  auto r = places.remove_place(place->id);
+  REQUIRE_FALSE(r.has_value());
+  REQUIRE(r.error().code() == ErrorCode::Conflict);
+
+  // 解除引用后可删
+  Person upd = *made;
+  upd.birth_place_id.reset();
+  REQUIRE(persons.update_person(upd).has_value());
+  REQUIRE(places.remove_place(place->id).has_value());
+}
+
+TEST_CASE("人物删除级联清理附件（第四轮 P2）", "[service][attachment]") {
+  Fixture fx;
+  PersonService persons(fx.db());
+  auto person = fx.make_person("陈", "有照");
+
+  // 造一个真实源文件供 import_file 读取
+  const auto src = std::filesystem::temp_directory_path() /
+                   ("genealogy-att-" + generate_ulid() + ".dat");
+  {
+    std::ofstream out(src, std::ios::binary);
+    out << "portrait-bytes";
+  }
+
+  AttachmentService att(fx.db());
+  auto imported =
+      att.import_file(src, AttachmentKind::Photo, "person", person.id, "");
+  REQUIRE(imported.has_value());
+  std::error_code rmec;
+  std::filesystem::remove(src, rmec);
+
+  AttachmentFilter f;
+  f.subject_type = "person";
+  f.subject_id = person.id;
+  auto before = att.list(f);
+  REQUIRE(before.has_value());
+  CHECK(before->size() == 1);
+
+  REQUIRE(persons.remove_person(person.id).has_value());
+  auto after = att.list(f);
+  REQUIRE(after.has_value());
+  CHECK(after->empty());
 }

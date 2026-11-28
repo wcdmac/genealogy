@@ -46,6 +46,9 @@ class TimelinePanel : public Panel {
  private:
   AppState& state_;
   std::vector<TimelineRow> rows_;
+  // 每库只自动装载一次（空库避免每帧 reload，第四轮 P2）
+  std::string loaded_db_;
+  bool loaded_ = false;
   std::vector<PlaceCount> places_;
   int type_filter_ = 0;  // 0 = 全部
 };

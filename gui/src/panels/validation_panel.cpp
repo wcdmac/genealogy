@@ -56,6 +56,7 @@ void ValidationPanel::draw(DbSession& session) {
     ImGui::TableSetupColumn("定位", ImGuiTableColumnFlags_WidthFixed, 60);
     ImGui::TableSetupScrollFreeze(0, 1);
     ImGui::TableHeadersRow();
+    int issue_row = 0;
     for (const auto& i : issues_) {
       ImGui::TableNextRow();
       const ImVec4 color = i.severity == "error"
@@ -69,11 +70,15 @@ void ValidationPanel::draw(DbSession& session) {
       ImGui::TableNextColumn(); ImGui::TextUnformatted(i.entity_type.c_str());
       ImGui::TableNextColumn(); ImGui::TextUnformatted(i.message.c_str());
       ImGui::TableNextColumn();
-      // 点击定位：人物问题跳到人物卡（entity_type == "person" 才有意义）
+      // 点击定位：人物问题跳到人物卡（entity_type == "person" 才有意义）。
+      // 同一人多条问题时 label 哈希会撞 ID，补行号区分（第四轮 P2）。
       if (i.entity_type == "person" &&
-          ImGui::SmallButton(("查看##" + i.entity_id).c_str())) {
+          ImGui::SmallButton(
+              ("查看##" + i.entity_id + "#" + std::to_string(issue_row))
+                  .c_str())) {
         state_.selected_person_id = i.entity_id;
       }
+      ++issue_row;
     }
     ImGui::EndTable();
   }

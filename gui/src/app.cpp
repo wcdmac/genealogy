@@ -142,11 +142,12 @@ void GenealogyApp::draw_menu_bar() {
     ImGui::Separator();
     ImGui::MenuItem("高对比度", nullptr, &options_.high_contrast);
     ImGui::EndMenu();
-    // 主题每帧应用（ImGui 样式本就逐帧设置）：只翻 bool 不调用
-    // apply_theme 曾让高对比度开关毫无视觉效果（2026-11 静态审查 L4）
-    apply_theme(options_.high_contrast);
   }
   ImGui::EndMainMenuBar();
+  // 主题每帧应用（ImGui 样式本就逐帧设置）：只翻 bool 不调用
+  // apply_theme 曾让高对比度开关毫无视觉效果（2026-11 静态审查 L4）。
+  // 必须在菜单块之外——块内只有菜单展开期间才执行（第四轮 P3）。
+  apply_theme(options_.high_contrast);
 
   // 快捷键：Ctrl+O 开库（菜单项只显示助记符，真正响应在这里）
   ImGuiIO& io = ImGui::GetIO();

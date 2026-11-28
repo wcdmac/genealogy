@@ -1,6 +1,7 @@
 # genea 命令行（db / person / book / branch / place / union / event / migration / poem / date / io / source / citation / document / bench）
 
 add_executable(genea
+  ${CMAKE_SOURCE_DIR}/shared/app.manifest
   src/main.cpp
   src/cmd_entity.cpp
   src/cmd_poem.cpp

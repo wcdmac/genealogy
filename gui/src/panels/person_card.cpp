@@ -32,6 +32,11 @@ void PersonCardPanel::draw(DbSession& session) {
   // 选中变了就重新装载（跨面板联动的落点）。有未保存修改时不静默
   // 覆盖（第三轮新-C3）：面板内显式三选——保存/放弃/留在当前。
   if (state_.selected_person_id != loaded_id_) {
+    // 读取失败的人物不再每帧重试（第四轮 P3），重选其他人物即恢复
+    if (loaded_id_.empty() && state_.selected_person_id == failed_load_id_) {
+      ImGui::TextDisabled("该人物读取失败（详见状态栏）；重新选择人物继续。");
+      return;
+    }
     if (switch_pending(state_.selected_person_id)) {
       ImGui::TextColored(ImVec4(1.0F, 0.45F, 0.45F, 1.0F),
                          "人物卡有未保存修改，全局选中已切到 %.16s…",

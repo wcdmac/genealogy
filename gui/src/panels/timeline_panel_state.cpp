@@ -93,6 +93,8 @@ bool TimelinePanel::reload(DbSession& session, std::string* why) {
 }
 
 void TimelinePanel::clear() {
+  loaded_db_.clear();
+  loaded_ = false;
   rows_.clear();
   places_.clear();
 }

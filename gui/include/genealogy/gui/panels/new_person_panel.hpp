@@ -34,10 +34,18 @@ class NewPersonPanel : public Panel {
 
   const char* title() const override { return "新建人物"; }
   void draw(DbSession& session) override;
-  void on_database_closed() override { draft_ = NewPersonDraft{}; }
+  // pending 关系与预填锚点都是旧库 ULID，换库不清会在新库建档时误建
+  // 关系（第四轮 P2，person_table 的 cancel_edit 同类教训）
+  void on_database_closed() override {
+    draft_ = NewPersonDraft{};
+    prefill_from_id_.clear();
+    pending_kind_.clear();
+    pending_anchor_.clear();
+  }
   bool has_cached_data() const override {
     return !draft_.family_name.empty() || !draft_.given_name.empty() ||
-           !draft_.father_id.empty() || !draft_.mother_id.empty();
+           !draft_.father_id.empty() || !draft_.mother_id.empty() ||
+           !pending_kind_.empty() || !pending_anchor_.empty();
   }
 
   // ---- 无头状态机 API（定义在 new_person_panel_state.cpp）

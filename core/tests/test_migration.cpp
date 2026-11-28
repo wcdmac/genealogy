@@ -162,9 +162,10 @@ TEST_CASE_METHOD(Fixture, "迁徙服务层：目的地不存在被外键拦下")
   CHECK(!result.has_value());
 }
 
-TEST_CASE_METHOD(Fixture, "迁徙服务层：subject_id 无外键约束（多态主体的设计事实）") {
+TEST_CASE_METHOD(Fixture, "迁徙服务层：主体不存在拒绝（多态主体由服务层校验）") {
   // subject_id 按 subject_type 指向 person 或 branch，DDL 无法表达
-  // 多态外键，故不设 REFERENCES；存在性由校验规则兜底，不靠库约束。
+  // 多态外键，故不设 REFERENCES。曾靠库约束兜底的说法与事实不符
+  // ——幽灵主体能落库成数据黑洞，第四轮起由服务层显式校验存在性。
   const Place to = make_place("衡州", 26.90, 112.57);
 
   Migration m;
@@ -173,8 +174,8 @@ TEST_CASE_METHOD(Fixture, "迁徙服务层：subject_id 无外键约束（多态
   m.to_place_id = to.id;
 
   const auto result = service.create_migration(m);
-  CHECK(result.has_value());
-  CHECK(result->subject_id == "MAYBE_NOT_EXIST0000000000");
+  CHECK(!result.has_value());
+  CHECK(result.error().code() == ErrorCode::NotFound);
 }
 
 TEST_CASE_METHOD(Fixture, "迁徙：更新与删除") {
@@ -203,7 +204,8 @@ TEST_CASE_METHOD(Fixture, "审查修复回归：迁徙 update 与 create 共用�
   Migration m;
   m.id = generate_ulid();
   m.subject_type = MigrationSubjectType::Person;
-  m.subject_id = generate_ulid();  // subject 无外键，测试必填校验足够
+  const Person subject = make_person("戊");  // 服务层现在校验主体存在性
+  m.subject_id = subject.id;
   m.to_place_id = place.id;
   auto created = service.create_migration(m);
   REQUIRE(created);

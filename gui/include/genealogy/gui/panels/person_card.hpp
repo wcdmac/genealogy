@@ -52,10 +52,14 @@ class PersonCardPanel : public Panel {
     loaded_id_.clear();
     loaded_rev_ = 0;
     dirty_ = false;
+    failed_load_id_.clear();
   }
 
   AppState& state_;
   std::string loaded_id_;      // 编辑缓冲对应的人物 id
+  // 读取失败的人物 id：不再每帧重试（第四轮 P3，合并 loser 后选中悬空
+  // id 的场景会每帧重查库+刷状态栏）
+  std::string failed_load_id_;
   bool dirty_ = false;        // 缓冲有未保存修改
   int loaded_rev_ = 0;        // 载入时的 rev（ optimistic lock 用）
 

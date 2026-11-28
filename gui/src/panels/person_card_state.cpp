@@ -55,8 +55,12 @@ bool PersonCardPanel::load(DbSession& session) {
   if (!got) {
     state_.set_status("读取人物失败: " + got.error().message(), true);
     loaded_id_.clear();
+    // 失败 id 记档：合并 loser 后选中悬空 id 会每帧重查库+刷状态栏
+    // （第四轮 P3）。重选其他人物或换库时清档。
+    failed_load_id_ = id;
     return false;
   }
+  failed_load_id_.clear();
   const Person& p = *got;
 
   buf_family_ = p.family_name;
@@ -181,12 +185,30 @@ bool PersonCardPanel::save(DbSession& session) {
                                    : PrivacyLevel::Kin;
   p.is_heir = buf_heir_;
   p.is_living = buf_living_;
-  p.birth_order = buf_birth_order_.empty()
-                      ? std::optional<int>{}
-                      : std::optional<int>{parse_int_or(buf_birth_order_, 0)};
-  p.generation_no = buf_generation_no_.empty()
-                        ? std::optional<int>{}
-                        : std::optional<int>{parse_int_or(buf_generation_no_, 0)};
+  // 行几/世代：非法输入报错拒绝（第四轮 P3）——旧行为 parse_int_or 静默
+  // 归 0 落库，脏输入变成合法值。与 person_table_state 同口径。
+  auto int_field = [&](const char* label, const std::string& buf,
+                       std::optional<int>& out) -> bool {
+    if (buf.empty()) {
+      out.reset();
+      return true;
+    }
+    try {
+      std::size_t used = 0;
+      const int v = std::stoi(buf, &used);
+      if (used != buf.size()) {
+        state_.set_status(std::string(label) + "应为整数: " + buf, true);
+        return false;
+      }
+      out = v;
+      return true;
+    } catch (const std::exception&) {
+      state_.set_status(std::string(label) + "应为整数: " + buf, true);
+      return false;
+    }
+  };
+  if (!int_field("行几", buf_birth_order_, p.birth_order)) return false;
+  if (!int_field("世代", buf_generation_no_, p.generation_no)) return false;
 
   // 日期：空串 = 清除；非空按 ISO 解析（yyyy / yyyy-mm / yyyy-mm-dd）。
   if (buf_birth_.empty()) {

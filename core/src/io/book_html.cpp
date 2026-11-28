@@ -87,16 +87,36 @@ std::string base64(const std::string& in) {
 
 int generation_of(const Person& p) { return p.generation_no.value_or(0); }
 
-std::string life_span(const Person& p) {
+// M8.3 口径与 GEDCOM 导出一致（第四轮 P2-8）：respect_privacy 开启时，
+// 在世非公开人物抹日期（private）或缩到年份（kin）。kin 且无公历时
+// 回退完整农历值，与 gedcom_date_value 的回退行为保持一致。
+bool privacy_mask_dates(const Person& p, const BookHtmlOptions& opt) {
+  return opt.respect_privacy && p.is_living &&
+         p.privacy != PrivacyLevel::Public;
+}
+
+bool privacy_year_only(const Person& p, const BookHtmlOptions& opt) {
+  return opt.respect_privacy && p.is_living &&
+         p.privacy == PrivacyLevel::Kin;
+}
+
+std::string life_span(const Person& p, const BookHtmlOptions& opt) {
+  if (privacy_mask_dates(p, opt)) return "";
+  const bool year = privacy_year_only(p, opt);
+  auto clip = [&](const std::string& v) {
+    return year && v.size() >= 4 ? v.substr(0, 4) : v;
+  };
   std::string s;
   if (p.birth_date.gregorian) {
-    s = *p.birth_date.gregorian;
+    s = clip(*p.birth_date.gregorian);
   } else if (p.birth_date.lunar) {
-    s = *p.birth_date.lunar;
+    s = clip(*p.birth_date.lunar);
   }
   if (p.death_date) {
     const auto& d = *p.death_date;
-    if (d.gregorian || d.lunar) s += "—" + (d.gregorian ? *d.gregorian : *d.lunar);
+    if (d.gregorian || d.lunar) {
+      s += "—" + (d.gregorian ? clip(*d.gregorian) : clip(*d.lunar));
+    }
   }
   return s;
 }
@@ -236,7 +256,7 @@ Result<std::string> render_book_html(const BookHtmlOptions& opt) {
           h << "<tr><td>" << (g - 1) << "</td><td>" << html_escape(p->family_name + p->given_name)
             << "</td><td>" << html_escape(p->courtesy_name.value_or(""))
             << (p->art_name ? " " + html_escape(*p->art_name) : "") << "</td><td>"
-            << html_escape(life_span(*p)) << "</td><td>"
+            << html_escape(life_span(*p, opt)) << "</td><td>"
             << (p->birth_order ? std::to_string(*p->birth_order) : "") << "</td><td>"
             << html_escape(p->father_id.value_or("")) << "</td><td>"
             << html_escape(p->note.value_or("")) << "</td></tr>\n";
@@ -250,7 +270,7 @@ Result<std::string> render_book_html(const BookHtmlOptions& opt) {
         h << "<h2 class='gen'>第" << (g - 1) << "世</h2><div class='genealogy'>";
         for (const Person* p : groups[g]) {
           h << html_escape(p->family_name + p->given_name)
-            << "（" << html_escape(life_span(*p)) << "）<br/>";
+            << "（" << html_escape(life_span(*p, opt)) << "）<br/>";
         }
         h << "</div>\n";
       }
@@ -261,7 +281,7 @@ Result<std::string> render_book_html(const BookHtmlOptions& opt) {
         h << "<h2 class='gen'>第" << (g - 1) << "世</h2>";
         for (const Person* p : groups[g]) {
           h << "<div class='bio'><h3>" << html_escape(p->family_name + p->given_name)
-            << " <span class='note'>" << html_escape(life_span(*p)) << "</span></h3>"
+            << " <span class='note'>" << html_escape(life_span(*p, opt)) << "</span></h3>"
             << "<div>" << html_escape(p->biography.value_or("")) << "</div></div>\n";
         }
       }

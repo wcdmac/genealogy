@@ -45,6 +45,9 @@ class PlacePanel : public Panel {
  private:
   AppState& state_;
   std::vector<Place> rows_;
+  // 每库只自动装载一次（空库避免每帧 reload，第四轮 P2）
+  std::string loaded_db_;
+  bool loaded_ = false;
   Place draft_;
   std::string name_buf_, modern_buf_, hist_buf_;
   std::string lat_buf_, lng_buf_, note_buf_;

@@ -59,6 +59,7 @@ endif()
 # ---------------------------------------------------------------- 主程序
 # WIN32：Windows 下用 WinMain 入口，消除随 GUI 弹出的控制台黑框。
 add_executable(genealogy-gui WIN32
+  ${CMAKE_SOURCE_DIR}/shared/app.manifest
   src/main.cpp
   src/app.cpp
   src/db_session.cpp

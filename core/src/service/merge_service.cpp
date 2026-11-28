@@ -10,7 +10,9 @@
 #include <algorithm>
 #include <filesystem>
 #include <map>
+#include <set>
 #include <string>
+#include <vector>
 
 namespace genealogy {
 
@@ -31,6 +33,30 @@ MergeService::MergeService(Database& db) : db_(&db) {}
 namespace {
 std::optional<int> birth_year(const Person& p) {
   return p.birth_date.gregorian_year();
+}
+
+// ancestor 是否为 of 的祖先（父母链向上 BFS，kMaxHops 只防库中已有环）。
+// 合并前必须互查：关系迁移 UPDATE 会把所有 father_id=loser 的行改指
+// winner——若 winner 自己的父亲就是 loser，winner 将变成自己的父亲
+// （自亲环，外键恰好满足）；更深的祖先链同理成环。
+bool is_ancestor(const std::string& ancestor_id, const std::string& of_id,
+                 PersonRepository& repo) {
+  if (ancestor_id == of_id) return true;
+  std::vector<std::string> frontier{of_id};
+  std::set<std::string> visited{of_id};
+  constexpr int kMaxHops = 1000;
+  for (int hops = 0; !frontier.empty() && hops < kMaxHops; ++hops) {
+    auto p = repo.get(frontier.back());
+    frontier.pop_back();
+    if (!p) continue;
+    for (const auto* next : {&p->father_id, &p->mother_id}) {
+      if (!*next || visited.count(**next)) continue;
+      if (**next == ancestor_id) return true;
+      visited.insert(**next);
+      frontier.push_back(**next);
+    }
+  }
+  return false;
 }
 }  // namespace
 
@@ -116,6 +142,13 @@ Result<MergeResult> MergeService::merge(const std::string& winner_id,
   if (!loser) return loser.error();
   if (winner_id == loser_id)
     return Error{ErrorCode::InvalidArgument, "不能与自己合并"};
+
+  // 亲缘互查（见 is_ancestor 注释）：无论谁是谁的祖先，关系迁移都会
+  // 制造祖先环。先解除亲子关系再合并。
+  if (is_ancestor(loser_id, winner_id, repo) ||
+      is_ancestor(winner_id, loser_id, repo))
+    return Error{ErrorCode::Conflict,
+                 "两人存在直系血缘，不可直接合并；请先解除亲子关系"};
 
   MergeResult result;
   auto conflicts = inspect_conflicts(*winner, *loser);

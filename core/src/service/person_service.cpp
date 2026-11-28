@@ -1,6 +1,12 @@
 #include <genealogy/service/person_service.hpp>
 
+#include <genealogy/service/attachment_service.hpp>
+
+#include <chrono>
+#include <set>
 #include <string>
+#include <thread>
+#include <vector>
 
 #include <genealogy/model/citation.hpp>
 #include <genealogy/repository/citation_repository.hpp>
@@ -31,6 +37,34 @@ void normalize_ids(Person& p) {
   if (p.burial_place_id && p.burial_place_id->empty()) p.burial_place_id.reset();
 }
 
+// 拒绝制造祖先环：draft 的任一父母链向上追溯不得回到 draft 本人
+// （直指父亲=自己，或多代绕回都算）。与 branch_service 的环检测同纪律：
+// 世系世代算法对环节点直接失效，环数据一旦落库只能靠 R11 事后报警。
+// kMaxHops 只是对库中已有环数据的兜底，正常谱系远达不到。
+Error check_ancestor_cycle(const Person& draft, PersonRepository& repo) {
+  if (draft.id.empty()) return {};  // 新建档尚无 id，不可能成环
+  std::vector<std::string> frontier;
+  if (draft.father_id) frontier.push_back(*draft.father_id);
+  if (draft.mother_id) frontier.push_back(*draft.mother_id);
+  std::set<std::string> visited;  // 已展开的祖先节点
+  constexpr int kMaxHops = 1000;
+  for (int hops = 0; !frontier.empty() && hops < kMaxHops; ++hops) {
+    const std::string cur = frontier.back();
+    frontier.pop_back();
+    if (cur == draft.id) {
+      return invalid_argument("父母关系形成祖先环（" + cur +
+                              " 不能既是本人又是本人的祖先）");
+    }
+    if (!visited.insert(cur).second) continue;
+    auto p = repo.get(cur);
+    if (!p) continue;  // 不存在由存在性校验报错，这里只防环
+    for (const auto* next : {&p->father_id, &p->mother_id}) {
+      if (*next && visited.insert(**next).second) frontier.push_back(**next);
+    }
+  }
+  return {};
+}
+
 // 建档与更新共用的领域校验。空 Error 表示通过。
 Error validate_person(const Person& draft, PersonRepository& repo) {
   if (draft.family_name.empty()) return invalid_argument("姓必填");
@@ -52,7 +86,23 @@ Error validate_person(const Person& draft, PersonRepository& repo) {
     auto mother = repo.get(*draft.mother_id);
     if (!mother) return not_found("母亲不存在: " + *draft.mother_id);
   }
-  return {};
+  return check_ancestor_cycle(draft, repo);
+}
+
+// M9.1 压测与第四轮实测：多连接并发写时，WAL 写锁持有者的提交/检查点
+// 偶发超过 busy_timeout，裸 autocommit INSERT 直接以 "database is locked"
+// 失败且无应用层重试（test_writer_serialization 偶发 249/250）。对锁定类
+// 失败做有限次重试：SQLite 侧每次已等满 5s，重试间隔取短值即可。
+template <typename F>
+auto retry_on_locked(F&& f) -> decltype(f()) {
+  for (int attempt = 0;; ++attempt) {
+    auto r = f();
+    if (r || attempt >= 4 ||
+        r.error().message().find("locked") == std::string::npos) {
+      return r;
+    }
+    std::this_thread::sleep_for(std::chrono::milliseconds(20));
+  }
 }
 
 }  // namespace
@@ -61,7 +111,10 @@ Result<Person> PersonService::create_person(const Person& draft) {
   Person normalized = draft;
   normalize_ids(normalized);
   if (auto err = validate_person(normalized, repo_); err) return err;
-  return repo_.insert(normalized);
+  return retry_on_locked([this, &normalized] {
+    // id 在 insert 内生成：重试时重新取号，失败的尝试什么都没写。
+    return repo_.insert(normalized);
+  });
 }
 
 Result<Person> PersonService::get_person(const std::string& id) {
@@ -77,7 +130,11 @@ Result<Person> PersonService::update_person(const Person& draft) {
   Person normalized = draft;
   normalize_ids(normalized);
   if (auto err = validate_person(normalized, repo_); err) return err;
-  return repo_.update(normalized);
+  // 乐观锁读-改-写与 INSERT 同受 WAL 写锁竞争影响，同一重试口径。
+  // 注意重试必须整段重来（重读 rev），不能只重试 UPDATE 语句。
+  return retry_on_locked([this, &normalized] {
+    return repo_.update(normalized);
+  });
 }
 
 Result<void> PersonService::remove_person(const std::string& id) {
@@ -197,6 +254,16 @@ Result<void> PersonService::remove_person(const std::string& id) {
       if (auto r = migrations.remove(m.id); !r) return r;
     }
     mg_cursor = mgrs->back().id;
+  }
+  // 附件随人删除（第四轮 P2-4）：attachment.subject_id 无外键，人删后
+  // 行与内容文件都是悬挂幽灵。本人的头像引用在服务内先清，他人引用会
+  // 以 409 拦截。与上面的事件/迁徙清理同事务。
+  {
+    AttachmentService attachments(*db_);
+    if (auto ra = attachments.remove_subject_attachments("person", id);
+        !ra) {
+      return ra.error();
+    }
   }
   // 名号行随人删除（person_name.person_id 外键指向 person）
   if (auto rn = repo_.remove_names(id); !rn) return rn;

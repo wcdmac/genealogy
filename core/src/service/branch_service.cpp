@@ -4,6 +4,7 @@
 #include <genealogy/ulid.hpp>
 #include <genealogy/model/citation.hpp>
 #include <genealogy/repository/citation_repository.hpp>
+#include <genealogy/repository/event_repository.hpp>
 
 namespace genealogy {
 
@@ -93,6 +94,25 @@ Result<void> BranchService::remove_branch(const std::string& id) {
   if (n > 0) {
     return conflict("支派被 " + std::to_string(n) +
                    " 条证据引用，先解除引用再删除");
+  }
+  // 以支派为主体的事件随支派删除（第四轮 P2-6，union 路径同口径）。
+  {
+    EventRepository events(*db_);
+    std::optional<std::string> ev_cursor;
+    for (;;) {
+      EventFilter ef;
+      ef.subject_type = EventSubjectType::Branch;
+      ef.subject_id = id;
+      ef.limit = 1000;
+      ef.cursor = ev_cursor;
+      auto evs = events.list(ef);
+      if (!evs) return evs.error();
+      if (evs->empty()) break;
+      for (const auto& e : *evs) {
+        if (auto r = events.remove(e.id); !r) return r;
+      }
+      ev_cursor = evs->back().id;
+    }
   }
   auto removed = repo_.remove(id);
   if (!removed) return removed.error();

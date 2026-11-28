@@ -7,6 +7,7 @@
 #include <genealogy/io/book_html.hpp>
 #include <genealogy/io/chart_svg.hpp>
 #include <genealogy/io/layout_svg.hpp>
+#include <genealogy/io/page_layout.hpp>
 #include <genealogy/lineage/graph.hpp>
 #include <genealogy/repository/person_repository.hpp>
 #include <genealogy/repository/union_repository.hpp>
@@ -54,7 +55,8 @@ bool ExportPanel::generate_layout(const std::string& markup,
                                   const std::string& preset,
                                   const std::string& body_size,
                                   const std::string& title,
-                                  std::string* out_svg, std::string* why) const {
+                                  std::string* out_svg, std::string* why,
+                                  int* page_count) const {
   auto parsed = genealogy::io::parse_markup(markup);
   if (!parsed) {
     *why = parsed.error().message();
@@ -77,6 +79,34 @@ bool ExportPanel::generate_layout(const std::string& markup,
       }
     }
   }
+  // 先分页后渲染（第四轮 P2）：旧实现把全文塞进单页，emit_char 对放
+  // 不下的字符静默丢弃——千字卷在 GUI 里无提示截断。与 CLI use-layout
+  // 同构：分页点即真实换页点，预览显示第 1 页。
+  genealogy::io::PageLayoutOptions pl;
+  pl.source = opt.content;
+  if (opt.geometry_override) {
+    pl.geometry = *opt.geometry_override;
+  } else {
+    auto g = genealogy::io::geometry_for_preset(opt.preset);
+    if (!g) {
+      *why = g.error().message();
+      return false;
+    }
+    pl.geometry = *g;
+  }
+  auto layout = genealogy::io::paginate_content(pl);
+  if (!layout) {
+    *why = layout.error().message();
+    return false;
+  }
+  if (layout->pages.empty()) {
+    *why = "没有可排版的内容";
+    return false;
+  }
+  if (page_count) *page_count = static_cast<int>(layout->pages.size());
+  opt.page_number = 1;
+  opt.total_pages = layout->pages.size();
+  opt.content = layout->pages[0].nodes;
   auto svg = genealogy::io::render_layout_page(opt);
   if (!svg) {
     *why = svg.error().message();

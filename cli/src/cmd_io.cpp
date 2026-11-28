@@ -1323,6 +1323,8 @@ int cmd_export_book(const std::vector<std::string>& args,
       ("landscape", "横向", cxxopts::value<bool>()->default_value("false"))
       ("no-embed-fonts", "不内嵌字体（产物小，但依赖系统字体）",
        cxxopts::value<bool>()->default_value("false"))
+      ("respect-privacy", "脱敏：在世非公开人物抹日期/缩年份（分发谱书建议开启）",
+       cxxopts::value<bool>()->default_value("false"))
       ("font-dir", "字体目录（缺省用随包 assets/fonts）",
        cxxopts::value<std::string>())
       ("use-layout", "走 P2 古籍版式引擎（输出 SVG 而非 HTML）",
@@ -1367,6 +1369,7 @@ int cmd_export_book(const std::vector<std::string>& args,
   opt.paper = ps;
   opt.landscape = r["landscape"].as<bool>();
   opt.embed_fonts = !r["no-embed-fonts"].as<bool>();
+  opt.respect_privacy = r["respect-privacy"].as<bool>();
   if (r.count("font-dir")) {
     opt.font_dir = r["font-dir"].as<std::string>();
   } else {
@@ -1380,18 +1383,56 @@ int cmd_export_book(const std::vector<std::string>& args,
   // P2 整合：--use-layout 时改走古籍版式引擎（共享页布局与夹注续排）。
   // 从数据库人物生成标记节点：世代标题 + 每人一行，行传作为夹注。
   if (r["use-layout"].as<bool>()) {
+    // 与 book_html 的 by_generation 同口径：世代 → 行几 → id 稳定排序，
+    // 并补世代标题。此前按 ULID 序直排且无标题，同一本书两条输出管线
+    // 版面分裂（第四轮 P2-4）。
+    const bool privacy = r["respect-privacy"].as<bool>();
+    auto layout_date = [&](const Person& p) -> std::string {
+      // 与 book_html 的 life_span 脱敏口径一致
+      if (privacy && p.is_living && p.privacy != PrivacyLevel::Public) {
+        return "";
+      }
+      const std::string v = p.birth_date.gregorian.value_or(std::string{});
+      if (privacy && p.is_living && p.privacy == PrivacyLevel::Kin) {
+        return v.size() >= 4 ? v.substr(0, 4) : v;
+      }
+      return v;
+    };
+    std::vector<const Person*> sorted;
+    sorted.reserve(rows->size());
+    for (const auto& p : *rows) sorted.push_back(&p);
+    std::stable_sort(sorted.begin(), sorted.end(),
+                     [](const Person* a, const Person* b) {
+                       const int ga = a->generation_no.value_or(0),
+                                 gb = b->generation_no.value_or(0);
+                       if (ga != gb) return ga < gb;
+                       const int ba = a->birth_order.value_or(0),
+                                 bb = b->birth_order.value_or(0);
+                       if (ba != bb) return ba < bb;
+                       return a->id < b->id;
+                     });
     std::vector<io::MarkupNode> nodes;
-    for (const auto& p : *rows) {
+    int last_gen = -1;
+    for (const Person* pp : sorted) {
+      const int g = pp->generation_no.value_or(0);
+      if (g != last_gen) {
+        io::MarkupNode title;
+        title.kind = io::MarkupKind::Section;
+        title.text = "第" + std::to_string(g) + "世";
+        nodes.push_back(std::move(title));
+        last_gen = g;
+      }
       io::MarkupNode n;
       n.kind = io::MarkupKind::Text;
-      n.text = p.family_name + p.given_name +
-               (p.birth_date.gregorian ? "　" + *p.birth_date.gregorian : "");
-      nodes.push_back(n);
-      if (p.biography && !p.biography->empty()) {
+      n.text = pp->family_name + pp->given_name;
+      const std::string bd = layout_date(*pp);
+      if (!bd.empty()) n.text += "　" + bd;
+      nodes.push_back(std::move(n));
+      if (pp->biography && !pp->biography->empty()) {
         io::MarkupNode note;
         note.kind = io::MarkupKind::Note;
-        note.text = *p.biography;
-        nodes.push_back(note);
+        note.text = *pp->biography;
+        nodes.push_back(std::move(note));
       }
     }
     io::PageLayoutOptions pl;

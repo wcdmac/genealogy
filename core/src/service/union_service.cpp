@@ -4,6 +4,7 @@
 #include <genealogy/ulid.hpp>
 #include <genealogy/model/citation.hpp>
 #include <genealogy/repository/citation_repository.hpp>
+#include <genealogy/repository/event_repository.hpp>
 
 namespace genealogy {
 
@@ -32,6 +33,17 @@ Error UnionService::validate(const Union& u) {
     seen.push_back(m.person_id);
     auto person = persons_.get(m.person_id);
     if (!person) return not_found("结合成员不存在: " + m.person_id);
+    // 婚姻角色与性别一致性（第四轮 P2）：夫=女/妻=男会让称谓与五服
+    // 方向错。性别未知放行（录谱常见），已知则校验。
+    if (u.type == UnionType::Marriage) {
+      const bool role_husband = m.role == MemberRole::Husband;
+      if (person->gender == Gender::Female && role_husband) {
+        return invalid_argument("婚姻成员性别为女但角色为夫: " + m.person_id);
+      }
+      if (person->gender == Gender::Male && !role_husband) {
+        return invalid_argument("婚姻成员性别为男但角色为妻: " + m.person_id);
+      }
+    }
   }
   return {};
 }
@@ -75,6 +87,26 @@ Result<void> UnionService::remove_union(const std::string& id) {
   if (n > 0) {
     return conflict("结合被 " + std::to_string(n) +
                    " 条证据引用，先解除引用再删除");
+  }
+  // 以结合为主体的事件随结合删除（第四轮 P2-6）：event.subject_id 无
+  // 外键，不清理则永久悬挂（person 路径同口径）。
+  {
+    EventRepository events(*db_);
+    std::optional<std::string> ev_cursor;
+    for (;;) {
+      EventFilter ef;
+      ef.subject_type = EventSubjectType::Union;
+      ef.subject_id = id;
+      ef.limit = 1000;
+      ef.cursor = ev_cursor;
+      auto evs = events.list(ef);
+      if (!evs) return evs.error();
+      if (evs->empty()) break;
+      for (const auto& e : *evs) {
+        if (auto r = events.remove(e.id); !r) return r;
+      }
+      ev_cursor = evs->back().id;
+    }
   }
   auto removed = repo_.remove(id);
   if (!removed) return removed.error();

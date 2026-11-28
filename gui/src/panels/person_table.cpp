@@ -184,7 +184,10 @@ void PersonTablePanel::draw(DbSession& session) {
     ImGui::TableNextColumn(); ImGui::TextUnformatted(r.birth_order.c_str());
     ImGui::TableNextColumn(); ImGui::TextUnformatted(r.family_name.c_str());
     ImGui::TableNextColumn();
-    // 姓名这一列做成可选中的按钮（点选 → 人物卡联动）
+    // 姓名这一列做成可选中的按钮（点选 → 人物卡联动）。
+    // PushID(r.id)：同名行共享 label 哈希 ID，点击归属错乱会编辑错人
+    // （第四轮 P2，与 merge_panel 的 PushID(i) 同纪律）。
+    ImGui::PushID(r.id.c_str());
     if (ImGui::SmallButton(r.given_name.c_str())) {
       if (ImGui::IsMouseDoubleClicked(ImGuiMouseButton_Left)) {
         std::string why;
@@ -193,6 +196,7 @@ void PersonTablePanel::draw(DbSession& session) {
         state_.selected_person_id = r.id;
       }
     }
+    ImGui::PopID();
     ImGui::TableNextColumn(); ImGui::TextUnformatted(r.courtesy_name.c_str());
     ImGui::TableNextColumn(); ImGui::TextUnformatted(r.gender.c_str());
     ImGui::TableNextColumn(); ImGui::TextUnformatted(r.birth.c_str());

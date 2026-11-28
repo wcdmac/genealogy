@@ -1,0 +1,18 @@
+<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
+<assembly xmlns="urn:schemas-microsoft-com:asm.v1" manifestVersion="1.0">
+  <!-- 进程级 UTF-8：所有窄字符 std::filesystem / CRT 转换按 UTF-8 进行。
+       GUI/CLI 全程持 UTF-8 字节串，无此声明时 MSVC 下的窄路径转换走
+       ANSI 代码页（中文系统=GBK），中文库文件/备份/导出路径全链路
+       mojibake（第四轮 P1，探针实测坐实）。要求 Windows 10 1903+。 -->
+  <application xmlns="urn:schemas-microsoft-com:asm.v3">
+    <windowsSettings>
+      <activeCodePage xmlns="http://schemas.microsoft.com/SMI/2019/WindowsSettings">UTF-8</activeCodePage>
+    </windowsSettings>
+  </application>
+  <compatibility xmlns="urn:schemas-microsoft-com:compatibility.v1">
+    <application>
+      <!-- Windows 10 / 11 -->
+      <supportedOS Id="{8e0f7a12-bfb3-4fe8-b9a5-48fd50a15a9a}"/>
+    </application>
+  </compatibility>
+</assembly>

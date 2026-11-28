@@ -27,6 +27,10 @@ struct BookHtmlOptions {
   BookTemplate tmpl = BookTemplate::Register;
   PaperSize paper = PaperSize::A4;
   bool landscape = false;
+  // M8.3 脱敏开关（与 GEDCOM respect_privacy 同口径）：开启时在世非公开
+  // 人物抹日期（private）或缩到年份（kin）。默认关——与 GEDCOM 现状一致，
+  // 分发谱书前建议显式开启。
+  bool respect_privacy = false;
   // 字体源目录（含 SourceHan*.otf 与 OFL-*.txt）；空则只引用系统字体
   std::string font_dir;
   // 是否把字体 base64 内嵌进 HTML（单文件离线，产物约 60MB）

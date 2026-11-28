@@ -99,17 +99,24 @@ class TextCursor {
   // 尝试放置一个字符。本页放不下返回 false 且状态不变；
   // 否则写入位置并推进游标，返回 true。
   bool place(bool is_note, Placement& out) {
+    const int cap = half_rows_per_column(g_);
     int delta = is_note ? 1 : 2;  // 半行数
-    // 换列前：夹注补齐到整行，避免两字一格被拆列
-    if (is_note && half_row_ % 2 != 0) {
-      if (half_row_ + 1 >= half_rows_per_column(g_)) {
+    // 正文/其他样式必须偶对齐：前一夹注只占半格时，正文从下一格起
+    // （奇半行空置），避免与夹注同格叠印。
+    if (!is_note && half_row_ % 2 != 0) {
+      if (half_row_ + 1 > cap) {
         if (!next_column()) return false;
-        delta = 1;
       } else {
         ++half_row_;
       }
     }
-    if (half_row_ + delta > half_rows_per_column(g_)) {
+    // 夹注成对：偶半行起一对（两字一格）；本列装不下这一对时，
+    // 整对挪到下列，避免两字一格被拆列。奇半行是上一夹注的下半格，
+    // 夹注直接入位成对，不再跳行。
+    if (is_note && half_row_ % 2 == 0 && half_row_ + 2 > cap) {
+      if (!next_column()) return false;
+    }
+    if (half_row_ + delta > cap) {
       if (!next_column()) return false;
     }
     out.col = col_;

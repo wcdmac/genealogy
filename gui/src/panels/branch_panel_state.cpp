@@ -61,6 +61,8 @@ void BranchPanel::new_draft() {
 }
 
 void BranchPanel::clear() {
+  loaded_db_.clear();
+  loaded_ = false;
   rows_.clear();
   new_draft();
 }

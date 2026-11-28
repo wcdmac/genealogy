@@ -25,10 +25,12 @@ class ExportPanel : public Panel {
   // ---- 无头状态机 API（定义在 export_panel_state.cpp）
   // 从数据库与焦点人物生成排版所用标记文本（姓名、行传 → 注文）
   std::string build_markup(DbSession& session, const std::string& focus_id) const;
-  // 生成古籍版式 SVG（preset: guji_classic|plain_modern，body_size 可空）
+  // 生成古籍版式 SVG（preset: guji_classic|plain_modern，body_size 可空）。
+  // 走完整分页管线，预览取第 1 页；page_count 回传总页数（可空）。
   bool generate_layout(const std::string& markup, const std::string& preset,
                        const std::string& body_size, const std::string& title,
-                       std::string* out_svg, std::string* why) const;
+                       std::string* out_svg, std::string* why,
+                       int* page_count = nullptr) const;
   // 生成世系图 SVG（style: pedigree/descendant/hourglass/wufu/european/soviet）
   bool generate_chart(DbSession& session, const std::string& style,
                       const std::string& focus_id, int depth,

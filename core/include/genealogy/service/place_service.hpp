@@ -22,6 +22,7 @@ class PlaceService {
   Result<void> remove_place(const std::string& id);
 
  private:
+  Database* db_;  // 删除保护需要直连 Database 开事务与预检（第四轮 P2-3）
   PlaceRepository repo_;
 };
 

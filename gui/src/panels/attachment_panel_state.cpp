@@ -33,6 +33,8 @@ bool AttachmentPanel::remove(DbSession& session, const std::string& id,
 }
 
 void AttachmentPanel::clear() {
+  loaded_db_.clear();
+  loaded_ = false;
   rows_.clear();
 }
 

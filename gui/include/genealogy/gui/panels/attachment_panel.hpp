@@ -34,6 +34,9 @@ class AttachmentPanel : public Panel {
  private:
   AppState& state_;
   std::vector<Attachment> rows_;
+  // 每库只自动装载一次（空库避免每帧 reload，第四轮 P2）
+  std::string loaded_db_;
+  bool loaded_ = false;
   std::string path_buf_;
   std::string subject_buf_;
   std::string caption_buf_;

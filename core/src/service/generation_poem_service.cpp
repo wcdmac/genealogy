@@ -24,6 +24,11 @@ GenerationPoemService::GenerationPoemService(Database& db)
 
 Result<std::vector<GenerationPoemEntry>> GenerationPoemService::set_poem(
     PoemOwner owner, const std::string& owner_id, const std::string& text) {
+  // 单谱单库：谱级派语固定挂 book（与 0007 迁移产物一致）。历史调用方
+  // 传任意 lineage id 一律归一——否则同一份派语按 owner_id 分裂成多份，
+  // get/check 用的又是另一份（第四轮 P2）。
+  const std::string oid =
+      owner == PoemOwner::Lineage ? std::string("book") : owner_id;
   // 归属必须存在——派语挂在幽灵主体上，后续校验全部跑偏。
   // 第六轮 高-1：原实现丢弃 books_.get() 结果且缩进损坏，Lineage 归属
   // 完全没有校验。单谱单库下 book 行恒在，但异常迁移/外部改库时仍应
@@ -32,8 +37,8 @@ Result<std::vector<GenerationPoemEntry>> GenerationPoemService::set_poem(
     auto b = books_.get();
     if (!b) return b.error();
   } else {
-    auto b = branches_.get(owner_id);
-    if (!b) return not_found("支派不存在: " + owner_id);
+    auto b = branches_.get(oid);
+    if (!b) return not_found("支派不存在: " + oid);
   }
 
   const std::vector<std::string> chars = lineage::parse_poem(text);
@@ -46,13 +51,13 @@ Result<std::vector<GenerationPoemEntry>> GenerationPoemService::set_poem(
   for (std::size_t i = 0; i < chars.size(); ++i) {
     GenerationPoemEntry e;
     e.owner_type = owner;
-    e.owner_id = owner_id;
+    e.owner_id = oid;
     e.seq = static_cast<int>(i) + 1;
     e.character = chars[i];
     entries.push_back(std::move(e));
   }
 
-  if (auto r = poems_.replace_all(owner, owner_id, entries); !r) {
+  if (auto r = poems_.replace_all(owner, oid, entries); !r) {
     return r.error();
   }
 
@@ -72,14 +77,20 @@ Result<std::vector<GenerationPoemEntry>> GenerationPoemService::set_poem(
 
 Result<std::vector<GenerationPoemEntry>> GenerationPoemService::get_poem(
     PoemOwner owner, const std::string& owner_id) {
-  return poems_.list(owner, owner_id);
+  // 与 set_poem 归一口径一致（第四轮 P2）
+  return poems_.list(owner,
+                     owner == PoemOwner::Lineage ? std::string("book")
+                                                 : owner_id);
 }
 
 Result<std::vector<lineage::PoemConflict>>
 GenerationPoemService::check_consistency(PoemOwner owner,
                                          const std::string& owner_id,
                                          int poem_start) {
-  const auto entries = poems_.list(owner, owner_id);
+  // 与 set_poem 归一口径一致（第四轮 P2）
+  const std::string oid =
+      owner == PoemOwner::Lineage ? std::string("book") : owner_id;
+  const auto entries = poems_.list(owner, oid);
   if (!entries) return entries.error();
   if (entries->empty()) {
     return invalid_argument("该归属尚未录入派语，无从校验");
@@ -103,14 +114,14 @@ GenerationPoemService::check_consistency(PoemOwner owner,
     auto b = books_.get();
     if (!b) return b.error();
   } else {
-    auto b = branches_.get(owner_id);
-    if (!b) return not_found("支派不存在: " + owner_id);
+    auto b = branches_.get(oid);
+    if (!b) return not_found("支派不存在: " + oid);
   }
   auto persons = persons_.list(pf);
   if (!persons) return persons.error();
   if (owner == PoemOwner::Branch) {
     for (const auto& p : *persons) {
-      if (p.branch_id && *p.branch_id == owner_id) {
+      if (p.branch_id && *p.branch_id == oid) {
         branch_members.insert(p.id);
       }
     }

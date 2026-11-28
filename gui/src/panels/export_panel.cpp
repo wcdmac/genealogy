@@ -56,9 +56,10 @@ void ExportPanel::draw(DbSession& session) {
   if (ImGui::Button("生成预览", ImVec2(140, 0))) {
     std::string why;
     bool ok = false;
+    int layout_pages = 0;
     if (output_kind_ == 0)
       ok = generate_layout(markup_, kPresets[preset_idx], size_buf, title_buf,
-                           &preview_, &why);
+                           &preview_, &why, &layout_pages);
     else if (output_kind_ == 1) {
       const char* ids[] = {"pedigree", "descendant", "hourglass", "wufu",
                            "european", "soviet"};
@@ -67,6 +68,11 @@ void ExportPanel::draw(DbSession& session) {
     } else
       ok = generate_book(session, &preview_, &why);
     if (ok) {
+      if (output_kind_ == 0 && layout_pages > 1) {
+        state_.set_status("共 " + std::to_string(layout_pages) +
+                          " 页，预览与单文件导出均为第 1 页；整册请用 "
+                          "CLI --export layout（按页拆分落盘）", false);
+      }
       if (output_kind_ == 2) {
         scene_ = SvgScene{};  // 谱书是 HTML，不是 SVG：清掉上一次的旧预览
       } else {

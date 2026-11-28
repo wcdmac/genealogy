@@ -86,9 +86,12 @@ void SearchPanel::draw(DbSession& session) {
     for (const auto& h : hits_) {
       ImGui::TableNextRow();
       ImGui::TableNextColumn();
+      // PushID(h.id)：检索结果同名极常见，label 哈希 ID 会撞（第四轮 P2）
+      ImGui::PushID(h.id.c_str());
       if (ImGui::SmallButton(h.name.c_str())) {
         state_.selected_person_id = h.id;   // 点选 → 人物卡联动
       }
+      ImGui::PopID();
       ImGui::TableNextColumn(); ImGui::TextUnformatted(h.gender.c_str());
       ImGui::TableNextColumn(); ImGui::TextUnformatted(h.birth.c_str());
       ImGui::TableNextColumn(); ImGui::TextUnformatted(h.death.c_str());

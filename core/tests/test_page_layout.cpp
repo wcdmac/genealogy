@@ -95,3 +95,35 @@ TEST_CASE("PAGE_LAYOUT forced break overrides geometry") {
   CHECK(r->pages.size() == 2);
   CHECK(r->continued_count == 0);
 }
+
+TEST_CASE("TextCursor 夹注成对与正文偶对齐（第四轮 P1-2）") {
+  auto g = tiny_geometry();
+  g.frame_b = 5 * g.body_step + g.top_pad + g.bottom_pad;  // 每列 10 半行
+  genealogy::io::TextCursor cur(g);
+  genealogy::io::TextCursor::Placement p;
+
+  // 正文两字占 0、2 半行；夹注两字应成对落在 4、5（同格）
+  REQUIRE(cur.place(false, p));
+  CHECK(p.half_row == 0);
+  REQUIRE(cur.place(false, p));
+  CHECK(p.half_row == 2);
+  REQUIRE(cur.place(true, p));
+  CHECK(p.half_row == 4);
+  REQUIRE(cur.place(true, p));
+  CHECK(p.half_row == 5);
+  CHECK(genealogy::io::row_y(g, 4) == genealogy::io::row_y(g, 5));
+
+  // 注后正文从 6 起（偶半行、下一格），不与夹注同格叠印
+  REQUIRE(cur.place(false, p));
+  CHECK(p.half_row == 6);
+  CHECK(genealogy::io::row_y(g, 6) != genealogy::io::row_y(g, 5));
+
+  // 单字夹注：后续正文补齐到偶半行（奇半行空置），不再叠印
+  genealogy::io::TextCursor cur2(g);
+  REQUIRE(cur2.place(false, p));
+  CHECK(p.half_row == 0);
+  REQUIRE(cur2.place(true, p));
+  CHECK(p.half_row == 2);
+  REQUIRE(cur2.place(false, p));
+  CHECK(p.half_row == 4);
+}

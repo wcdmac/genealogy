@@ -138,6 +138,19 @@ layout descendants(const lineage::PersonGraph& g, const std::string& root,
         out.nodes[ci].x = cursor;
         cursor += kNodeW + kGapX;
         if (gi < frontier.size()) out.edges.emplace_back(frontier[gi], ci);
+        // 配偶若是这些孩子的亲生父母（如母亲经 spouse 组渲染），补母→子
+        // 连线：否则母亲定位在子女旁却无线可循，被误读为漏画。
+        if (gi < spouse_groups.size()) {
+          for (std::size_t si : spouse_groups[gi]) {
+            const auto& sp_kids =
+                g.children_of(out.nodes[si].person->id);
+            const bool is_parent = std::find_if(
+                sp_kids.begin(), sp_kids.end(), [&](const Person* c) {
+                  return c->id == out.nodes[ci].person->id;
+                }) != sp_kids.end();
+            if (is_parent) out.edges.emplace_back(si, ci);
+          }
+        }
       }
     }
     for (std::size_t pi : frontier) {
@@ -188,6 +201,9 @@ layout pedigree(const lineage::PersonGraph& g, const std::string& root,
   std::vector<std::size_t> frontier{ri};
   for (int gen = 0; gen < depth; ++gen) {
     std::vector<std::size_t> next;
+    // 深代血亲交叉（同一祖先经多条路径到达）时 next 必须去重：
+    // add() 只去重节点，队列不去重则 |next| 每代翻倍，depth 24+ 即 OOM。
+    std::unordered_set<std::size_t> queued;
     for (std::size_t pi : frontier) {
       const Person* cur = out.nodes[pi].person;
       const Person* f = g.father_of(cur->id);
@@ -201,7 +217,7 @@ layout pedigree(const lineage::PersonGraph& g, const std::string& root,
         }
         const std::size_t ci = add(p, gen + 1, out.nodes[pi].x + (k++ ? 1 : -1) * (kNodeW + kGapX) / 2.0);
         out.edges.emplace_back(pi, ci);
-        next.push_back(ci);
+        if (queued.insert(ci).second) next.push_back(ci);
       }
     }
     if (next.empty()) break;
@@ -256,6 +272,11 @@ std::string render_svg(const layout& l, const ChartOptions& opt,
   const double maxy = l.nodes.empty() ? kNodeH :
       std::max_element(l.nodes.begin(), l.nodes.end(),
                        [](const laid_out& a, const laid_out& b) { return a.y < b.y; })->y + kNodeH;
+  // 底部告警区（最多 12 行）也占 viewBox，否则"祖先缺失/成环"被裁剪不可见
+  const int warn_lines =
+      static_cast<int>(std::min<std::size_t>(warnings.size(), 12));
+  const int view_h = static_cast<int>(maxy + kMargin * 2) +
+                     (warn_lines > 0 ? warn_lines * 14 + 16 : 0);
 
   std::unordered_map<std::string, int> colors;
   // UTF-8 逐字节哈希作分色键（无 locale 依赖）
@@ -269,7 +290,7 @@ std::string render_svg(const layout& l, const ChartOptions& opt,
   s << "<?xml version='1.0' encoding='UTF-8'?>\n"
     << "<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 "
     << static_cast<int>(maxx + kMargin * 2) << " "
-    << static_cast<int>(maxy + kMargin * 2) << "' "
+    << view_h << "' "
     << "width='100%' role='img'>\n"
     << "<title>" << esc(opt.title.empty() ? "世系图" : opt.title) << "</title>\n"
     << "<style>\n"
@@ -289,7 +310,7 @@ std::string render_svg(const layout& l, const ChartOptions& opt,
     << (page_count > 0 ? "/" + std::to_string(page_count) : "")
     << " 页 · 第 " << (gen_span.first + 1) << "–" << (gen_span.second + 1) << " 世"
     << (overlaps_previous ? "（苏式：与上页重叠首世）" : "")
-    << " · 点击节点聚焦，输入姓名定位</text>\n";
+    << " · 点击节点聚焦</text>\n";
 
   // 房支分色：每个节点用其 branch 色
   const std::vector<std::string> cs = [] {
@@ -344,14 +365,7 @@ std::string render_svg(const layout& l, const ChartOptions& opt,
       << esc(w) << "</text>\n";
     if (++wy >= 12) break;
   }
-  s << "<text class='hint' x='" << kMargin << "' y='"
-    << static_cast<int>(maxy + kMargin * 2 + 14 + (wy + 1) * 14)
-    << "'>搜索: <input id='q' type='text' placeholder='输入姓名'/></text>\n"
-    << "<script><![CDATA[\n"
-    << "document.getElementById('q').addEventListener('input',function(e){\n"
-    << " var v=e.target.value;document.querySelectorAll('g.node').forEach(function(n){\n"
-    << "  n.style.display=(v&&n.getAttribute('data-name').indexOf(v)<0)?'none':'';\n"
-    << " });});\n"
+  s << "<script><![CDATA[\n"
     << "document.querySelectorAll('g.node').forEach(function(n){\n"
     << " n.addEventListener('click',function(){\n"
     << "  document.querySelectorAll('g.node').forEach(function(x){x.classList.remove('focus');});\n"
@@ -428,7 +442,9 @@ Result<ChartResult> render_chart_svg(const ChartOptions& opt) {
       if (full.nodes.empty()) { l = full; break; }
       const int maxgen = [&] { int m = 0; for (const auto& n : full.nodes) m = std::max(m, n.gen); return m; }();
       const bool overlap = opt.style_hint == ChartStyle::Soviet;
-      const int step = std::max(1, opt.page_size - (overlap ? 1 : 0));
+      // core 直调入口不做 CLI 侧 1..30 校验，负/零 page_size 会产出整批空白页
+      const int page_size = std::max(1, opt.page_size);
+      const int step = std::max(1, page_size - (overlap ? 1 : 0));
       const int first_gen = [&] { int m = 1000000; for (const auto& n : full.nodes) m = std::min(m, n.gen); return m; }();
       ChartResult paged;
       paged.warnings = warnings;
@@ -438,13 +454,13 @@ Result<ChartResult> render_chart_svg(const ChartOptions& opt) {
         for (int g = first_gen; g <= maxgen; g += step) {
           ++n;
           // 实际循环在 hi==maxgen 时提前 break，预计算必须同口径
-          const int hi = std::min(g + opt.page_size - 1, maxgen);
+          const int hi = std::min(g + page_size - 1, maxgen);
           if (hi == maxgen) break;
         }
         return n;
       }();
       for (int lo = first_gen; lo <= maxgen; lo += step) {
-        const int hi = std::min(lo + opt.page_size - 1, maxgen);
+        const int hi = std::min(lo + page_size - 1, maxgen);
         auto page_layout = slice_layout(full, lo, hi);
         ChartPage p;
         p.first_generation = lo;

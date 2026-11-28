@@ -118,8 +118,11 @@ std::vector<std::pair<ImVec2, ImVec2>> path_segments(std::string_view d,
 void draw_svg_preview(const SvgScene& scene, ImDrawList* dl,
                       const ImVec2& origin, float scale) {
   if (dl == nullptr || scale <= 0) return;
-  const float sx = scale * (scene.width > 0 ? 720.0F / scene.width : 1);
-  const float sy = scale * (scene.height > 0 ? 1040.0F / scene.height : 1);
+  // 等比缩放（第四轮 P2）：720×1040 是古籍页尺寸，套在动态 viewBox 的
+  // 世系图上会把 x/y 各压一个不同比例（畸变 + 大图缩进角落）。
+  // 调用方已按 scene 实际尺寸算好统一 scale，这里直接使用。
+  const float sx = scale;
+  const float sy = scale;
 
   for (const auto& n : scene.nodes) {
     const auto st = resolve(scene, n);

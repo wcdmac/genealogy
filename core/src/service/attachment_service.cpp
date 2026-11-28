@@ -1,5 +1,6 @@
 #include <genealogy/service/attachment_service.hpp>
 
+#include <genealogy/repository/transaction.hpp>
 #include <genealogy/ulid.hpp>
 #include <genealogy/util/sha256.hpp>
 
@@ -8,6 +9,8 @@
 #include <filesystem>
 #include <fstream>
 #include <system_error>
+#include <utility>
+#include <vector>
 
 #include "../repository/sqlite_util.hpp"
 
@@ -186,9 +189,136 @@ Result<Attachment> AttachmentService::get(const std::string& id) const {
   return a;
 }
 
+Result<long> AttachmentService::remove_subject_attachments(
+    const std::string& subject_type, const std::string& subject_id) {
+  // person 删除级联：先清本人的头像引用（本人即将删除，链接必然消失；
+  // 其他人物对这些附件的引用仍被下面的预检拦截），再逐行删除并回收文件。
+  // 全程在调用方事务内（嵌套感知），失败由外层回滚。
+  if (subject_type == "person") {
+    sqlite3_stmt* st = nullptr;
+    if (sqlite3_prepare_v2(db_->raw(),
+                           "UPDATE person SET portrait_attachment_id=NULL"
+                           " WHERE id=?1 AND portrait_attachment_id IN"
+                           " (SELECT id FROM attachment"
+                           "  WHERE subject_type=?2 AND subject_id=?1)",
+                           -1, &st, nullptr) != SQLITE_OK)
+      return Error{ErrorCode::IoError, "头像引用清理准备失败"};
+    sqlite3_bind_text(st, 1, subject_id.c_str(), -1, SQLITE_TRANSIENT);
+    sqlite3_bind_text(st, 2, subject_type.c_str(),
+                      static_cast<int>(subject_type.size()),
+                      SQLITE_TRANSIENT);
+    const bool done = sqlite3_step(st) == SQLITE_DONE;
+    const std::string err = done ? "" : sqlite3_errmsg(db_->raw());
+    sqlite3_finalize(st);
+    if (!done) return Error{ErrorCode::Internal, "头像引用清理失败: " + err};
+  }
+  // 其他人物还在把这些附件用作头像 → 409，先解除引用再删人
+  {
+    sqlite3_stmt* st = nullptr;
+    if (sqlite3_prepare_v2(db_->raw(),
+                           "SELECT COUNT(*) FROM person"
+                           " WHERE portrait_attachment_id IN"
+                           " (SELECT id FROM attachment"
+                           "  WHERE subject_type=?1 AND subject_id=?2)"
+                           " AND id<>?2",
+                           -1, &st, nullptr) != SQLITE_OK)
+      return Error{ErrorCode::IoError, "头像引用查询准备失败"};
+    sqlite3_bind_text(st, 1, subject_type.c_str(),
+                      static_cast<int>(subject_type.size()), SQLITE_TRANSIENT);
+    sqlite3_bind_text(st, 2, subject_id.c_str(), -1, SQLITE_TRANSIENT);
+    const bool row = sqlite3_step(st) == SQLITE_ROW;
+    const long n = row ? sqlite3_column_int64(st, 0) : -1;
+    const std::string err = row ? "" : sqlite3_errmsg(db_->raw());
+    sqlite3_finalize(st);
+    if (!row) return Error{ErrorCode::Internal, "头像引用查询失败: " + err};
+    if (n > 0) {
+      return conflict("该人物的附件被其他 " + std::to_string(n) +
+                      " 位人物用作头像，先解除引用再删除");
+    }
+  }
+  // 取待删行（行数 + sha 集合）
+  std::vector<std::pair<std::string, std::string>> rows;  // (id, sha)
+  {
+    sqlite3_stmt* st = nullptr;
+    if (sqlite3_prepare_v2(db_->raw(),
+                           "SELECT id, sha256 FROM attachment"
+                           " WHERE subject_type=?1 AND subject_id=?2",
+                           -1, &st, nullptr) != SQLITE_OK)
+      return Error{ErrorCode::IoError, "附件枚举准备失败"};
+    sqlite3_bind_text(st, 1, subject_type.c_str(),
+                      static_cast<int>(subject_type.size()), SQLITE_TRANSIENT);
+    sqlite3_bind_text(st, 2, subject_id.c_str(), -1, SQLITE_TRANSIENT);
+    for (;;) {
+      const int rc = sqlite3_step(st);
+      if (rc == SQLITE_ROW) {
+        rows.emplace_back(col_text(st, 0), col_text(st, 1));
+      } else if (rc == SQLITE_DONE) {
+        break;
+      } else {
+        const std::string err = sqlite3_errmsg(db_->raw());
+        sqlite3_finalize(st);
+        return Error{ErrorCode::Internal, "附件枚举失败: " + err};
+      }
+    }
+    sqlite3_finalize(st);
+  }
+  for (const auto& [att_id, sha] : rows) {
+    sqlite3_stmt* st = nullptr;
+    if (sqlite3_prepare_v2(db_->raw(),
+                           "DELETE FROM attachment WHERE id=?", -1, &st,
+                           nullptr) != SQLITE_OK)
+      return Error{ErrorCode::IoError, "删除附件语句准备失败"};
+    sqlite3_bind_text(st, 1, att_id.c_str(), static_cast<int>(att_id.size()),
+                      SQLITE_TRANSIENT);
+    const bool done = sqlite3_step(st) == SQLITE_DONE;
+    const std::string err = done ? "" : sqlite3_errmsg(db_->raw());
+    sqlite3_finalize(st);
+    if (!done) return Error{ErrorCode::Internal, "删除附件失败: " + err};
+  }
+  // 内容文件回收：sha 不再被任何行引用才删（文件删除失败不影响行删除）
+  for (const auto& [att_id, sha] : rows) {
+    sqlite3_stmt* st = nullptr;
+    if (sqlite3_prepare_v2(db_->raw(),
+                           "SELECT COUNT(*) FROM attachment WHERE sha256=?1",
+                           -1, &st, nullptr) == SQLITE_OK) {
+      sqlite3_bind_text(st, 1, sha.c_str(), static_cast<int>(sha.size()),
+                        SQLITE_TRANSIENT);
+      if (sqlite3_step(st) == SQLITE_ROW &&
+          sqlite3_column_int64(st, 0) == 0) {
+        std::error_code ec;
+        std::filesystem::remove(content_path(sha), ec);
+      }
+      sqlite3_finalize(st);
+    }
+  }
+  return static_cast<long>(rows.size());
+}
+
 Result<void> AttachmentService::remove(const std::string& id) {
   auto a = get(id);
   if (!a) return a.error();
+  // 预检与删除同一写事务（与其余删除保护同口径）；人物头像引用该附件时
+  // 以 409 拒绝，而不是让 FK 以 500 冒出（第四轮 P2-3）。
+  Transaction tx(*db_);
+  if (tx.error()) return tx.error().value();
+  {
+    sqlite3_stmt* st = nullptr;
+    if (sqlite3_prepare_v2(db_->raw(),
+                           "SELECT COUNT(*) FROM person"
+                           " WHERE portrait_attachment_id=?1",
+                           -1, &st, nullptr) != SQLITE_OK)
+      return Error{ErrorCode::IoError, "头像引用查询准备失败"};
+    sqlite3_bind_text(st, 1, id.c_str(), -1, SQLITE_TRANSIENT);
+    const bool row = sqlite3_step(st) == SQLITE_ROW;
+    const long n = row ? sqlite3_column_int64(st, 0) : -1;
+    const std::string qerr = row ? "" : sqlite3_errmsg(db_->raw());
+    sqlite3_finalize(st);
+    if (!row) return Error{ErrorCode::Internal, "头像引用查询失败: " + qerr};
+    if (n > 0) {
+      return conflict("附件被 " + std::to_string(n) +
+                      " 位人物用作头像，先解除引用再删除");
+    }
+  }
   sqlite3_stmt* st = nullptr;
   if (sqlite3_prepare_v2(db_->raw(), "DELETE FROM attachment WHERE id=?", -1,
                          &st, nullptr) != SQLITE_OK)
@@ -198,6 +328,24 @@ Result<void> AttachmentService::remove(const std::string& id) {
   const std::string err = done ? "" : sqlite3_errmsg(db_->raw());
   sqlite3_finalize(st);
   if (!done) return Error{ErrorCode::Internal, "删除附件失败: " + err};
+  if (auto c = tx.commit(); !c) return c.error();
+  // 内容寻址文件回收：同一 sha 可能被多条附件行共享，仅当不再被引用时删。
+  // 文件删除失败（占用/权限）不影响已提交的行删除，留待再次清理。
+  {
+    sqlite3_stmt* st = nullptr;
+    if (sqlite3_prepare_v2(db_->raw(),
+                           "SELECT COUNT(*) FROM attachment WHERE sha256=?1",
+                           -1, &st, nullptr) == SQLITE_OK) {
+      sqlite3_bind_text(st, 1, a->sha256.c_str(),
+                        static_cast<int>(a->sha256.size()), SQLITE_TRANSIENT);
+      if (sqlite3_step(st) == SQLITE_ROW &&
+          sqlite3_column_int64(st, 0) == 0) {
+        std::error_code ec;
+        std::filesystem::remove(content_path(a->sha256), ec);
+      }
+      sqlite3_finalize(st);
+    }
+  }
   return {};
 }
 

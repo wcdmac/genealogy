@@ -106,10 +106,24 @@ bool NewPersonPanel::create(DbSession& session) {
   // 关系快捷真正落地（不只是预填）
   if (!pending_kind_.empty() && !pending_anchor_.empty()) {
     if (pending_kind_ == "spouse") {
+      // 角色按性别分配（第四轮 P2）：锚点/新人性别未知时按锚点反推，
+      // 都未知则维持旧默认（锚=夫）。硬编码曾把女方写成 Husband。
+      MemberRole anchor_role = MemberRole::Husband;
+      MemberRole new_role = MemberRole::Wife;
+      auto anchor = session.persons().get_person(pending_anchor_);
+      const Gender anchor_gender =
+          anchor ? anchor->gender : Gender::Unknown;
+      const Gender new_gender = made->gender;
+      if (anchor_gender == Gender::Female ||
+          (anchor_gender == Gender::Unknown &&
+           new_gender == Gender::Male)) {
+        anchor_role = MemberRole::Wife;
+        new_role = MemberRole::Husband;
+      }
       Union u;
       u.type = UnionType::Marriage;
-      u.members.push_back({pending_anchor_, MemberRole::Husband});
-      u.members.push_back({made->id, MemberRole::Wife});
+      u.members.push_back({pending_anchor_, anchor_role});
+      u.members.push_back({made->id, new_role});
       auto un = session.unions().create_union(u);
       if (!un)
         state_.set_status("人物已建，但婚姻创建失败: " + un.error().message(), true);

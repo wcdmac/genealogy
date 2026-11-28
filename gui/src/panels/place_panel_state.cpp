@@ -78,6 +78,8 @@ void PlacePanel::new_draft() {
 }
 
 void PlacePanel::clear() {
+  loaded_db_.clear();
+  loaded_ = false;
   rows_.clear();
   new_draft();
 }

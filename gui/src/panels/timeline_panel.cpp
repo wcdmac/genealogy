@@ -18,9 +18,12 @@ void TimelinePanel::draw(DbSession& session) {
     ImGui::TextUnformatted("请先打开数据库");
     return;
   }
-  if (rows_.empty() && places_.empty()) {
+  // 每库装载一次：空库时双列表恒空，旧行为每帧 60fps 连环查询（第四轮 P2）
+  if (!loaded_ || loaded_db_ != state_.db_path) {
     std::string why;
     if (!reload(session, &why)) state_.set_status("时间线读取失败: " + why, true);
+    loaded_ = true;
+    loaded_db_ = state_.db_path;
   }
 
   ImGui::SetNextItemWidth(120);

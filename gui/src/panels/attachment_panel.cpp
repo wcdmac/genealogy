@@ -24,9 +24,12 @@ void AttachmentPanel::draw(DbSession& session) {
     ImGui::TextUnformatted("请先打开数据库");
     return;
   }
-  if (rows_.empty()) {
+  // 每库装载一次：空库时 rows_ 恒空，旧行为每帧 60fps 连环查询（第四轮 P2）
+  if (!loaded_ || loaded_db_ != state_.db_path) {
     std::string why;
     if (!reload(session, &why)) state_.set_status("附件读取失败: " + why, true);
+    loaded_ = true;
+    loaded_db_ = state_.db_path;
   }
 
   ImGui::SeparatorText("导入文件（按 sha256 去重）");

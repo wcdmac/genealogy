@@ -53,9 +53,10 @@ TEST_CASE("世系图：六种体例均产出合法 SVG") {
       // 五服走独立九族矩阵，不需要节点交互/房支分色
       CHECK(r->svg.find("高祖辈") != std::string::npos);  // 九族矩阵特征
     } else {
-      // 可读性特性：焦点样式 + 搜索脚本 + 房支分色（rect stroke）
+      // 可读性特性：焦点样式 + 点击聚焦脚本 + 房支分色（rect stroke）。
+      // （原搜索 <input> 非法 SVG 且脚本首行 null 崩，第四轮移除）
       CHECK(r->svg.find("node.focus") != std::string::npos);
-      CHECK(r->svg.find("addEventListener('input'") != std::string::npos);
+      CHECK(r->svg.find("addEventListener('click'") != std::string::npos);
       CHECK(r->svg.find("stroke='#") != std::string::npos);
     }
   }

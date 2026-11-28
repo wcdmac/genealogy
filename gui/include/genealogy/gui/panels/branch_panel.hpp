@@ -41,6 +41,9 @@ class BranchPanel : public Panel {
  private:
   AppState& state_;
   std::vector<Branch> rows_;
+  // 每库只自动装载一次（空库避免每帧 reload，第四轮 P2）
+  std::string loaded_db_;
+  bool loaded_ = false;
   Branch draft_;
   std::string name_buf_;
   std::string generation_buf_;
