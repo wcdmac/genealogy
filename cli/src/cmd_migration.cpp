@@ -85,7 +85,12 @@ int cmd_migration(const std::vector<std::string>& args,
       // 不编日期。ISO 输入由 GenealogyDate::from_iso 校验。
       const std::string raw = r["date"].as<std::string>();
       auto parsed = GenealogyDate::from_raw(raw);
-      if (parsed) m.date = *parsed;
+      // 解析失败显式告警（第五轮 P3-2）：此前静默丢弃，日期悄悄消失。
+      if (parsed) {
+        m.date = *parsed;
+      } else {
+        std::cerr << "警告: --date " + raw + " 无法解析，本次建档不带日期" << "\n";
+      }
     }
     auto made = svc.create_migration(m);
     if (!made) {

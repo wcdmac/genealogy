@@ -150,6 +150,13 @@
       "basis": "姻亲（嫡配）"
     },
     {
+      "path": "Q",
+      "standard": "妾",
+      "colloquial": "姨太太",
+      "formal": "妾",
+      "basis": "夫对妾室的称谓"
+    },
+    {
       "path": "B+",
       "standard": "哥哥",
       "colloquial": "哥哥",

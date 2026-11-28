@@ -50,6 +50,14 @@ class PersonGraph {
   // 配偶：union 成员中除自己外的各方（含妾/继配）。
   const std::vector<const Person*>& spouses_of(const std::string& id) const;
 
+  // 带角色的配偶链接（第五轮 P1-1）：妾/妻/夫按 union_member.role 判定，
+  // 不再靠性别猜。同人多结合时每个结合一条链接；同一配偶只保留首次。
+  struct SpouseLink {
+    const Person* peer;
+    MemberRole role;  // 对方在该结合中的角色
+  };
+  const std::vector<SpouseLink>& spouse_links_of(const std::string& id) const;
+
   // 是否已婚（图中存在配偶边）。
   bool is_married(const std::string& id) const;
 
@@ -82,6 +90,7 @@ class PersonGraph {
   std::unordered_map<std::string, std::vector<const Person*>> children_;
   std::unordered_map<std::string, std::vector<const Person*>> siblings_;
   std::unordered_map<std::string, std::vector<const Person*>> spouses_;
+  std::unordered_map<std::string, std::vector<SpouseLink>> spouse_links_;
 };
 
 }  // namespace genealogy::lineage

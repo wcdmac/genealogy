@@ -86,15 +86,19 @@ void ExportPanel::draw(DbSession& session) {
                          : "排版失败: " + why, !ok);
   }
   ImGui::SameLine();
-  static char path_buf[260] = "family-layout.svg";
-  ImGui::InputText("##export_path", path_buf, sizeof(path_buf));
+  // 260 定长缓冲换 std::string（第五轮 P3-8）：UTF-8 中文路径约 86 字
+  // 即静默截断；widgets 的 input_text 走 CallbackResize 无上限。
+  static std::string path_buf = "family-layout.svg";
+  input_text("##export_path", &path_buf);
   if (ImGui::Button("导出文件", ImVec2(120, 0))) {
     if (preview_.empty()) {
       state_.set_status("请先生成预览", true);
+    } else if (path_buf.empty()) {
+      state_.set_status("请填写导出路径", true);
     } else {
       std::string why;
       if (write_file(path_buf, preview_, &why))
-        state_.set_status(std::string("已导出: ") + path_buf);
+        state_.set_status("已导出: " + path_buf);
       else
         state_.set_status(why, true);
     }

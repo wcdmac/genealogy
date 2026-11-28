@@ -129,6 +129,14 @@ bool has_any_date(const GenealogyDate& d) {
 void add(std::vector<ValidationIssue>* out, const RuleDef& r,
          const std::string& entity_type, const std::string& entity_id,
          const std::string& detail = {}) {
+  // 同规则同实体去重（第五轮 P3-4）：father_id==mother_id 的脏数据会让
+  // R2/R3 对同一人各 add 一次，报告出现两行相同 issue。同键已存在时跳过。
+  for (const auto& prev : *out) {
+    if (prev.rule_id == r.id && prev.entity_type == entity_type &&
+        prev.entity_id == entity_id) {
+      return;
+    }
+  }
   ValidationIssue issue;
   issue.rule_id = r.id;
   issue.severity = r.severity;
@@ -588,6 +596,24 @@ Result<ValidationReport> validate(const PersonGraph& graph,
                                   const std::vector<Event>* events, const std::vector<Citation>* citations,
                                   const ValidationOptions& opt) {
   const auto rules = load_rules();
+  // 未知规则 ID 直接报用法错误（第五轮 P3-1）：拼错的 --rule 会 0 条
+  // 规则 0 issue exit 0，CI 卡点假绿。
+  if (!opt.only_rule_ids.empty()) {
+    for (const auto& asked : opt.only_rule_ids) {
+      const bool known = std::any_of(
+          rules.begin(), rules.end(),
+          [&](const RuleDef& r) { return r.id == asked; });
+      if (!known) {
+        std::string ids;
+        for (const auto& r2 : rules) {
+          if (!ids.empty()) ids += ",";
+          ids += r2.id;
+        }
+        return invalid_argument("未知校验规则: " + asked +
+                                "（可用: " + ids + "）");
+      }
+    }
+  }
   ValidationReport report;
   report.rules_total = static_cast<int>(rules.size());
 

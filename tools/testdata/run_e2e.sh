@@ -76,7 +76,7 @@ $GENE io import gedcom tools/testdata/family_gedcom.ged --db "$DB" --format json
 check_eq "import 退出码" 0 $?
 check_eq "导入人物数" 11 "$($PY -c "import json;print(json.load(open('$OUT/import.json'))['imported']['persons'])")"
 check_eq "导入结合数" 4  "$($PY -c "import json;print(json.load(open('$OUT/import.json'))['imported']['unions'])")"
-check_eq "映射损失=4（OBJE×2+REFN×2；SOUR 于 M7.5 建模不再损失）" 4 "$($PY -c "import json;print(len(json.load(open('$OUT/import.json'))['losses']))")"
+check_eq "映射损失=6（OBJE×2+REFN×2+EXAM+HONR；SOUR 于 M7.5 建模不再损失；未知标签自第五轮起全部记账）" 6 "$($PY -c "import json;print(len(json.load(open('$OUT/import.json'))['losses']))")"
 check_eq "导入来源数" 1 "$($PY -c "import json;print(json.load(open('$OUT/import.json'))['imported']['sources'])")"
 check_eq "导入引用数" 1 "$($PY -c "import json;print(json.load(open('$OUT/import.json'))['imported']['citations'])")"
 

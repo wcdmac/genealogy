@@ -144,6 +144,7 @@
 
     {"path": "H",             "grade": "zhancui",       "basis": "妻为夫（斩衰三年）"},
     {"path": "W",             "grade": "qicui_zhang",   "basis": "夫为妻（齐衰杖期）"},
+    {"path": "Q",             "grade": "wufu",   "basis": "夫为妾（明清无服）"},
     {"path": "H.F",           "grade": "zhancui",       "basis": "妇为舅姑（明清斩衰三年）"},
     {"path": "H.M",           "grade": "zhancui",       "basis": "妇为舅姑（明清斩衰三年）"},
     {"path": "H.F.F",         "grade": "dagong",        "basis": "为夫之祖父母（大功）"},

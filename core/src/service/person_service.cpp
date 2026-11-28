@@ -257,19 +257,24 @@ Result<void> PersonService::remove_person(const std::string& id) {
   }
   // 附件随人删除（第四轮 P2-4）：attachment.subject_id 无外键，人删后
   // 行与内容文件都是悬挂幽灵。本人的头像引用在服务内先清，他人引用会
-  // 以 409 拦截。与上面的事件/迁徙清理同事务。
+  // 以 409 拦截。与上面的事件/迁徙清理同事务。内容文件在提交后回收
+  // （第五轮 P2-1：文件删除不可回滚）。
+  std::vector<std::string> reclaim_shas;
   {
     AttachmentService attachments(*db_);
-    if (auto ra = attachments.remove_subject_attachments("person", id);
-        !ra) {
-      return ra.error();
-    }
+    auto ra = attachments.remove_subject_attachments("person", id);
+    if (!ra) return ra.error();
+    reclaim_shas = std::move(*ra);
   }
   // 名号行随人删除（person_name.person_id 外键指向 person）
   if (auto rn = repo_.remove_names(id); !rn) return rn;
   auto removed = repo_.remove(id);
   if (!removed) return removed.error();
   if (auto c = tx.commit(); !c) return c;
+  if (!reclaim_shas.empty()) {
+    AttachmentService attachments(*db_);
+    attachments.reclaim_content_files(reclaim_shas);
+  }
   return {};
 }
 

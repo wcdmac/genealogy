@@ -491,3 +491,28 @@ TEST_CASE("长幼信息缺失时的宽松匹配", "[lineage][seniority-unknown]"
   REQUIRE(mour);
   REQUIRE(mour->grade == MourningGrade::QiCuiBuZhang);  // 为兄弟
 }
+
+TEST_CASE("妾步按角色判定，不靠性别猜（第五轮 P1-1）", "[lineage][relationship]") {
+  std::vector<Person> persons;
+  persons.push_back(mk("husband", Gender::Male, 1900, "", ""));
+  persons.push_back(mk("wife", Gender::Female, 1902, "", ""));
+  persons.push_back(mk("conc", Gender::Female, 1910, "", ""));
+  std::vector<Union> unions;
+  unions.push_back(couple("husband", MemberRole::Husband, "wife", MemberRole::Wife));
+  // 妾室结合：妻位是 Wife、妾位是 Concubine
+  unions.push_back(couple("husband", MemberRole::Husband, "conc", MemberRole::Concubine));
+  const PersonGraph g = PersonGraph::build(persons, unions);
+
+  // 夫看妾：路径是妾步（Q），规则表给"妾"，不再是"妻"的 W 键
+  const auto rel = find_relationship(g, "husband", "conc", 4);
+  REQUIRE(rel.found);
+  const std::string key = relationship_key(rel, *g.find("husband"));
+  CHECK(key.find('Q') != std::string::npos);
+  CHECK(key.find('W') == std::string::npos);
+
+  // 反向：妾看夫仍是 H（妾为夫，明清斩衰）
+  const auto rev = find_relationship(g, "conc", "husband", 4);
+  REQUIRE(rev.found);
+  const std::string rkey = relationship_key(rev, *g.find("conc"));
+  CHECK(rkey.find('H') != std::string::npos);
+}

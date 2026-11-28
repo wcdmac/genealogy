@@ -108,7 +108,13 @@ int cmd_source(const std::vector<std::string>& args,
     SourceFilter f;
     if (r.count("type")) {
       auto t = source_type_from_string(r["type"].as<std::string>());
-      if (t) f.type = *t;
+      // 非法值报用法错误（第五轮 P3-9）：与 place list --type 同口径，
+      // 静默忽略会让「过滤了」变成「没过滤」。
+      if (!t) {
+        std::cerr << "用法错误: --type 不是合法来源类型" << "\n";
+        return 2;
+      }
+      f.type = *t;
     }
     if (r.count("query")) f.title_contains = r["query"].as<std::string>();
     f.limit = r["limit"].as<int>();

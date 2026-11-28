@@ -76,7 +76,19 @@ bool NewPersonPanel::create(DbSession& session) {
   if (!draft_.father_id.empty()) p.father_id = draft_.father_id;
   if (!draft_.mother_id.empty()) p.mother_id = draft_.mother_id;
   if (!draft_.generation_no.empty()) {
-    try { p.generation_no = std::stoi(draft_.generation_no); } catch (...) {}
+    // 严格解析（第五轮 P3-7）：静默吞世代会让脏输入变成"无世代"落库
+    try {
+      std::size_t used = 0;
+      const int v = std::stoi(draft_.generation_no, &used);
+      if (used != draft_.generation_no.size()) {
+        state_.set_status("世代应为整数: " + draft_.generation_no, true);
+        return false;
+      }
+      p.generation_no = v;
+    } catch (const std::exception&) {
+      state_.set_status("世代应为整数: " + draft_.generation_no, true);
+      return false;
+    }
   }
   if (!draft_.biography.empty()) p.biography = draft_.biography;
   if (!draft_.note.empty()) p.note = draft_.note;

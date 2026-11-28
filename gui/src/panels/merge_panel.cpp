@@ -53,9 +53,10 @@ void MergePanel::draw(DbSession& session) {
                            "%s：保留=%s ／ 被合并=%s", c.field.c_str(),
                            c.winner_value.c_str(), c.loser_value.c_str());
     }
-    static char dir_buf[260] = "backups";
+    // 260 定长缓冲换 std::string（第五轮 P3-8，export 路径同改）
+    static std::string dir_buf = "backups";
     ImGui::SetNextItemWidth(300);
-    ImGui::InputText("##merge_backup_dir", dir_buf, sizeof(dir_buf));
+    input_text("##merge_backup_dir", &dir_buf);
     ImGui::SameLine();
     if (ImGui::Button("执行合并（先自动留快照）")) {
       std::string why;

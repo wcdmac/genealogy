@@ -37,8 +37,8 @@ bool valid_path(const std::string& path) {
   if (path.front() == '.' || path.back() == '.') return false;
   for (const char c : path) {
     const bool ok = (c == 'F' || c == 'M' || c == 'S' || c == 'D' ||
-                     c == 'H' || c == 'W' || c == 'B' || c == 'Z' ||
-                     c == '+' || c == '-' || c == '.');
+                     c == 'H' || c == 'W' || c == 'Q' || c == 'B' ||
+                     c == 'Z' || c == '+' || c == '-' || c == '.');
     if (!ok) return false;
   }
   return path.find("..") == std::string::npos;

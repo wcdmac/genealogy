@@ -27,9 +27,15 @@ void AttachmentPanel::draw(DbSession& session) {
   // 每库装载一次：空库时 rows_ 恒空，旧行为每帧 60fps 连环查询（第四轮 P2）
   if (!loaded_ || loaded_db_ != state_.db_path) {
     std::string why;
-    if (!reload(session, &why)) state_.set_status("附件读取失败: " + why, true);
-    loaded_ = true;
-    loaded_db_ = state_.db_path;
+    if (reload(session, &why)) {
+      loaded_ = true;
+      loaded_db_ = state_.db_path;
+    } else if (loaded_db_ != state_.db_path) {
+      // 失败不固化 loaded_（第五轮 P3）：瞬时 BUSY 后空列表可自愈；
+      // loaded_db_ 已更新故每库只报一次错，不逐帧刷状态栏
+      state_.set_status("附件读取失败: " + why, true);
+      loaded_db_ = state_.db_path;
+    }
   }
 
   ImGui::SeparatorText("导入文件（按 sha256 去重）");

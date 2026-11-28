@@ -6,6 +6,9 @@
 #include <genealogy/repository/citation_repository.hpp>
 #include <genealogy/repository/event_repository.hpp>
 
+#include <sqlite3.h>
+#include <string>
+
 namespace genealogy {
 
 BranchService::BranchService(Database& db)
@@ -94,6 +97,35 @@ Result<void> BranchService::remove_branch(const std::string& id) {
   if (n > 0) {
     return conflict("支派被 " + std::to_string(n) +
                    " 条证据引用，先解除引用再删除");
+  }
+  // 人物归属/子支派引用（第四轮补口）：person.branch_id 与
+  // branch.parent_branch_id 都有外键，不预检时删除会以 500（FK 原文）
+  // 冒出，与其余服务的 409 口径不符。
+  {
+    const char* const kSqls[] = {
+        "SELECT COUNT(*) FROM person WHERE branch_id=?1",
+        "SELECT COUNT(*) FROM branch WHERE parent_branch_id=?1",
+    };
+    long members = 0, children = 0;
+    for (int i = 0; i < 2; ++i) {
+      sqlite3_stmt* st = nullptr;
+      if (sqlite3_prepare_v2(db_->raw(), kSqls[i], -1, &st, nullptr) !=
+          SQLITE_OK)
+        return Error{ErrorCode::IoError, "支派引用计数查询准备失败"};
+      sqlite3_bind_text(st, 1, id.c_str(),
+                        static_cast<int>(id.size()), SQLITE_TRANSIENT);
+      const bool row = sqlite3_step(st) == SQLITE_ROW;
+      const long v = row ? sqlite3_column_int64(st, 0) : -1;
+      const std::string err = row ? "" : sqlite3_errmsg(db_->raw());
+      sqlite3_finalize(st);
+      if (!row) return Error{ErrorCode::Internal, "支派引用计数查询失败: " + err};
+      (i == 0 ? members : children) = v;
+    }
+    if (members > 0 || children > 0) {
+      return conflict("支派仍被引用（归属人物 " + std::to_string(members) +
+                      " 人、子支派 " + std::to_string(children) +
+                      " 个），先转移归属再删除");
+    }
   }
   // 以支派为主体的事件随支派删除（第四轮 P2-6，union 路径同口径）。
   {

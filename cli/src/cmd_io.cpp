@@ -289,7 +289,13 @@ int cmd_export_gedcom(const std::vector<std::string>& args,
   UnionFilter uf;
   uf.limit = static_cast<int>(rows.size()) * 4 + 1000;
   std::vector<Union> union_rows;
-  if (auto got = unions.list_unions(uf)) {
+  {
+    auto got = unions.list_unions(uf);
+    // 装载失败显式退出（第五轮 P2-4）：静默吞掉会导出残缺的结合段。
+    if (!got) {
+      print_error(got.error());
+      return exit_code_for(got.error());
+    }
     for (auto& u : *got) {
       for (const auto& m : u.members) {
         if (in_export.count(m.person_id) > 0) {
@@ -304,7 +310,12 @@ int cmd_export_gedcom(const std::vector<std::string>& args,
   EventFilter ef;
   ef.limit = static_cast<int>(rows.size()) * 4 + 1000;
   std::vector<Event> event_rows;
-  if (auto got = events.list_events(ef)) {
+  {
+    auto got = events.list_events(ef);
+    if (!got) {
+      print_error(got.error());
+      return exit_code_for(got.error());
+    }
     std::unordered_set<std::string> exported_union;
     exported_union.reserve(union_rows.size() * 2);
     for (const auto& u : union_rows) exported_union.insert(u.id);
@@ -321,8 +332,11 @@ int cmd_export_gedcom(const std::vector<std::string>& args,
   PlaceFilter plf;
   plf.limit = 100000;
   auto place_list = places.list_places(plf);
-  std::vector<Place> place_rows =
-      place_list ? std::move(*place_list) : std::vector<Place>{};
+  if (!place_list) {
+    print_error(place_list.error());
+    return exit_code_for(place_list.error());
+  }
+  std::vector<Place> place_rows = std::move(*place_list);
 
   // 出处链（M7.5）：来源全量 + 引用按导出集过滤。引用主体（人物/
   // 结合/事件）是否在集内由 export_gedcom 内部记账——这里只装载。
@@ -435,15 +449,23 @@ int cmd_validate(const std::vector<std::string>& args,
   UnionFilter uf;
   uf.limit = 100000;
   auto union_list = unions.list_unions(uf);
-  std::vector<Union> union_rows =
-      union_list ? std::move(*union_list) : std::vector<Union>{};
+  // 装载失败不再静默吞掉（第五轮 P2-4）：空结合集会让 R7 对每个双亲
+  // 人物全库误报，CI 假红。
+  if (!union_list) {
+    print_error(union_list.error());
+    return exit_code_for(union_list.error());
+  }
+  std::vector<Union> union_rows = std::move(*union_list);
 
   EventService events(*db);
   EventFilter ef;
   ef.limit = 100000;
   auto event_list = events.list_events(ef);
-  std::vector<Event> event_rows =
-      event_list ? std::move(*event_list) : std::vector<Event>{};
+  if (!event_list) {
+    print_error(event_list.error());
+    return exit_code_for(event_list.error());
+  }
+  std::vector<Event> event_rows = std::move(*event_list);
 
   // R16/R17 需要全量 citation：翻页载到尽（游标 = 本页最后一条 id）。
   // 人物/事件用的单次大 limit 是 M1 登记的容量假设（ROADMAP 暂缓项
@@ -1388,13 +1410,15 @@ int cmd_export_book(const std::vector<std::string>& args,
     // 版面分裂（第四轮 P2-4）。
     const bool privacy = r["respect-privacy"].as<bool>();
     auto layout_date = [&](const Person& p) -> std::string {
-      // 与 book_html 的 life_span 脱敏口径一致
-      if (privacy && p.is_living && p.privacy != PrivacyLevel::Public) {
+      // 与 book_html 的 life_span 脱敏口径一致（第五轮 P1-1 修正）：
+      // Private 整段抹、Kin 缩年份；Kin 无公历（纯农历）不给日期——
+      // 隐私优先，谱书/版式/GEDCOM 三管线同一口径。
+      if (privacy && p.is_living && p.privacy == PrivacyLevel::Private) {
         return "";
       }
       const std::string v = p.birth_date.gregorian.value_or(std::string{});
       if (privacy && p.is_living && p.privacy == PrivacyLevel::Kin) {
-        return v.size() >= 4 ? v.substr(0, 4) : v;
+        return v.size() >= 4 ? v.substr(0, 4) : std::string{};
       }
       return v;
     };

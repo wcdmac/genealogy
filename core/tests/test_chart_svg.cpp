@@ -76,8 +76,10 @@ TEST_CASE("世系图：祖先缺失显式告警、无效焦点报错") {
 
   opt.focus_id = "NO_SUCH";
   auto bad = io::render_chart_svg(opt);
-  REQUIRE(bad.has_value());
-  CHECK(bad->node_count == 0);
+  // 无效焦点报 NotFound（第五轮 P3-4）：旧契约静默出空图，与 wufu 的
+  // NotFound 口径分裂，id 打错时用户以为族人俱失。
+  REQUIRE_FALSE(bad.has_value());
+  CHECK(bad.error().code() == ErrorCode::NotFound);
 
   opt.graph = nullptr;
   auto nog = io::render_chart_svg(opt);

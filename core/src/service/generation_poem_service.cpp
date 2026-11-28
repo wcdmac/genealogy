@@ -9,6 +9,7 @@
 #include <genealogy/model/branch.hpp>
 #include <genealogy/model/book.hpp>
 #include <genealogy/repository/book_repository.hpp>
+#include <genealogy/repository/transaction.hpp>
 #include <genealogy/model/person.hpp>
 #include <genealogy/model/union.hpp>
 #include <genealogy/repository/union_repository.hpp>
@@ -16,7 +17,8 @@
 namespace genealogy {
 
 GenerationPoemService::GenerationPoemService(Database& db)
-    : poems_(db),
+    : db_(&db),
+      poems_(db),
       books_(db),
       branches_(db),
       persons_(db),
@@ -57,6 +59,10 @@ Result<std::vector<GenerationPoemEntry>> GenerationPoemService::set_poem(
     entries.push_back(std::move(e));
   }
 
+  // 两段写（结构化条目 + 谱面原文留档）必须同一事务（第四轮 P3）：
+  // 第二段失败会留下「条目已换、原文未跟」的半状态。
+  Transaction tx(*db_);
+  if (tx.error()) return tx.error().value();
   if (auto r = poems_.replace_all(owner, oid, entries); !r) {
     return r.error();
   }
@@ -72,6 +78,7 @@ Result<std::vector<GenerationPoemEntry>> GenerationPoemService::set_poem(
       if (auto r = books_.update(updated); !r) return r.error();
     }
   }
+  if (auto c = tx.commit(); !c) return c.error();
   return entries;
 }
 

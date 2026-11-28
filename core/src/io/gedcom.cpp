@@ -221,6 +221,18 @@ bool split_line(std::string_view line, FlatLine* out) {
   if (i < line.size()) {
     ++i;
     out->value = std::string(line.substr(i));
+    // GEDCOM @ 转义解出（第五轮 P2-9）：值里 @@ → @，与写出侧 text()
+    // 的转义对称。指针值（@S1@）不含 @@，原样通过。
+    std::string unescaped;
+    unescaped.reserve(out->value.size());
+    for (std::size_t k = 0; k < out->value.size(); ++k) {
+      unescaped += out->value[k];
+      if (out->value[k] == '@' && k + 1 < out->value.size() &&
+          out->value[k + 1] == '@') {
+        ++k;
+      }
+    }
+    out->value = std::move(unescaped);
   }
   return true;
 }
@@ -772,6 +784,7 @@ const EventTagMap kEventTags[] = {
     {"ORDN", EventType::Annotation, "授职"},
     {"PROB", EventType::Annotation, "遗嘱认证"},
     {"WILL", EventType::Annotation, "遗嘱"},
+    {"EVEN", EventType::Annotation, "事件"},  // 自家 Annotation 的导出标签,往返闭环(第五轮 P1-5)
 };
 
 }  // namespace
@@ -946,6 +959,15 @@ Result<ImportResult> import_gedcom(const GedcomDocument& doc,
   // 缺 TITL 仍建档（占位标题），否则引用它的 citation 全部悬空；未映射
   // 子字段逐条 Info loss——损失显式化纪律不因映射而放松。
   std::unordered_map<std::string, std::string> source_ids;  // @S1@ → id
+  // 共享 NOTE 记录文本（第五轮 P2-10）：`0 @N1@ NOTE` 形态此前不解析，
+  // INDI 级 `1 NOTE @N1@` 的指针串被原样塞进备注字段。
+  std::unordered_map<std::string, std::string> shared_notes;  // @N1@ → 文本
+  for (const auto& rec : doc.records) {
+    if (rec.tag != "NOTE") continue;
+    if (!rec.xref.empty()) {
+      shared_notes.emplace("@" + rec.xref + "@", rec.value);
+    }
+  }
   for (const auto& rec : doc.records) {
     if (rec.tag != "SOUR") continue;
     const std::string sxref = "@" + rec.xref + "@";
@@ -1016,6 +1038,17 @@ Result<ImportResult> import_gedcom(const GedcomDocument& doc,
   // 第零遍的来源表；非 @ 形式 = inline 来源（整段文本即出处描述，如
   // 「1 SOUR 家谱软件测试数据生成器」），隐式建 Source。PAGE→locator、
   // EVEN/DATA.TEXT→note。
+  // 指针判定收紧（第五轮 P2-9）：xref 须为非空 ASCII 字母数字，纯文本
+  // "@标题@" 形态不再被误判成断链指针。
+  auto is_gedcom_pointer = [](const std::string& v) {
+    if (v.size() < 3 || v.front() != '@' || v.back() != '@') return false;
+    const std::string inner = v.substr(1, v.size() - 2);
+    if (inner.empty()) return false;
+    for (const char ch : inner) {
+      if (!std::isalnum(static_cast<unsigned char>(ch))) return false;
+    }
+    return true;
+  };
   auto citation_from_sour = [&](const GedcomNode& sour,
                                 const std::string& subject_xref,
                                 CitationSubjectType st,
@@ -1025,7 +1058,7 @@ Result<ImportResult> import_gedcom(const GedcomDocument& doc,
     c.subject_type = st;
     c.subject_id = subject_id;
     const std::string val = trim(sour.value);
-    if (!val.empty() && val.front() == '@' && val.back() == '@') {
+    if (is_gedcom_pointer(val)) {
       const auto it = res.id_map.find(val);
       if (it == res.id_map.end()) {
         add_loss(LossSeverity::Warning, subject_xref, "SOUR",
@@ -1101,7 +1134,7 @@ Result<ImportResult> import_gedcom(const GedcomDocument& doc,
       add_loss(LossSeverity::Warning, xref, "NAME", "该人物没有 NAME 记录");
     }
 
-    const std::string sex = upper_ascii(rec.child_value("SEX"));
+    const std::string sex = upper_ascii(trim(rec.child_value("SEX")));
     if (sex == "M") {
       p.gender = Gender::Male;
     } else if (sex == "F") {
@@ -1130,7 +1163,11 @@ Result<ImportResult> import_gedcom(const GedcomDocument& doc,
       if (ev_type == EventType::Death) {
         if (fact_val == "N") {
           p.is_living = true;   // 显式在世：恢复在世保护标记
-          // DEAT N 不建事件（无事实可引），但引用它的出处不能静默丢
+          // DEAT N 不建事件（无事实可引），但其下内容不能静默丢
+          if (node->child("DATE") != nullptr) {
+            add_loss(LossSeverity::Info, xref, "DEAT.DATE",
+                     "「未死亡」事实的日期无处挂接，已按损失记账");
+          }
           for (const auto* s : node->children_all("SOUR")) {
             add_loss(LossSeverity::Info, xref, "SOUR",
                      "「未死亡」事实不建事件，其下的出处引用无处挂接，"
@@ -1162,6 +1199,50 @@ Result<ImportResult> import_gedcom(const GedcomDocument& doc,
       e.created_at = now;
       if (const auto* d = node->child("DATE")) e.date = o.date;
       if (ev_desc && *ev_desc) e.description = ev_desc;
+      // 事实行主值载荷（"1 OCCU 农民" 的"农民"）此前被静默丢弃（第五轮 P1-1）。
+      // Y/N/空值（BIRT/DEAT 类）无载荷，跳过。
+      {
+        const std::string payload = trim(node->value);
+        if (!payload.empty() && payload != "Y" && payload != "N") {
+          if (e.description && !e.description->empty())
+            *e.description += "：" + payload;
+          else
+            e.description = payload;
+        }
+      }
+      // 事实级子结构：NOTE/CAUSE/AGE/ADDR/TYPE 并入事件描述，其余一律
+      // 记账——「认不出的东西绝不静默丢弃」（第五轮 P1-1/P1-5）
+      {
+        std::string extra;
+        auto append = [&](const std::string& label, const std::string& v) {
+          if (v.empty()) return;
+          if (!extra.empty()) extra += "；";
+          extra += label + v;
+        };
+        for (const auto* n : node->children_all("NOTE")) {
+          append("注：", n->value);
+        }
+        if (const auto* c = node->child("CAUSE"))
+          append("原因：", trim(c->value));
+        if (const auto* c = node->child("AGE")) append("年龄：", trim(c->value));
+        if (const auto* c = node->child("ADDR")) append("地址：", trim(c->value));
+        if (const auto* c = node->child("TYPE")) append("类型：", trim(c->value));
+        if (!extra.empty()) {
+          if (e.description && !e.description->empty())
+            *e.description += "；" + extra;
+          else
+            e.description = extra;
+        }
+        static const std::unordered_set<std::string> kRouted = {
+            "DATE", "PLAC", "SOUR", "NOTE", "CAUSE", "AGE", "ADDR", "TYPE"};
+        for (const auto& c : node->children) {
+          if (kRouted.count(c.tag) == 0) {
+            add_loss(LossSeverity::Info, xref,
+                     std::string(fact_tag) + "." + c.tag,
+                     "事实行下的未路由子结构，已按损失记账");
+          }
+        }
+      }
       res.events.push_back(e);
       if (const auto* pl = node->child("PLAC")) {
         const std::string name = trim(pl->value);
@@ -1178,6 +1259,21 @@ Result<ImportResult> import_gedcom(const GedcomDocument& doc,
             res.events.back().place_id = pid;
           }
         }
+        // 地点级 3 SOUR/NOTE 一并路由（第五轮 P2-11）
+        for (const auto* s : pl->children_all("SOUR")) {
+          citation_from_sour(*s, xref, CitationSubjectType::Event,
+                             res.events.back().id);
+        }
+        for (const auto* n : pl->children_all("NOTE")) {
+          const std::string v = trim(n->value);
+          if (!v.empty()) {
+            Event& back = res.events.back();
+            if (back.description && !back.description->empty())
+              *back.description += "；注：" + v;
+            else
+              back.description = v;
+          }
+        }
       }
       // 事实级 2 SOUR → 挂到该事实创建的事件（M7.5 出处链）
       for (const auto* s : node->children_all("SOUR")) {
@@ -1192,9 +1288,23 @@ Result<ImportResult> import_gedcom(const GedcomDocument& doc,
       handle_fact(m.tag, m.type, m.desc);
     }
 
-    // 备注
+    // 备注（第五轮 P2-10）：指针形态解析共享 NOTE 记录，未命中记账，
+    // 不再把 "@N1@" 字面串塞进备注字段
     std::vector<std::string> notes;
-    for (const auto* n : rec.children_all("NOTE")) notes.push_back(n->value);
+    for (const auto* n : rec.children_all("NOTE")) {
+      if (!n->value.empty() && n->value.front() == '@' &&
+          n->value.back() == '@' && n->value.size() >= 3) {
+        const auto it = shared_notes.find(n->value);
+        if (it != shared_notes.end()) {
+          if (!it->second.empty()) notes.push_back(it->second);
+        } else {
+          add_loss(LossSeverity::Warning, xref, "NOTE",
+                   "引用了未定义的共享备注记录 " + n->value + "，正文缺失");
+        }
+        continue;
+      }
+      notes.push_back(n->value);
+    }
     if (const auto* refn = rec.child("REFN")) {
       const std::string v = trim(refn->value);
       if (!v.empty()) {
@@ -1233,6 +1343,25 @@ Result<ImportResult> import_gedcom(const GedcomDocument& doc,
       (void)asso;
       add_loss(LossSeverity::Info, xref, "ASSO",
                "关联人（ASSO）关系未建模，已忽略");
+    }
+
+    // INDI 记录级兜底（第五轮 P1-5）：未识别的一级子标签一律记账，
+    // 绝不静默丢弃（第三方自定义标签、收养标记 FAMC.PEDI 等）。
+    {
+      static const std::unordered_set<std::string> kIndiKnown = [] {
+        std::unordered_set<std::string> known = {
+            "NAME", "SEX",  "BIRT", "DEAT", "BURI", "NOTE", "REFN",
+            "ALIA", "CHAN", "OBJE", "SOUR", "_UID", "ASSO", "FAMS",
+            "FAMC"};
+        for (const auto& m : kEventTags) known.insert(m.tag);
+        return known;
+      }();
+      for (const auto& c : rec.children) {
+        if (kIndiKnown.count(c.tag) == 0) {
+          add_loss(LossSeverity::Info, xref, c.tag,
+                   "未识别的人物记录子标签，已按损失记账");
+        }
+      }
     }
 
     // 重复 xref：emplace 不覆盖是刻意的（保留第一条），但必须记账——
@@ -1386,28 +1515,56 @@ Result<ImportResult> import_gedcom(const GedcomDocument& doc,
       continue;
     }
 
+    std::string marr_notes;
     if (f.marr) {
+      std::optional<DateOutcome> marr_date;
       if (const auto* d = f.marr->child("DATE")) {
         const DateOutcome o = parse_gedcom_date(d->value);
         u.start_date = o.date;
+        marr_date = o;
         if (!o.note.empty()) {
           add_loss(LossSeverity::Warning, f.xref, "MARR.DATE", o.note);
         }
-        Event e;
-        e.id = generate_ulid();
-        e.subject_type = EventSubjectType::Union;
-        e.subject_id = u.id;
-        e.type = EventType::Marriage;
-        e.date = o.date;
-        e.created_at = now;
-        if (const auto* pl = f.marr->child("PLAC")) {
-          const std::string pid = place_for(trim(pl->value), pl, f.xref);
-          if (!pid.empty()) e.place_id = pid;
+      }
+      Event e;
+      e.id = generate_ulid();
+      e.subject_type = EventSubjectType::Union;
+      e.subject_id = u.id;
+      e.type = EventType::Marriage;
+      if (marr_date) e.date = marr_date->date;
+      e.created_at = now;
+      // PLAC/SOUR 不再嵌在 DATE 分支内（第五轮 P1-2）：婚姻无日期但
+      // 知地点/有证据时，此前整块静默丢弃。
+      if (const auto* pl = f.marr->child("PLAC")) {
+        const std::string pid = place_for(trim(pl->value), pl, f.xref);
+        // 地点写回结合（第五轮 P1-3）：此前只写事件、导出侧读 u.place_id，
+        // 婚姻地点往返必丢。
+        if (!pid.empty()) {
+          e.place_id = pid;
+          u.place_id = pid;
         }
-        res.events.push_back(e);
-        // MARR 事实级 2 SOUR → 挂到婚姻事件（M7.5）
-        for (const auto* s : f.marr->children_all("SOUR")) {
-          citation_from_sour(*s, f.xref, CitationSubjectType::Event, e.id);
+      }
+      res.events.push_back(e);
+      // MARR 事实级 2 SOUR → 挂到婚姻事件（M7.5）
+      for (const auto* s : f.marr->children_all("SOUR")) {
+        citation_from_sour(*s, f.xref, CitationSubjectType::Event, e.id);
+      }
+      // MARR 级 NOTE 并入结合备注（第五轮 P2-11 同口）
+      for (const auto* n : f.marr->children_all("NOTE")) {
+        const std::string v = trim(n->value);
+        if (!v.empty()) {
+          if (!marr_notes.empty()) marr_notes += "\n";
+          marr_notes += v;
+        }
+      }
+      // MARR 子结构兜底
+      static const std::unordered_set<std::string> kMarrRouted = {
+          "DATE", "PLAC", "SOUR", "NOTE", "TYPE"};
+      for (const auto& c : f.marr->children) {
+        if (kMarrRouted.count(c.tag) == 0) {
+          add_loss(LossSeverity::Info, f.xref,
+                   std::string("MARR.") + c.tag,
+                   "婚姻事实下的未路由子结构，已按损失记账");
         }
       }
     }
@@ -1419,11 +1576,25 @@ Result<ImportResult> import_gedcom(const GedcomDocument& doc,
           add_loss(LossSeverity::Warning, f.xref, "DIV.DATE", o.note);
         }
       }
+      // DIV 的证据挂到结合（第五轮 P1-2：DIV.SOUR 此前完全未路由）
+      for (const auto* s : f.div->children_all("SOUR")) {
+        citation_from_sour(*s, f.xref, CitationSubjectType::Union, u.id);
+      }
+      for (const auto* n : f.div->children_all("NOTE")) {
+        const std::string v = trim(n->value);
+        if (!v.empty()) {
+          if (!marr_notes.empty()) marr_notes += "\n";
+          marr_notes += v;
+        }
+      }
       u.status = UnionStatus::Dissolved;
       add_loss(LossSeverity::Info, f.xref, "DIV",
                "离异事件无专属类型，已记为结合状态 + 结束日期");
     }
     if (f.note) u.note = f.note->value;
+    if (!marr_notes.empty()) {
+      u.note = u.note ? *u.note + "\n" + marr_notes : marr_notes;
+    }
     if (f.has_obje) {
       add_loss(LossSeverity::Warning, f.xref, "OBJE",
                "多媒体附件未建模（M1 无附件库），链接已丢失");
@@ -1432,6 +1603,16 @@ Result<ImportResult> import_gedcom(const GedcomDocument& doc,
     if (f.node != nullptr) {
       for (const auto* s : f.node->children_all("SOUR")) {
         citation_from_sour(*s, f.xref, CitationSubjectType::Union, u.id);
+      }
+      // FAM 记录级兜底（第五轮 P1-5）：未识别的一级子标签一律记账
+      static const std::unordered_set<std::string> kFamKnown = {
+          "HUSB", "WIFE", "_CONC", "CHIL", "MARR",
+          "DIV",  "NOTE", "SOUR",  "OBJE"};
+      for (const auto& c : f.node->children) {
+        if (kFamKnown.count(c.tag) == 0) {
+          add_loss(LossSeverity::Info, f.xref, c.tag,
+                   "未识别的结合记录子标签，已按损失记账");
+        }
       }
     }
     res.unions.push_back(std::move(u));
@@ -1508,6 +1689,9 @@ class LineWriter {
           first ? (255 - prefix.size()) : (255 - cont_prefix.size());
       std::size_t end = std::min(body.size(), start + avail);
       if (end < body.size()) end = utf8_back(body, end, start);
+      // 续字节卡死兜底（第五轮 P3-1）：切分点起全是续字节时 utf8_back
+      // 会退回 start，循环不前进——强制按字节前进，宁出坏行不挂死。
+      if (end <= start) end = std::min(body.size(), start + avail);
       out_ += (first ? prefix : cont_prefix) + body.substr(start, end - start) +
               "\n";
       start = end;
@@ -1515,11 +1699,19 @@ class LineWriter {
     }
   }
 
-  // 带可能含换行的文本值：首段作 value，其余段作 CONT
+  // 带可能含换行的文本值：首段作 value，其余段作 CONT。
+  // GEDCOM @ 转义（第五轮 P2-9）：值里的 @ 写作 @@，导入侧 split_line
+  // 对称解出。指针行（SOUR @S1@ 等）不走 text()，不受影响。
   void text(int level, const std::string& tag, const std::string& value) {
+    std::string esc;
+    esc.reserve(value.size());
+    for (const char c : value) {
+      esc += c;
+      if (c == '@') esc += '@';
+    }
     std::vector<std::string> segs;
     std::string cur;
-    for (const char c : value) {
+    for (const char c : esc) {
       if (c == '\n') {
         segs.push_back(cur);
         cur.clear();
@@ -1645,16 +1837,39 @@ std::string export_gedcom(const ExportOptions& opt) {
   if (opt.places) {
     for (const auto& p : *opt.places) place_names.emplace(p.id, p.name);
   }
+  std::unordered_map<std::string, const Place*> place_index;
+  if (opt.places) {
+    for (const auto& pl : *opt.places) place_index.emplace(pl.id, &pl);
+  }
   auto place_name = [&](const std::optional<std::string>& id) -> std::string {
     if (!id) return {};
-    auto it = place_names.find(*id);
-    if (it == place_names.end()) {
+    auto it = place_index.find(*id);
+    if (it == place_index.end()) {
       // 地点不在导出集内：PLAC 缺失，地点引用断链——记账
       export_loss(LossSeverity::Warning, "", "PLAC",
                   "地点 " + *id + " 不在导出集内，地名无法表达");
       return std::string{};
     }
-    return it->second;
+    return it->second->name;
+  };
+  // PLAC 行 + 可选 MAP 坐标（第五轮 P1-4：导入建档的经纬度此前导出
+  // 不写，往返必丢；GEDCOM 5.5.1 的 PLAC.MAP.LATI/LONG 正是承载位）。
+  auto write_plac = [&](int level, const std::optional<std::string>& id) {
+    const std::string n = place_name(id);
+    if (n.empty()) return;
+    w.text(level, "PLAC", n);
+    if (!id) return;
+    auto it = place_index.find(*id);
+    if (it == place_index.end()) return;
+    const Place& pl = *it->second;
+    if (pl.lat && pl.lng) {
+      char buf[64];
+      std::snprintf(buf, sizeof(buf), "%.6f", *pl.lat);
+      w.raw(level + 1, "MAP");
+      w.text(level + 2, "LATI", std::string(buf));
+      std::snprintf(buf, sizeof(buf), "%.6f", *pl.lng);
+      w.text(level + 2, "LONG", std::string(buf));
+    }
   };
 
   w.raw(0, "HEAD");
@@ -1677,8 +1892,8 @@ std::string export_gedcom(const ExportOptions& opt) {
   }
   w.raw(1, "CHAR UTF-8");
   w.raw(0, "@U1@ SUBM");
-  w.raw(1, "NAME " + (opt.submitter_name.empty() ? std::string("genealogy")
-                                                 : opt.submitter_name));
+  w.text(1, "NAME", opt.submitter_name.empty() ? std::string("genealogy")
+                                               : opt.submitter_name);
 
   // xref 分配：@I1@ / @F1@，按给定顺序，保证同一次导出内自洽
   std::unordered_map<std::string, std::string> person_xref;
@@ -1932,22 +2147,35 @@ std::string export_gedcom(const ExportOptions& opt) {
         }
       };
 
+  // mask/year：M8.3 脱敏出口（第五轮 P2-1）——此前 emit_facts 完全
+  // 不受 respect_privacy 约束，在世 Private 的住址/职业事件（含
+  // TYPE 描述里的 PII）明文外泄。mask 抹日期/地点/描述；year 缩年份。
   auto emit_facts = [&](int level, const std::vector<const Event*>* evs,
-                        EventType skip_type_a, EventType skip_type_b) {
+                        std::initializer_list<EventType> skips,
+                        bool mask_all = false, bool year_only_f = false) {
     if (evs == nullptr) return;
     for (const auto* e : *evs) {
-      if (e->type == skip_type_a || e->type == skip_type_b) continue;
-      w.raw(level, event_tag_of(e->type));
-      if (e->description && !e->description->empty()) {
-        w.raw(level + 1, "TYPE " + *e->description);
+      bool skip = false;
+      for (const EventType t : skips) {
+        if (e->type == t) { skip = true; break; }
       }
-      if (e->date && (e->date->gregorian || e->date->lunar)) {
-        const std::string dv = gedcom_date_value(*e->date);
+      if (skip) continue;
+      w.raw(level, event_tag_of(e->type));
+      if (!mask_all && e->description && !e->description->empty()) {
+        w.text(level + 1, "TYPE", *e->description);
+      }
+      if (!mask_all && e->date &&
+          (e->date->gregorian || e->date->lunar)) {
+        std::string dv = gedcom_date_value(*e->date);
+        if (year_only_f) {
+          const std::string g =
+              e->date->gregorian.value_or(std::string{});
+          dv = g.size() >= 4 ? g.substr(0, 4) : std::string{};
+        }
         if (!dv.empty()) w.text(level + 1, "DATE", dv);
       }
-      const std::string n = place_name(e->place_id);
-      if (!n.empty()) w.text(level + 1, "PLAC", n);
-      if (e->description && !e->description->empty() &&
+      if (!mask_all) write_plac(level + 1, e->place_id);
+      if (!mask_all && e->description && !e->description->empty() &&
           e->type == EventType::Annotation) {
         w.text(level + 1, "NOTE", *e->description);
       }
@@ -1970,19 +2198,38 @@ std::string export_gedcom(const ExportOptions& opt) {
       if (s.year_text) w.text(1, "PUBB", *s.year_text);
       if (s.citation_text) w.text(1, "TEXT", *s.citation_text);
       if (s.note) w.text(1, "NOTE", *s.note);
+      if (s.uri && !s.uri->empty()) {
+        export_loss(LossSeverity::Info, "", "SOUR",
+                    "来源 " + s.title + " 的 uri 无 GEDCOM 对应表达，未导出");
+      }
+    }
+  }
+  // 地点补充字段台账（第五轮 P1-4）：经纬度已随 PLAC.MAP 输出，
+  // 现代政区/沿革别名无 GEDCOM 槽位。
+  if (opt.places) {
+    for (const auto& pl : *opt.places) {
+      if ((pl.modern_admin && !pl.modern_admin->empty()) ||
+          (pl.historical_name && !pl.historical_name->empty())) {
+        export_loss(LossSeverity::Info, "", "PLAC",
+                    "地点 " + pl.name +
+                        " 的现代政区/沿革别名无 GEDCOM 对应表达，未导出");
+      }
     }
   }
 
   if (opt.persons) {
     for (const auto& p : *opt.persons) {
       w.raw(0, person_xref[p.id] + " INDI");
+      const bool alias_has_slash =
+          p.alias && p.alias->find('/') != std::string::npos;
       if (!p.family_name.empty() || !p.given_name.empty()) {
         w.text(1, "NAME",
                trim(p.given_name + " /" + p.family_name + "/" +
-                    (p.alias ? " " + *p.alias : std::string{})));
-        if (!p.given_name.empty()) w.raw(2, "GIVN " + p.given_name);
-        if (!p.family_name.empty()) w.raw(2, "SURN " + p.family_name);
-        if (p.alias && !p.alias->empty()) w.raw(2, "NSFX " + *p.alias);
+                    (p.alias && !alias_has_slash ? " " + *p.alias
+                                                 : std::string{})));
+        if (!p.given_name.empty()) w.text(2, "GIVN", p.given_name);
+        if (!p.family_name.empty()) w.text(2, "SURN", p.family_name);
+        if (p.alias && !p.alias->empty()) w.text(2, "NSFX", *p.alias);  // NSFX 全量保留,含含斜杠别名
       } else {
         w.text(1, "NAME", "（姓名缺失）");
       }
@@ -2001,9 +2248,11 @@ std::string export_gedcom(const ExportOptions& opt) {
       auto masked_date = [&](const GenealogyDate& d) -> std::string {
         const std::string dv = gedcom_date_value(d);
         if (dv.empty() || !year_only) return dv;
-        // 取公历年份前缀（"1901-05-04" → "1901"；"1901" 原样）
+        // 取公历年份前缀（"1901-05-04" → "1901"）。纯农历无年份可给
+        // ——不给日期（第五轮 P2-2）：完整农历原文会把 kin 级脱敏整个
+        // 绕过（"同治三年四月初四" 明文外泄），谱书/版式管线同口径。
         const std::string g = d.gregorian.value_or(std::string{});
-        return g.size() >= 4 ? g.substr(0, 4) : dv;
+        return g.size() >= 4 ? g.substr(0, 4) : std::string{};
       };
       const bool has_birth =
           p.birth_date.gregorian.has_value() || p.birth_date.lunar.has_value();
@@ -2013,8 +2262,7 @@ std::string export_gedcom(const ExportOptions& opt) {
         if (!dv.empty() && !mask_dates) w.text(2, "DATE", dv);
         else if (year_only && !dv.empty()) w.text(2, "DATE", dv);
         if (!mask_dates) {
-          const std::string n = place_name(p.birth_place_id);
-          if (!n.empty()) w.text(2, "PLAC", n);
+          write_plac(2, p.birth_place_id);
         }
         write_event_cites(2, events_of_person, p.id, EventType::Birth);
       }
@@ -2027,8 +2275,7 @@ std::string export_gedcom(const ExportOptions& opt) {
         if (!dv.empty() && !mask_dates) w.text(2, "DATE", dv);
         else if (year_only && !dv.empty()) w.text(2, "DATE", dv);
         if (!mask_dates) {
-          const std::string n = place_name(p.death_place_id);
-          if (!n.empty()) w.text(2, "PLAC", n);
+          write_plac(2, p.death_place_id);
         }
         write_event_cites(2, events_of_person, p.id, EventType::Death);
       } else if (p.is_living) {
@@ -2049,10 +2296,27 @@ std::string export_gedcom(const ExportOptions& opt) {
       // 无从区分——宁可不标，也不能把大片未知误标为已故。
       // 导入侧仍认 DEAT Y（第三方文件），见 handle_fact。
       const std::string burial = place_name(p.burial_place_id);
-      if (!burial.empty() && !mask_dates) {
+      const Event* burial_event = nullptr;
+      if (const auto* evs = lookup_ptr(events_of_person, p.id)) {
+        for (const Event* e : *evs) {
+          if (e->type == EventType::Burial) { burial_event = e; break; }
+        }
+      }
+      bool burial_emitted = false;
+      if ((!burial.empty() || burial_event != nullptr) && !mask_dates) {
+        // 葬期来自 Burial 事件（第五轮 P2-4）：此前手写 BURI 只带 PLAC，
+        // 事件里的葬期被 emit_facts 跳过后整体丢失，且两条 1 BURI 会被
+        // 第三方校验器判非法。
         w.raw(1, "BURI");
-        w.text(2, "PLAC", burial);
+        if (burial_event != nullptr && burial_event->date &&
+            (burial_event->date->gregorian ||
+             burial_event->date->lunar)) {
+          const std::string dv = gedcom_date_value(*burial_event->date);
+          if (!dv.empty()) w.text(2, "DATE", dv);
+        }
+        write_plac(2, p.burial_place_id);
         write_event_cites(2, events_of_person, p.id, EventType::Burial);
+        burial_emitted = true;
       }
       // M7.5：人物 citation 路由——已知字段级 locator（birth_date/
       // death_date/burial）落到对应事实行下（2 SOUR），其余作为记录级
@@ -2078,15 +2342,51 @@ std::string export_gedcom(const ExportOptions& opt) {
       if (show_notes && p.note && !p.note->empty()) {
         w.text(1, "NOTE", *p.note);
       }
-      emit_facts(1, lookup_ptr(events_of_person, p.id), EventType::Birth,
-                 EventType::Death);
+      // Burial 已并入手写 BURI 行（葬期），此处跳过避免双写
+      std::initializer_list<EventType> indi_skips = burial_emitted
+          ? std::initializer_list<EventType>{EventType::Birth,
+                                             EventType::Death,
+                                             EventType::Burial}
+          : std::initializer_list<EventType>{EventType::Birth,
+                                             EventType::Death};
+      emit_facts(1, lookup_ptr(events_of_person, p.id), indi_skips,
+                 mask_dates, year_only);
       for (const auto& f : lookup_vec(famc_of_person, p.id)) w.raw(1, "FAMC " + f);
       for (const auto& f : lookup_vec(fams_of_person, p.id)) w.raw(1, "FAMS " + f);
       if (!p.updated_at.empty()) {
         w.raw(1, "CHAN");
-        w.raw(2, "DATE " + iso_to_gedcom_datetime(p.updated_at));
+        w.text(2, "DATE", iso_to_gedcom_datetime(p.updated_at));
+      }
+      // 导出侧损失台账（第五轮 P1-4）：库里有、GEDCOM 无对应表达的
+      // 人物字段逐条记账，不再无声消失。
+      {
+        std::string dropped;
+        auto add_drop = [&](const char* what) {
+          if (!dropped.empty()) dropped += "/";
+          dropped += what;
+        };
+        if (p.courtesy_name && !p.courtesy_name->empty()) add_drop("字");
+        if (p.art_name && !p.art_name->empty()) add_drop("号");
+        if (p.posthumous_title && !p.posthumous_title->empty())
+          add_drop("谥号");
+        if (p.birth_order) add_drop("行第");
+        if (p.generation_no) add_drop("世代序号");
+        if (p.is_heir) add_drop("承重标记");
+        if (p.branch_id && !p.branch_id->empty()) add_drop("支派归属");
+        if (p.biography && !p.biography->empty()) add_drop("行传");
+        if (p.portrait_attachment_id && !p.portrait_attachment_id->empty())
+          add_drop("照片引用");
+        if (!dropped.empty()) {
+          export_loss(LossSeverity::Info, person_xref.at(p.id), "INDI",
+                      dropped + " 等字段 GEDCOM 无对应表达，未导出");
+        }
       }
     }
+  }
+
+  std::unordered_map<std::string, const Person*> person_index;
+  if (opt.persons) {
+    for (const auto& pp : *opt.persons) person_index.emplace(pp.id, &pp);
   }
 
   if (opt.unions) {
@@ -2107,15 +2407,49 @@ std::string export_gedcom(const ExportOptions& opt) {
                               : (m.role == MemberRole::Wife ? "WIFE" : "_CONC");
         w.raw(1, std::string(tag) + " " + it->second);
       }
+      // FAM 出口的脱敏（第五轮 P2-1）：成员中任一在世 Private → 抹
+      // 婚期/地点/备注；任一 Kin → 缩年份。此前 FAM 出口完全裸奔。
+      bool fam_mask = false;
+      bool fam_year = false;
+      for (const auto& m : u.members) {
+        auto pit = person_index.find(m.person_id);
+        if (pit == person_index.end()) continue;
+        const Person& mp = *pit->second;
+        if (!mp.is_living) continue;
+        if (mp.privacy == PrivacyLevel::Private) fam_mask = true;
+        else if (mp.privacy == PrivacyLevel::Kin) fam_year = true;
+      }
       const bool has_marr =
           u.start_date.has_value() &&
           (u.start_date->gregorian.has_value() || u.start_date->lunar.has_value());
-      if (has_marr) {
+      // 婚姻事件兜底（第五轮 P2-5）：字段缺日期但事件有完整 DATE/PLAC
+      // 时，此前事件被 emit_facts 跳过、字段又为空，婚姻整体静默蒸发。
+      const Event* marr_event = nullptr;
+      if (const auto* evs = lookup_ptr(events_of_union, u.id)) {
+        for (const Event* e : *evs) {
+          if (e->type == EventType::Marriage) { marr_event = e; break; }
+        }
+      }
+      if (has_marr || (!fam_mask && marr_event != nullptr)) {
         w.raw(1, "MARR");
-        const std::string dv = gedcom_date_value(*u.start_date);
-        if (!dv.empty()) w.text(2, "DATE", dv);
-        const std::string n = place_name(u.place_id);
-        if (!n.empty()) w.text(2, "PLAC", n);
+        if (!fam_mask) {
+          const GenealogyDate* src_date =
+              has_marr ? &*u.start_date
+                       : (marr_event && marr_event->date ? &*marr_event->date
+                                                         : nullptr);
+          if (src_date) {
+            std::string dv = gedcom_date_value(*src_date);
+            if (fam_year) {
+              const std::string g =
+                  src_date->gregorian.value_or(std::string{});
+              dv = g.size() >= 4 ? g.substr(0, 4) : std::string{};
+            }
+            if (!dv.empty()) w.text(2, "DATE", dv);
+          }
+          write_plac(2, u.place_id ? u.place_id
+                                   : (marr_event ? marr_event->place_id
+                                                 : std::nullopt));
+        }
         write_event_cites(2, events_of_union, u.id, EventType::Marriage);
       }
       if (u.status == UnionStatus::Dissolved) {
@@ -2125,7 +2459,8 @@ std::string export_gedcom(const ExportOptions& opt) {
           if (!dv.empty()) w.text(2, "DATE", dv);
         }
       }
-      if (u.note && !u.note->empty()) w.text(1, "NOTE", *u.note);
+      if (!fam_mask && u.note && !u.note->empty())
+        w.text(1, "NOTE", *u.note);
       // M7.5：Union 级 citation → FAM 下的 1 SOUR
       if (const auto it = union_cites.find(u.id); it != union_cites.end()) {
         for (const Citation* c : it->second) write_cite(1, *c);
@@ -2144,8 +2479,9 @@ std::string export_gedcom(const ExportOptions& opt) {
           }
         }
       }
-      emit_facts(1, lookup_ptr(events_of_union, u.id), EventType::Marriage,
-                 EventType::Annotation);
+      emit_facts(1, lookup_ptr(events_of_union, u.id),
+                 {EventType::Marriage, EventType::Annotation}, fam_mask,
+                 fam_year);
     }
 
     // 单亲合成 FAM：无婚姻语义，只有亲子女链。xref 用 SF 前缀与

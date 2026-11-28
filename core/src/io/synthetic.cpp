@@ -183,6 +183,9 @@ Result<SyntheticData> generate_synthetic(const SyntheticOptions& opt) {
 
     // 户主本体（第一代已在库，这里补卒年并取出性别）
     // 户主按 id 索引取（曾线性扫全部已生成人物，10 万规模 O(N²)）
+    int householder_death_pending_idx = -1;
+    int householder_death_base_year = 0;
+    int last_child_year = -1;
     Person* householder = nullptr;
     if (const auto it = person_index.find(head.father_id);
         it != person_index.end()) {
@@ -191,9 +194,13 @@ Result<SyntheticData> generate_synthetic(const SyntheticOptions& opt) {
     if (householder != nullptr && !householder->death_date) {
       const int fy = householder->birth_date.gregorian_year().value_or(
           opt.founder_year);
-      const int d = fy + 55 + rng.below(20);
-      householder->death_date =
-          GenealogyDate::from_iso(std::to_string(d)).value();
+      // 卒年推迟到子女生成后回填（第五轮 P3-15）：旧实现最低 35 岁而
+      // 幼子最晚 +39 年，会炸出「卒年后得子」的合成 R4。存下标而非
+      // 指针——子女 push 会令 vector 重分配。
+      householder_death_pending_idx =
+          static_cast<int>(person_index.at(head.father_id));
+      householder_death_base_year = fy;
+      last_child_year = -1;
     }
     // 户主性别决定配偶性别与结合角色：儿子娶妻、女儿招婿，都不产生
     // 同性结合。早先是「队首即丈夫、配偶一律女性」，女儿出队时就变成
@@ -246,6 +253,7 @@ Result<SyntheticData> generate_synthetic(const SyntheticOptions& opt) {
       if (out.persons.size() >= opt.persons) break;
       const int child_year =
           first_child_year + c * (2 + rng.below(3)) + rng.below(2);
+      last_child_year = std::max(last_child_year, child_year);
       const Gender g = rng.below(2) == 0 ? Gender::Male : Gender::Female;
       // 父母按户主性别定：儿子娶妻则户主是父亲，女儿招婿则户主是母亲。
       // 早先一律写 father_id = 户主，女儿立户时就造出「女性当父亲」的
@@ -273,6 +281,14 @@ Result<SyntheticData> generate_synthetic(const SyntheticOptions& opt) {
       // 只钻男系会让这项指标失去压力。
       queue.push_back({child.id, spouse.id, head.generation + 1, child_year,
                        spouse_year});
+    }
+    // 卒年回填：不早于幼子出生 +5 年（第五轮 P3-15）
+    if (householder_death_pending_idx >= 0) {
+      const int d = std::max(
+          householder_death_base_year + 55 + rng.below(20),
+          last_child_year + 5);
+      out.persons[static_cast<std::size_t>(householder_death_pending_idx)]
+          .death_date = GenealogyDate::from_iso(std::to_string(d)).value();
     }
   }
   return out;

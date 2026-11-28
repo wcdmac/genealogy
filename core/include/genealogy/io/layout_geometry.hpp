@@ -102,13 +102,10 @@ class TextCursor {
     const int cap = half_rows_per_column(g_);
     int delta = is_note ? 1 : 2;  // 半行数
     // 正文/其他样式必须偶对齐：前一夹注只占半格时，正文从下一格起
-    // （奇半行空置），避免与夹注同格叠印。
+    // （奇半行空置），避免与夹注同格叠印。奇半行必 ≤ cap-1（cap 恒
+    // 偶数），补一行不会越列；越列由下方通用检查兜住。
     if (!is_note && half_row_ % 2 != 0) {
-      if (half_row_ + 1 > cap) {
-        if (!next_column()) return false;
-      } else {
-        ++half_row_;
-      }
+      ++half_row_;
     }
     // 夹注成对：偶半行起一对（两字一格）；本列装不下这一对时，
     // 整对挪到下列，避免两字一格被拆列。奇半行是上一夹注的下半格，

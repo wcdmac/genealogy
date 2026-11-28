@@ -466,6 +466,12 @@ int cmd_person_tree(const std::vector<std::string>& args,
   const lineage::PersonGraph graph =
       lineage::PersonGraph::build(person_rows, union_rows);
 
+  // 深度下限（第五轮 P3-3）：core 侧 max_depth<=0 = 无界展开，深链数据下
+  // 有栈溢出风险（descendants_tree 为递归实现）。
+  if (const int d = r["depth"].as<int>(); d < 1) {
+    std::cerr << "用法错误: --depth 至少为 1" << "\n";
+    return 2;
+  }
   const auto t0 = std::chrono::steady_clock::now();
   const auto tree = lineage::descendants_tree(graph, r["id"].as<std::string>(),
                                               r["depth"].as<int>());
@@ -1151,6 +1157,10 @@ int run(std::vector<std::string> raw_args) {
 
 #if defined(_WIN32) && !defined(GENEA_NO_MAIN)
 int wmain(int argc, wchar_t* argv[]) {
+  // 输出码页（第五轮 P1-2）：输入侧 wmain 已转 UTF-8，但 stdout 在
+  // 中文系统默认 cp936 下按 GBK 解码 UTF-8 字节——所有中文输出乱码。
+  // 程序内部全 UTF-8，把控制台输出码页也切到 UTF-8。
+  SetConsoleOutputCP(CP_UTF8);
   std::vector<std::string> args;
   if (argc > 1) {
     args.reserve(static_cast<std::size_t>(argc - 1));

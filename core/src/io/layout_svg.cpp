@@ -1,3 +1,4 @@
+#include <cstring>
 #include <genealogy/io/layout_svg.hpp>
 
 #include <genealogy/io/layout_data.hpp>
@@ -262,7 +263,9 @@ Result<std::string> render_layout_page(const LayoutOptions& opt) {
   std::vector<TextCursor::Placement> em_marks;
 
   auto emit_char = [&](const std::string_view cp, const char* style) {
-    const bool note = std::string(style) == "note" || std::string(style) == "cont";
+    // strcmp 替代 string 构造（第五轮 P3-12）：万级字页每字符 3 次小分配
+    const bool note = std::strcmp(style, "note") == 0 ||
+                      std::strcmp(style, "cont") == 0;
     TextCursor::Placement p;
     if (!cursor.place(note, p)) return;  // 本页已满（分页器已保证不会发生）
     auto& col = columns[static_cast<std::size_t>(p.col)];

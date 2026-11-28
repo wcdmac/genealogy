@@ -84,8 +84,14 @@ Result<void> BulkLoader::step(sqlite3_stmt* st, const char* what) {
     return Error{ErrorCode::Internal, std::string("预备语句未就绪: ") + what};
   }
   if (sqlite3_step(st) != SQLITE_DONE) {
-    return Error{ErrorCode::Internal, std::string("灌库失败(") + what + "): " +
-                                           sqlite3_errmsg(db_.raw())};
+    // 失败也要 reset+clear_bindings：语句留在 SQLITE_ERROR 状态时，
+    // 后续同类型 add_* 的 bind 会连锁失败，错误面扩大（第四轮 P3）。
+    // 事务整体仍会回滚，这里只保证失败路径干净。
+    const std::string err = sqlite3_errmsg(db_.raw());
+    sqlite3_reset(st);
+    sqlite3_clear_bindings(st);
+    return Error{ErrorCode::Internal,
+                 std::string("灌库失败(") + what + "): " + err};
   }
   sqlite3_reset(st);
   return {};

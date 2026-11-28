@@ -90,15 +90,28 @@ Result<ProvenanceMigrationReport> migrate_note_provenance(
     // 新库 book 行为空（谱名尚未填写），SourceService 要求 title 非空；
     // 用稳定兜底名，待谱元数据登记后重跑可用 binding.title 覆盖。
     if (title.empty()) title = "本家家谱";
-    SourceFilter f;
-    f.title_contains = title;
-    f.limit = 200;
-    auto existing = sources.list_sources(f);
-    if (!existing) return existing.error();
-    const auto hit = std::find_if(
-        existing->begin(), existing->end(),
-        [&](const Source& s) { return s.title == title; });
-    if (hit != existing->end()) {
+    // 全量游标翻页查精确同名（第四轮 P3）：limit=200 时排在第 201 位起
+    // 的同名来源会被漏检，造成重复建档。
+    std::optional<std::string> cursor;
+    const Source* hit = nullptr;
+    for (;;) {
+      SourceFilter f;
+      f.title_contains = title;
+      f.limit = 200;
+      f.cursor = cursor;
+      auto existing = sources.list_sources(f);
+      if (!existing) return existing.error();
+      if (existing->empty()) break;
+      const auto it = std::find_if(
+          existing->begin(), existing->end(),
+          [&](const Source& s) { return s.title == title; });
+      if (it != existing->end()) {
+        hit = &*it;
+        break;
+      }
+      cursor = existing->back().id;
+    }
+    if (hit != nullptr) {
       ++report.sources_reused;
       source_id = hit->id;
       source_known = true;

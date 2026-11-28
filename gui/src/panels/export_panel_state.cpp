@@ -181,6 +181,12 @@ bool ExportPanel::write_file(const std::string& path,
     return false;
   }
   out << content;
+  // 写完检查流状态（第五轮 P3-8）：磁盘满时旧实现仍报"已导出"
+  out.flush();
+  if (!out.good()) {
+    *why = "写入未完成（磁盘满或 IO 错误）: " + path;
+    return false;
+  }
   return true;
 }
 

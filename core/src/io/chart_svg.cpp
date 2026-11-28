@@ -223,10 +223,16 @@ layout pedigree(const lineage::PersonGraph& g, const std::string& root,
     if (next.empty()) break;
     frontier = next;
   }
-  double minx = 0;
-  for (const auto& n : out.nodes) minx = std::min(minx, n.x);
-  if (minx < 0)
-    for (auto& n : out.nodes) n.x -= minx - kMargin;
+  // 逐代槽位重排（第五轮 P2-2）：固定 ±半格在 gen≥2 时让不同祖先
+  // 完全同格叠放（父之母与母之父同 x）。改为每代按发现顺序独占槽位，
+  // 同代的兄弟支自然相邻。
+  {
+    std::unordered_map<int, int> slots;
+    for (auto& n : out.nodes) {
+      const int slot = slots[n.gen]++;
+      n.x = kMargin + slot * (kNodeW + kGapX);
+    }
+  }
   return out;
 }
 
@@ -420,13 +426,36 @@ Result<ChartResult> render_chart_svg(const ChartOptions& opt) {
       auto down = descendants(g, opt.focus_id, std::min(opt.depth, 3),
                               opt.show_spouses, &warnings);
       for (auto& n : up.nodes) n.y = kMargin + n.gen * kGapY;
-      const int shift = static_cast<int>(up.nodes.size() ? 4 : 1);
+      // 下半场错位按上半场最深层+1（第五轮 P3：旧实现用节点数代替
+      // 世代数，祖先仅 1 代时同样空移 4 行）
+      int up_maxgen = 0;
+      for (const auto& n : up.nodes) up_maxgen = std::max(up_maxgen, n.gen);
+      const int shift = up.nodes.empty() ? 0 : up_maxgen + 1;
       for (auto& n : down.nodes) n.y += kMargin + shift * kGapY;
       l = up;
-      const std::size_t base = l.nodes.size();
-      for (const auto& n : down.nodes) l.nodes.push_back(n);
-      for (const auto& e : down.edges)
-        l.edges.emplace_back(e.first + base, e.second + base);
+      // 根节点只保留上半场一份（第五轮 P3：两场各自 add(root) 重盒），
+      // 下半场引用根的边重映射到上半场根的索引。
+      std::unordered_map<std::size_t, std::size_t> remap;
+      for (std::size_t di = 0; di < down.nodes.size(); ++di) {
+        if (down.nodes[di].person->id == opt.focus_id) {
+          for (std::size_t ui = 0; ui < up.nodes.size(); ++ui) {
+            if (up.nodes[ui].person->id == opt.focus_id) {
+              remap[di] = ui;
+              break;
+            }
+          }
+        } else {
+          remap[di] = l.nodes.size();
+          l.nodes.push_back(down.nodes[di]);
+        }
+      }
+      for (const auto& e : down.edges) {
+        const auto ia = remap.find(e.first);
+        const auto ib = remap.find(e.second);
+        if (ia != remap.end() && ib != remap.end()) {
+          l.edges.emplace_back(ia->second, ib->second);
+        }
+      }
       break;
     }
     case ChartStyle::Wufu: {
@@ -478,6 +507,14 @@ Result<ChartResult> render_chart_svg(const ChartOptions& opt) {
       paged.svg = paged.pages.empty() ? std::string() : paged.pages[0].svg;
       return paged;
     }
+  }
+
+  // 焦点不存在不再静默出空图（第五轮 P3-4）：descendants/pedigree
+  // 找不到焦点时返回空布局，与 wufu 的 NotFound 口径不一；空 SVG 让
+  // 用户以为没有族人而实际是 id 打错。
+  if (l.nodes.empty() && opt.style_hint != ChartStyle::Wufu) {
+    return Error{ErrorCode::NotFound,
+                 "世系图焦点人物不存在: " + opt.focus_id};
   }
 
   ChartResult out;

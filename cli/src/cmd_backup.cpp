@@ -153,6 +153,16 @@ int cmd_db_backup(const std::vector<std::string>& args,
     return 2;
   }
 
+  // 备份前校验库已存在（第五轮 P2-2）：open_db 带 CREATE 语义，拼错
+  // 路径会静默新建空库并"备份成功"，用户拿到一份没有谱的空快照。
+  {
+    std::error_code exists_ec;
+    if (!std::filesystem::exists(db_path, exists_ec) || exists_ec) {
+      std::cerr << "用法错误: 备份目标库不存在: " << db_path
+                << "\n（如需新建空库请用 genea db init）";
+      return 2;
+    }
+  }
   auto db = open_db(db_path);
   if (!db) {
     print_error(db.error());
@@ -363,6 +373,23 @@ int cmd_db_restore(const std::vector<std::string>& args,
       }
     }
     std::cout << "旧库已移开: " << moved_main.string() << "\n";
+  } else {
+    // 目标不存在也要清孤儿旁车（第五轮 P2-1）：主库被误删/崩溃后遗留的
+    // -wal/-shm 会在恢复出的新库首开时被重放，污染恢复结果——与上面
+    // 移开分支防的是同一个 H3 机制。
+    for (const auto& side :
+         {std::string(db_path) + "-wal", std::string(db_path) + "-shm"}) {
+      std::error_code ec2;
+      if (fs::exists(side, ec2)) {
+        fs::remove(side, ec2);
+        if (ec2) {
+          print_error(Error{ErrorCode::IoError,
+                            "清理孤儿旁车文件失败: " + ec2.message() +
+                                "（" + side + "），中止恢复以免污染"});
+          return 1;
+        }
+      }
+    }
   }
 
   fs::copy_file(snapshot, db_path, fs::copy_options::overwrite_existing, ec);

@@ -31,7 +31,11 @@ Result<PageLayout> paginate_content(const PageLayoutOptions& opt) {
   auto finalize_active = [&]() { has_active = false; active = 0; };
   auto flush = [&](bool next_continued) {
     finalize_active();
-    out.pages.push_back(cur);
+    // 空首页不落（第五轮 P3-8）：文首〔页〕标记会先 flush 一次空 cur，
+    // 产出没有内容的第 1 页。仅保留"全书无内容时的 1 页兜底"。
+    if (!cur.nodes.empty() || !out.pages.empty()) {
+      out.pages.push_back(cur);
+    }
     cur = LaidOutPage{};
     cur.continuation = next_continued;
     cursor.reset();

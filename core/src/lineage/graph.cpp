@@ -101,10 +101,24 @@ PersonGraph PersonGraph::build(std::vector<Person> persons,
             list.end()) {
           list.push_back(g.nodes_.at(other.person_id));
         }
+        auto& links = g.spouse_links_[m.person_id];
+        const bool seen = std::any_of(
+            links.begin(), links.end(),
+            [&](const SpouseLink& l) { return l.peer->id == other.person_id; });
+        if (!seen) {
+          links.push_back(SpouseLink{g.nodes_.at(other.person_id), other.role});
+        }
       }
     }
   }
   return g;
+}
+
+const std::vector<PersonGraph::SpouseLink>& PersonGraph::spouse_links_of(
+    const std::string& id) const {
+  static const std::vector<SpouseLink> kEmpty;
+  const auto it = spouse_links_.find(id);
+  return it != spouse_links_.end() ? it->second : kEmpty;
 }
 
 const Person* PersonGraph::find(const std::string& id) const {

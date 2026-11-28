@@ -154,7 +154,11 @@ bool PersonCardPanel::load(DbSession& session) {
   return true;
 }
 bool PersonCardPanel::save(DbSession& session) {
-  if (loaded_id_.empty()) return false;
+  if (loaded_id_.empty()) {
+    // 读取失败后的"保存"此前静默无效（第五轮 P3-6），给一句人话
+    state_.set_status("当前没有可保存的人物（读取失败或未载入）", true);
+    return false;
+  }
   auto cur = session.persons().get_person(loaded_id_);
   if (!cur) {
     state_.set_status("保存前读取失败: " + cur.error().message(), true);

@@ -15,6 +15,7 @@ enum class StepKind {
   Daughter,
   Husband,
   Wife,
+  Concubine,  // 妾步（第五轮 P1-1）：按 union_member.role 判定，非性别
   ElderBrother,
   YoungerBrother,
   ElderSister,

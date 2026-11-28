@@ -87,12 +87,14 @@ std::string base64(const std::string& in) {
 
 int generation_of(const Person& p) { return p.generation_no.value_or(0); }
 
-// M8.3 口径与 GEDCOM 导出一致（第四轮 P2-8）：respect_privacy 开启时，
-// 在世非公开人物抹日期（private）或缩到年份（kin）。kin 且无公历时
-// 回退完整农历值，与 gedcom_date_value 的回退行为保持一致。
+// M8.3 口径与 GEDCOM 导出一致（第四轮 P2-8，第五轮 P1-1 修正）：respect_privacy
+// 开启时，在世 Private 人物抹日期，Kin 缩到年份——此前判 != Public 把
+// Kin 也整段抹掉，year_only 永不可达，三条导出管线口径分裂。
+// Kin 无公历时回退完整农历（与 GEDCOM masked_date 回退一致）；农历串
+// 不做字节截断（"光绪廿六年" 截 4 字节会出残句）。
 bool privacy_mask_dates(const Person& p, const BookHtmlOptions& opt) {
   return opt.respect_privacy && p.is_living &&
-         p.privacy != PrivacyLevel::Public;
+         p.privacy == PrivacyLevel::Private;
 }
 
 bool privacy_year_only(const Person& p, const BookHtmlOptions& opt) {
@@ -103,19 +105,34 @@ bool privacy_year_only(const Person& p, const BookHtmlOptions& opt) {
 std::string life_span(const Person& p, const BookHtmlOptions& opt) {
   if (privacy_mask_dates(p, opt)) return "";
   const bool year = privacy_year_only(p, opt);
-  auto clip = [&](const std::string& v) {
-    return year && v.size() >= 4 ? v.substr(0, 4) : v;
+  auto clip = [&](const std::string& v, bool gregorian) {
+    if (!year) return v;
+    return gregorian && v.size() >= 4 ? v.substr(0, 4) : v;
   };
-  std::string s;
-  if (p.birth_date.gregorian) {
-    s = clip(*p.birth_date.gregorian);
-  } else if (p.birth_date.lunar) {
-    s = clip(*p.birth_date.lunar);
-  }
+  // 原文优先级（第五轮 P3-5）：gregorian → lunar → ganzhi → era，
+  // 带"约"等限定词前缀——此前 ganzhi/era-only 日期显示为空。
+  auto date_text = [&](const GenealogyDate& d) -> std::string {
+    std::string core;
+    if (d.gregorian) {
+      core = clip(*d.gregorian, true);
+    } else if (d.lunar) {
+      core = clip(*d.lunar, false);
+    } else if (d.ganzhi && !d.ganzhi->empty()) {
+      core = *d.ganzhi;
+    } else if (d.era && !d.era->name.empty()) {
+      core = d.era->name + (d.era->year > 0
+                                ? std::to_string(d.era->year) + "年"
+                                : std::string{});
+    }
+    if (core.empty()) return core;
+    return d.qualifier && !d.qualifier->empty() ? *d.qualifier + core : core;
+  };
+  std::string s = date_text(p.birth_date);
   if (p.death_date) {
-    const auto& d = *p.death_date;
-    if (d.gregorian || d.lunar) {
-      s += "—" + (d.gregorian ? clip(*d.gregorian) : clip(*d.lunar));
+    const std::string death = date_text(*p.death_date);
+    if (!death.empty()) {
+      s += "—";
+      s += death;
     }
   }
   return s;

@@ -40,6 +40,7 @@ class GenerationPoemService {
       PoemOwner owner, const std::string& owner_id, int poem_start = 1);
 
  private:
+  Database* db_;  // set_poem 两段写事务化（第五轮补口）需要直连
   GenerationPoemRepository poems_;
   BookRepository books_;
   BranchRepository branches_;

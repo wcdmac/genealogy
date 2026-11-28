@@ -150,6 +150,33 @@ Result<MergeResult> MergeService::merge(const std::string& winner_id,
     return Error{ErrorCode::Conflict,
                  "两人存在直系血缘，不可直接合并；请先解除亲子关系"};
 
+  // 同一结合的两位成员不可直接合并（第四轮 P3）：union_member 主键
+  // (union_id, person_id) 会让成员迁移 UPDATE 撞键，以 IoError+SQLite
+  // 原文冒出。先给出人话 409。
+  {
+    sqlite3_stmt* st = nullptr;
+    if (sqlite3_prepare_v2(
+            db_->raw(),
+            "SELECT COUNT(*) FROM union_member a JOIN union_member b"
+            " ON a.union_id=b.union_id WHERE a.person_id=?1 AND b.person_id=?2",
+            -1, &st, nullptr) != SQLITE_OK)
+      return Error{ErrorCode::IoError, "结合成员检查准备失败"};
+    sqlite3_bind_text(st, 1, winner_id.c_str(),
+                      static_cast<int>(winner_id.size()), SQLITE_TRANSIENT);
+    sqlite3_bind_text(st, 2, loser_id.c_str(),
+                      static_cast<int>(loser_id.size()), SQLITE_TRANSIENT);
+    const bool row = sqlite3_step(st) == SQLITE_ROW;
+    const long shared = row ? sqlite3_column_int64(st, 0) : -1;
+    const std::string err = row ? "" : sqlite3_errmsg(db_->raw());
+    sqlite3_finalize(st);
+    if (!row) return Error{ErrorCode::Internal, "结合成员检查失败: " + err};
+    if (shared > 0) {
+      return Error{ErrorCode::Conflict,
+                   "两人在同一结合中互为成员（如夫妻），不可直接合并；"
+                   "请先解除其中一方的结合成员身份"};
+    }
+  }
+
   MergeResult result;
   auto conflicts = inspect_conflicts(*winner, *loser);
   if (!conflicts) return conflicts.error();

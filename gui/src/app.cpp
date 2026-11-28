@@ -2,6 +2,8 @@
 
 #include <genealogy/gui/db_switch.hpp>
 
+#include <cstring>
+
 #include <imgui.h>
 #include <imgui_impl_glfw.h>
 #include <imgui_impl_opengl3.h>
@@ -78,6 +80,16 @@ GenealogyApp::GenealogyApp(AppOptions options)
   };
 }
 
+namespace {
+Panel* find_panel_by_title(std::vector<std::unique_ptr<Panel>>& panels,
+                           const char* title) {
+  for (auto& p : panels) {
+    if (std::strcmp(p->title(), title) == 0) return p.get();
+  }
+  return nullptr;
+}
+}  // namespace
+
 void GenealogyApp::build_panels() {
   panels_.push_back(std::make_unique<PersonCardPanel>(state_));
   panels_.push_back(std::make_unique<NewPersonPanel>(state_));
@@ -105,7 +117,7 @@ void GenealogyApp::draw_menu_bar() {
       show_open_dialog_ = true;
     }
     if (ImGui::MenuItem("新建人物…", "Ctrl+N")) {
-      if (session_.is_open() && panels_.size() > 1) panels_[1]->open = true;
+      if (auto* np = find_panel_by_title(panels_, "新建人物")) np->open = true;
       else state_.set_status("请先打开数据库", true);
     }
     if (ImGui::MenuItem("关闭数据库")) {
@@ -156,7 +168,7 @@ void GenealogyApp::draw_menu_bar() {
   }
   if (io.KeyCtrl && ImGui::IsKeyPressed(ImGuiKey_N, false) &&
       session_.is_open() && panels_.size() > 1) {
-    panels_[1]->open = true;
+    if (auto* np = find_panel_by_title(panels_, "新建人物")) np->open = true;
   }
 }
 
@@ -281,7 +293,7 @@ bool GenealogyApp::run(std::string* err) {
     draw_menu_bar();
     // 关系快捷：人物卡按钮设置待建关系 → 自动打开新建面板
     if (!state_.new_relation_kind.empty() && panels_.size() > 1)
-      panels_[1]->open = true;
+      if (auto* np = find_panel_by_title(panels_, "新建人物")) np->open = true;
     for (auto& p : panels_) {
       if (!p->open) continue;
       if (ImGui::Begin(p->title(), &p->open)) {

@@ -121,7 +121,10 @@ Result<MourningDegree> compute_mourning_degree(const PersonGraph& g,
   deg.rule_id = "fallback";
   deg.ruleset = q.ruleset;
   deg.from_fallback = true;
-  if (rel.via_marriage && bd.up == 0 && bd.down == 0) {
+  // 姻亲兜底（第五轮 P2-6）：凡经婚姻步且规则表未收录者一律无服。
+  // 此前血亲段继续走 max(up,down) 推缌麻——亲家（S.W.F 等）会被推出
+  // 毫无依据的缌麻；岳父母等有明确条目者走不到兜底，不受影响。
+  if (rel.via_marriage) {
     deg.grade = MourningGrade::WuFu;
     deg.garment_name = "无服";
     deg.period = "无";
@@ -129,7 +132,19 @@ Result<MourningDegree> compute_mourning_degree(const PersonGraph& g,
     deg.basis = "姻亲（规则表未收录，按无服）";
     return deg;
   }
+  // 血亲兜底（第五轮 P2-6）：保留 max(up,down) 梯度——族兄弟快照
+  // （F.F.F.B.S.S，max=3→缌麻）与传世服叙一致，sum 梯度反而错等；
+  // 仅修正 depth==0 的兄弟姊妹档（旧算法给缌麻，应为期年）。兜底
+  // 本就是近似，权威以规则表为准。
   const int depth = std::max(bd.up, bd.down);
+  if (depth == 0) {
+    deg.grade = MourningGrade::QiCuiBuZhang;
+    deg.garment_name = "齐衰不杖期";
+    deg.period = "一年";
+    deg.period_months = 12;
+    deg.basis = "同父母平辈（规则表未收录，兜底推断）";
+    return deg;
+  }
   if (depth <= 4) {
     deg.grade = MourningGrade::SiMa;
     deg.garment_name = "缌麻";

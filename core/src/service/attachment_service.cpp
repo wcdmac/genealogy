@@ -6,6 +6,7 @@
 
 #include <sqlite3.h>
 
+#include <algorithm>
 #include <filesystem>
 #include <fstream>
 #include <system_error>
@@ -40,6 +41,27 @@ fs::path AttachmentService::attachments_dir() const {
   return fs::path("attachments");
 }
 
+// 常见格式的粗 MIME 映射；未识别扩展名一律 octet-stream（渲染端按
+// magic bytes 兜底判别,这里只影响导出描述）。
+std::string mime_for(const std::string& filename) {
+  const auto dot = filename.rfind('.');
+  if (dot == std::string::npos) return "application/octet-stream";
+  const std::string ext = filename.substr(dot + 1);
+  auto ieq = [&](const char* e) {
+    return _stricmp(ext.c_str(), e) == 0;
+  };
+  if (ieq("jpg") || ieq("jpeg")) return "image/jpeg";
+  if (ieq("png")) return "image/png";
+  if (ieq("gif")) return "image/gif";
+  if (ieq("webp")) return "image/webp";
+  if (ieq("bmp")) return "image/bmp";
+  if (ieq("pdf")) return "application/pdf";
+  if (ieq("txt")) return "text/plain";
+  if (ieq("html") || ieq("htm")) return "text/html";
+  if (ieq("svg")) return "image/svg+xml";
+  return "application/octet-stream";
+}
+
 fs::path AttachmentService::content_path(const std::string& sha) const {
   // sha 必须是 64 位小写十六进制（sha256_hex 的输出）；否则拒绝拼接
   // 路径，防将来外部传入 "../../etc/passwd" 形成目录穿越。
@@ -71,17 +93,12 @@ Result<Attachment> AttachmentService::import_file(
   if (ec)
     return Error{ErrorCode::IoError, "建附件目录失败: " + ec.message()};
   const fs::path dest = dir / sha;
-  if (!fs::exists(dest, ec)) {
-    fs::copy_file(source, dest, fs::copy_options::overwrite_existing, ec);
-    if (ec)
-      return Error{ErrorCode::IoError, "复制附件失败: " + ec.message()};
-  }
 
   Attachment a;
   a.id = generate_ulid();
   a.kind = kind;
   a.filename = source.filename().string();
-  a.mime = "application/octet-stream";
+  a.mime = mime_for(source.filename().string());
   a.sha256 = sha;
   const auto size = fs::file_size(source, ec);
   if (ec)
@@ -112,6 +129,23 @@ Result<Attachment> AttachmentService::import_file(
   const std::string err = done ? "" : sqlite3_errmsg(db_->raw());
   sqlite3_finalize(st);
   if (!done) return Error{ErrorCode::Internal, "附件登记失败: " + err};
+
+  // 行登记成功后才落内容文件（第四轮 P3）：旧顺序在行插入失败时留下
+  // 永不回收的孤儿文件。内容寻址 + 先查后写，重复导入天然幂等；万一
+  // 复制失败回滚行删除，不留半截登记。
+  if (!fs::exists(dest, ec)) {
+    fs::copy_file(source, dest, fs::copy_options::overwrite_existing, ec);
+    if (ec) {
+      sqlite3_stmt* st2 = nullptr;
+      if (sqlite3_prepare_v2(db_->raw(), "DELETE FROM attachment WHERE id=?",
+                             -1, &st2, nullptr) == SQLITE_OK) {
+        sqlite3_bind_text(st2, 1, a.id.c_str(), -1, SQLITE_TRANSIENT);
+        sqlite3_step(st2);
+        sqlite3_finalize(st2);
+      }
+      return Error{ErrorCode::IoError, "复制附件失败: " + ec.message()};
+    }
+  }
   return a;
 }
 
@@ -189,7 +223,7 @@ Result<Attachment> AttachmentService::get(const std::string& id) const {
   return a;
 }
 
-Result<long> AttachmentService::remove_subject_attachments(
+Result<std::vector<std::string>> AttachmentService::remove_subject_attachments(
     const std::string& subject_type, const std::string& subject_id) {
   // person 删除级联：先清本人的头像引用（本人即将删除，链接必然消失；
   // 其他人物对这些附件的引用仍被下面的预检拦截），再逐行删除并回收文件。
@@ -275,23 +309,35 @@ Result<long> AttachmentService::remove_subject_attachments(
     sqlite3_finalize(st);
     if (!done) return Error{ErrorCode::Internal, "删除附件失败: " + err};
   }
-  // 内容文件回收：sha 不再被任何行引用才删（文件删除失败不影响行删除）
+  // 待回收 sha 清单（去重）：调用方事务提交后经 reclaim_content_files
+  // 删除——文件删除不随事务回滚，不能发生在提交之前。
+  std::vector<std::string> reclaim;
   for (const auto& [att_id, sha] : rows) {
+    if (std::find(reclaim.begin(), reclaim.end(), sha) == reclaim.end()) {
+      reclaim.push_back(sha);
+    }
+  }
+  return reclaim;
+}
+
+void AttachmentService::reclaim_content_files(
+    const std::vector<std::string>& shas) const {
+  for (const auto& sha : shas) {
     sqlite3_stmt* st = nullptr;
     if (sqlite3_prepare_v2(db_->raw(),
                            "SELECT COUNT(*) FROM attachment WHERE sha256=?1",
-                           -1, &st, nullptr) == SQLITE_OK) {
-      sqlite3_bind_text(st, 1, sha.c_str(), static_cast<int>(sha.size()),
-                        SQLITE_TRANSIENT);
-      if (sqlite3_step(st) == SQLITE_ROW &&
-          sqlite3_column_int64(st, 0) == 0) {
-        std::error_code ec;
-        std::filesystem::remove(content_path(sha), ec);
-      }
-      sqlite3_finalize(st);
+                           -1, &st, nullptr) != SQLITE_OK) {
+      continue;
     }
+    sqlite3_bind_text(st, 1, sha.c_str(), static_cast<int>(sha.size()),
+                      SQLITE_TRANSIENT);
+    if (sqlite3_step(st) == SQLITE_ROW &&
+        sqlite3_column_int64(st, 0) == 0) {
+      std::error_code ec;
+      std::filesystem::remove(content_path(sha), ec);
+    }
+    sqlite3_finalize(st);
   }
-  return static_cast<long>(rows.size());
 }
 
 Result<void> AttachmentService::remove(const std::string& id) {

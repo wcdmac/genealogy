@@ -2,6 +2,7 @@
 
 #include <algorithm>
 #include <deque>
+#include <unordered_set>
 #include <unordered_map>
 
 namespace genealogy::lineage {
@@ -78,6 +79,36 @@ Result<int> generation_no_gap(const PersonGraph& g, const std::string& ego,
   const auto a = gens.find(alter);
   if (e == gens.end() || a == gens.end()) {
     return Error{ErrorCode::Internal, "无法从始祖推算世代（疑关系环或断代）"};
+  }
+  // 跨连通分量拒绝比较（第五轮 P2-7）：两棵互不相干的树各自从第 1 世
+  // 起算，直接相减会把陌生人读成「同辈」。沿父母/子女边查可达性。
+  {
+    std::unordered_set<std::string> visited{ego};
+    std::vector<std::string> frontier{ego};
+    const int kMaxHops = 100000;
+    for (int hops = 0; !frontier.empty() && hops < kMaxHops; ++hops) {
+      const std::string cur = frontier.back();
+      frontier.pop_back();
+      if (cur == alter) break;
+      if (const auto* f = g.father_of(cur)) {
+        if (visited.insert(f->id).second) frontier.push_back(f->id);
+      }
+      if (const auto* m = g.mother_of(cur)) {
+        if (visited.insert(m->id).second) frontier.push_back(m->id);
+      }
+      // 配偶边也算连通（第五轮 B9 修正）：姻亲辈分差本就依赖配偶步
+      // （妻→公公），只走父母/子女边会把合法姻亲误判成跨支。
+      for (const auto* sp : g.spouses_of(cur)) {
+        if (visited.insert(sp->id).second) frontier.push_back(sp->id);
+      }
+      for (const auto* next : g.children_of(cur)) {
+        if (visited.insert(next->id).second) frontier.push_back(next->id);
+      }
+    }
+    if (!visited.count(alter)) {
+      return Error{ErrorCode::InvalidArgument,
+                   "两人分属不同宗族分支（谱面无连通路径），世代序号不可比"};
+    }
   }
   return a->second - e->second;
 }

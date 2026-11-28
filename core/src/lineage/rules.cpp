@@ -190,8 +190,13 @@ std::vector<std::string> key_variants(const std::string& key) {
     start = dot + 1;
   }
   std::vector<std::size_t> wild;
+  std::vector<std::size_t> marked;
   for (std::size_t i = 0; i < tokens.size(); ++i) {
     if (tokens[i] == "B" || tokens[i] == "Z") wild.push_back(i);
+    if (tokens[i].size() > 1 &&
+        (tokens[i].back() == '+' || tokens[i].back() == '-')) {
+      marked.push_back(i);
+    }
   }
   if (wild.empty() || wild.size() > 3) return out;  // 组合上限 2^3
   for (std::size_t mask = 0; mask < (std::size_t{1} << wild.size()); ++mask) {
@@ -206,6 +211,34 @@ std::vector<std::string> key_variants(const std::string& key) {
       joined += t[i];
     }
     out.push_back(joined);
+  }
+  // 去标记回退（第五轮 P2-3）：长幼可判定时 sibling 步恒带 ±（如
+  // F.Z+.H），而 JSON 只有裸 F.Z.H 条目——此前 variants 不展开已标记
+  // 段，规则永不命中，姑父/姨父全部退化为兜底组合描述。同一服等两侧
+  // 相同，去标记回退安全。
+  for (std::size_t m = 0; m < marked.size() && m < 3; ++m) {
+    std::vector<std::string> t = tokens;
+    for (std::size_t k = 0; k < marked.size(); ++k) {
+      if (k != m && !t[marked[k]].empty() &&
+          (t[marked[k]].back() == '+' || t[marked[k]].back() == '-')) {
+        continue;
+      }
+      if (m == k) {
+        std::string seg = t[marked[k]];
+        if (!seg.empty() && (seg.back() == '+' || seg.back() == '-')) {
+          seg.pop_back();
+          t[marked[k]] = seg;
+        }
+      }
+    }
+    std::string joined;
+    for (std::size_t i = 0; i < t.size(); ++i) {
+      if (i > 0) joined += '.';
+      joined += t[i];
+    }
+    if (std::find(out.begin(), out.end(), joined) == out.end()) {
+      out.push_back(joined);
+    }
   }
   return out;
 }

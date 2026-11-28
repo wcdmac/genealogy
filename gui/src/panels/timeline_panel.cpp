@@ -21,9 +21,15 @@ void TimelinePanel::draw(DbSession& session) {
   // 每库装载一次：空库时双列表恒空，旧行为每帧 60fps 连环查询（第四轮 P2）
   if (!loaded_ || loaded_db_ != state_.db_path) {
     std::string why;
-    if (!reload(session, &why)) state_.set_status("时间线读取失败: " + why, true);
-    loaded_ = true;
-    loaded_db_ = state_.db_path;
+    if (reload(session, &why)) {
+      loaded_ = true;
+      loaded_db_ = state_.db_path;
+    } else if (loaded_db_ != state_.db_path) {
+      // 失败不固化 loaded_（第五轮 P3）：瞬时 BUSY 后空列表可自愈；
+      // loaded_db_ 已更新故每库只报一次错，不逐帧刷状态栏
+      state_.set_status("时间线读取失败: " + why, true);
+      loaded_db_ = state_.db_path;
+    }
   }
 
   ImGui::SetNextItemWidth(120);
@@ -31,7 +37,11 @@ void TimelinePanel::draw(DbSession& session) {
   if (ImGui::Combo("事件类型", &filter, kTypeNames, 11)) {
     type_filter_ = filter;
     std::string why;
-    reload(session, &why);
+    // 失败显式提示（第五轮 P3-12）：旧实现忽略返回值，失败时旧数据
+    // 与新筛选标签并存
+    if (!reload(session, &why)) {
+      state_.set_status("时间线读取失败: " + why, true);
+    }
   }
   ImGui::SameLine();
   if (ImGui::Button("刷新")) {

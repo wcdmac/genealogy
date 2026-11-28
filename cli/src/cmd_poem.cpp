@@ -130,6 +130,11 @@ int cmd_poem(const std::vector<std::string>& args, const std::string& db_path,
 
   if (sub == "check") {
     const int start = r["start"].as<int>();
+    // 范围守卫（第五轮 P3-10）：负数/超大值会让 expected 计算满屏假冲突
+    if (start < 1) {
+      std::cerr << "用法错误: --start 至少为 1" << "\n";
+      return 2;
+    }
     const auto conflicts =
         svc.check_consistency(owner, owner_id, start);
     if (!conflicts) {

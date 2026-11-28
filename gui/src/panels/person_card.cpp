@@ -130,7 +130,13 @@ void PersonCardPanel::draw(DbSession& session) {
   }
   ImGui::SameLine();
   if (ImGui::Button("重新载入")) {
-    load(session);
+    // dirty 时不再静默丢弃缓冲（第五轮 P3）：与跨面板切换同一纪律
+    if (dirty_) {
+      state_.set_status("有未保存修改——先保存，或放弃修改后再重新载入",
+                        true);
+    } else {
+      load(session);
+    }
   }
   ImGui::SameLine();
   ImGui::Text("rev=%d", loaded_rev_);

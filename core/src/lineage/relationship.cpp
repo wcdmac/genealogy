@@ -116,12 +116,16 @@ Relationship find_relationship(const PersonGraph& g, const std::string& ego,
       path.push_back(Step{kind, s, known});
       push(s, next_depth, std::move(path));
     }
-    for (const Person* sp : g.spouses_of(cur.node->id)) {
+    // 配偶步按对方在结合中的角色判定（第五轮 P1-1）：妾此前被性别
+    // 推导成 Wife，以「妻」的称谓与服等输出（以规则表背书的错误）。
+    for (const PersonGraph::SpouseLink& sl : g.spouse_links_of(cur.node->id)) {
+      const StepKind kind =
+          sl.role == MemberRole::Concubine ? StepKind::Concubine
+              : sl.role == MemberRole::Wife ? StepKind::Wife
+                                            : StepKind::Husband;
       auto path = cur.path;
-      path.push_back(Step{sp->gender == Gender::Male ? StepKind::Husband
-                                                     : StepKind::Wife,
-                          sp, false});
-      push(sp, next_depth, std::move(path));
+      path.push_back(Step{kind, sl.peer, false});
+      push(sl.peer, next_depth, std::move(path));
     }
   }
 
@@ -141,6 +145,7 @@ Relationship find_relationship(const PersonGraph& g, const std::string& ego,
         break;
       case StepKind::Husband:
       case StepKind::Wife:
+      case StepKind::Concubine:
         rel.via_marriage = true;
         break;
       default:
@@ -161,6 +166,7 @@ const char* step_letter(StepKind kind) {
     case StepKind::Daughter: return "D";
     case StepKind::Husband: return "H";
     case StepKind::Wife: return "W";
+    case StepKind::Concubine: return "Q";
     case StepKind::ElderBrother: return "B+";
     case StepKind::YoungerBrother: return "B-";
     case StepKind::ElderSister: return "Z+";
@@ -238,6 +244,7 @@ std::string relationship_description(const Relationship& rel) {
       case StepKind::Daughter: out += "女"; break;
       case StepKind::Husband: out += "夫"; break;
       case StepKind::Wife: out += "妻"; break;
+      case StepKind::Concubine: out += "妾"; break;
       case StepKind::ElderBrother: out += "兄"; break;
       case StepKind::YoungerBrother: out += "弟"; break;
       case StepKind::ElderSister: out += "姊"; break;

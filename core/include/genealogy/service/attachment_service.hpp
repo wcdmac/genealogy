@@ -37,12 +37,16 @@ class AttachmentService {
   Result<Attachment> get(const std::string& id) const;
   Result<void> remove(const std::string& id);
 
-  // 级联删除某主体的全部附件（行 + 不再被引用的内容文件）。person 删除
-  // 路径专用：subject_type=="person" 时先清掉本人的头像引用（否则被自己的
-  // 头像引用挡住）；其他人物引用这些附件作头像时仍以 409 拒绝（FK 会拦，
-  // 这里给出人话）。返回删除的行数。
-  Result<long> remove_subject_attachments(const std::string& subject_type,
-                                          const std::string& subject_id);
+  // 级联删除某主体的全部附件行。person 删除路径专用：subject_type==
+  // "person" 时先清掉本人的头像引用（否则被自己的头像引用挡住）；其他
+  // 人物引用这些附件作头像时仍以 409 拒绝（FK 会拦，这里给出人话）。
+  // 返回待回收的内容文件 sha 清单——调用方事务提交后再交给
+  // reclaim_content_files() 删除（第五轮 P2-1：文件删除不可随事务回滚，
+  // 提交前删文件会在回滚时留下「行在文件无」的幽灵）。
+  Result<std::vector<std::string>> remove_subject_attachments(
+      const std::string& subject_type, const std::string& subject_id);
+  // 回收不再被任何附件行引用的内容文件（尽力而为，失败不影响数据）。
+  void reclaim_content_files(const std::vector<std::string>& shas) const;
 
   // 附件内容实际路径（不存在则空）
   std::filesystem::path content_path(const std::string& sha256) const;

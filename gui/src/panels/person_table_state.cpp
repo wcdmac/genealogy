@@ -7,6 +7,12 @@
 namespace genealogy::gui {
 
 bool PersonTablePanel::begin_edit(const std::string& id, std::string* why) {
+  // 已在编辑另一行时拒绝静默覆写缓冲（第五轮 P3-3）：A 行未保存编辑
+  // 会被 B 行直接覆盖丢失。先保存或取消当前行。
+  if (editing() && id != edit_id_) {
+    *why = "已有行在编辑中，请先保存或取消";
+    return false;
+  }
   // 只在当前载入的 rows_ 中找——避免凭空 id 触发数据库查询
   const TableRow* found = nullptr;
   for (const auto& r : rows_)
